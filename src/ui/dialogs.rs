@@ -208,7 +208,7 @@ impl RustWarden {
         let path = if std::fs::write(&beside, ABOUT_PNG).is_ok() {
             beside
         } else {
-            let dir = std::path::PathBuf::from(std::env::var("LOCALAPPDATA").map_err(|e| e.to_string())?).join("RustyWire");
+            let dir = std::path::PathBuf::from(std::env::var("LOCALAPPDATA").map_err(|e| e.to_string())?).join("RustWarden");
             std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
             std::fs::write(dir.join("wallpaper.png"), ABOUT_PNG).map_err(|e| e.to_string())?;
             dir.join("wallpaper.png")
@@ -1222,7 +1222,7 @@ fn changelog(ui: &mut Ui, notes: &str) {
 /// Master/detail editor: pick an alert at the left, set its switch, desktop popup and level at the right.
 fn alert_settings(ui: &mut Ui, s: &mut Settings) {
     group(ui, "", |c| {
-        c.row("Send alerts to the Windows event log", "Application log, source \"RustyWire\".", |ui| {
+        c.row("Send alerts to the Windows event log", "Application log, source \"RustWarden\".", |ui| {
             crate::widgets::small_toggle(ui, &mut s.event_log);
         });
         c.enable(crate::sys::is_elevated());
@@ -1502,7 +1502,7 @@ fn driver_rows(c: &mut crate::ui::fluent::Card, out: &mut Outcome) {
         if ui.add_enabled(elevated && !ready, egui::Button::new("Download and install…")).clicked() {
             *out = Outcome::Then(Confirm {
                 title: "Download the driver?".into(),
-                body: "RustWarden will download WinDivert from github.com and keep it in Program Files\\RustyWire\\driver. Microsoft Defender sometimes flags WinDivert, because some cheat tools use it, so RustWarden first adds a Defender exclusion for that folder only (removed again when you remove the driver).".into(),
+                body: "RustWarden will download WinDivert from github.com and keep it in Program Files\\RustWarden\\driver. Microsoft Defender sometimes flags WinDivert, because some cheat tools use it, so RustWarden first adds a Defender exclusion for that folder only (removed again when you remove the driver).".into(),
                 yes: "Allow and install".into(),
                 action: ConfirmAction::InstallDriver,
             });
@@ -2139,11 +2139,11 @@ fn firewall_section(ui: &mut Ui, s: &mut Settings, live: bool, profiles: &(Vec<S
             });
         });
         group(ui, "", |c| {
-            c.row("Restore firewall defaults", "Deletes every Windows Firewall rule that RustWarden created (the \"RustyWire\" group) and nothing else.", |ui| {
+            c.row("Restore firewall defaults", "Deletes every Windows Firewall rule that RustWarden created (the \"RustWarden\" group) and nothing else.", |ui| {
                 if ui.button("Restore…").clicked() {
                     *out = Outcome::Then(Confirm {
                         title: "Restore firewall defaults?".into(),
-                        body: "This deletes every Windows Firewall rule that RustWarden created (the \"RustyWire\" group) and nothing else.".into(),
+                        body: "This deletes every Windows Firewall rule that RustWarden created (the \"RustWarden\" group) and nothing else.".into(),
                         yes: "Remove RustWarden rules".into(),
                         action: ConfirmAction::RestoreDefaults,
                     });
@@ -2540,7 +2540,7 @@ pub fn profile_confirm(from: &str, to: &str, create: bool) -> Confirm {
     Confirm {
         title: if create { format!("Create ruleset \"{to}\"?") } else { format!("Switch to ruleset \"{to}\"?") },
         body: format!(
-            "The rules of \"{from}\" are switched off and kept in Windows Firewall (group \"RustyWire saved profiles\"); nothing is deleted, and switching back restores them. {what}
+            "The rules of \"{from}\" are switched off and kept in Windows Firewall (group \"RustWarden saved profiles\"); nothing is deleted, and switching back restores them. {what}
 
 Block All and Prompt are turned off by this."
         ),

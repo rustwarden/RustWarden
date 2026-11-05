@@ -1,4 +1,4 @@
-//! `rustywire --verify-alert-log`: checks the alert log's hash chain from a terminal, with no window.
+//! `rustwarden --verify-alert-log`: checks the alert log's hash chain from a terminal, with no window.
 //! Exit codes: 0 intact, 1 an entry was edited or removed, 2 the log could not be read.
 
 use crate::live::db::Db;

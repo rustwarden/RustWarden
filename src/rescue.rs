@@ -1,4 +1,4 @@
-//! `rustywire --remove-all-rules`: removes every Windows Firewall rule RustWarden owns, with no window
+//! `rustwarden --remove-all-rules`: removes every Windows Firewall rule RustWarden owns, with no window
 //! and no single-instance check, so a scheduled task can undo a block that has gone wrong.
 //! Exit codes: 0 done, 1 some rules could not be removed, 2 not elevated (nothing was changed).
 

@@ -334,8 +334,8 @@ mod tests {
         assert_eq!(id_of(&s.name), Some(7));
         assert!(s.name.starts_with(DEST_PREFIX) && s.block && s.outbound && s.grouping == GROUP);
         assert!(super::super::firewall::is_ours(&s.grouping, &s.name));
-        assert_eq!(id_of("RustyWire threat out 1.2.3.4"), None);
-        assert_eq!(id_of("RustyWire dest x out 0 00"), None);
+        assert_eq!(id_of("RustWarden threat out 1.2.3.4"), None);
+        assert_eq!(id_of("RustWarden dest x out 0 00"), None);
     }
 
     #[test]

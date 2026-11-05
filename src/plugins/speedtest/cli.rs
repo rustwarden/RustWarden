@@ -178,7 +178,7 @@ mod tests {
 
     #[test]
     fn adopts_only_a_genuine_copy() {
-        let root = std::env::temp_dir().join(format!("rustywire-speedtest-test-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("rustwarden-speedtest-test-{}", std::process::id()));
         let (from, to) = (root.join("from.exe"), root.join("to"));
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(&from, b"program").unwrap();

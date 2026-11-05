@@ -1,7 +1,7 @@
 //! User settings and the on-disk config (`%APPDATA%\RustWarden\config.toml`).
 //!
 //! The mode is stored here too, so the app reopens in whatever the user last chose.
-//! `RUSTYWIRE_MODE=demo|live` overrides it for one run without touching the file.
+//! `RUSTWARDEN_MODE=demo|live` overrides it for one run without touching the file.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -378,7 +378,7 @@ pub struct PendingBlock {
 #[serde(default)]
 pub struct Settings {
     pub mode: Mode,
-    /// `(env override, mode in the file)` while `RUSTYWIRE_MODE` is in force, so `save` keeps the file's own mode.
+    /// `(env override, mode in the file)` while `RUSTWARDEN_MODE` is in force, so `save` keeps the file's own mode.
     #[serde(skip)]
     env_mode: Option<(Mode, Mode)>,
     /// Why the config file was ignored at startup, shown once as a toast.
@@ -771,7 +771,7 @@ https://raw.githubusercontent.com/stamparm/ipsum/master/levels/3.txt"
 }
 
 fn env_dir(var: &str) -> Option<PathBuf> {
-    std::env::var_os(var).map(|p| PathBuf::from(p).join("RustyWire"))
+    std::env::var_os(var).map(|p| PathBuf::from(p).join("RustWarden"))
 }
 
 /// `%APPDATA%\RustWarden`, falling back to the working directory.
@@ -779,12 +779,17 @@ pub fn config_dir() -> PathBuf {
     env_dir("APPDATA").unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// `%LOCALAPPDATA%\RustyWire`: database, icon cache, GeoIP database.
+/// `%LOCALAPPDATA%\RustWarden`: database, icon cache, GeoIP database.
 pub fn data_dir() -> PathBuf {
     env_dir("LOCALAPPDATA").unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// `Program Files\RustyWire`: only administrators can write here, so elevated code may load or run what it holds.
+/// Where versions before the rename to RustWarden kept what [`admin_dir`] holds now.
+pub fn legacy_admin_dir() -> PathBuf {
+    admin_dir().with_file_name("RustyWire")
+}
+
+/// `Program Files\RustWarden`: only administrators can write here, so elevated code may load or run what it holds.
 /// Windows is asked, not `%ProgramFiles%`, because a user can override environment variables.
 pub fn admin_dir() -> PathBuf {
     use windows::Win32::System::Com::CoTaskMemFree;
@@ -796,7 +801,7 @@ pub fn admin_dir() -> PathBuf {
             path
         })
     };
-    PathBuf::from(known.unwrap_or_else(|| r"C:\Program Files".to_owned())).join("RustyWire")
+    PathBuf::from(known.unwrap_or_else(|| r"C:\Program Files".to_owned())).join("RustWarden")
 }
 
 /// Tokens and webhook addresses are written to the config encrypted for the current Windows user
@@ -845,10 +850,10 @@ impl Settings {
         (self.geoip_city && city.exists()).then(|| city.to_string_lossy().into_owned()).or_else(|| self.geo_db_path.clone())
     }
 
-    /// Reads the config (defaults when missing or broken), then applies `RUSTYWIRE_MODE`.
+    /// Reads the config (defaults when missing or broken), then applies `RUSTWARDEN_MODE`.
     pub fn load() -> Self {
         let mut s = Self::load_from(&config_path());
-        if let Some(mode) = std::env::var("RUSTYWIRE_MODE").ok().and_then(|v| Mode::parse(&v)) {
+        if let Some(mode) = std::env::var("RUSTWARDEN_MODE").ok().and_then(|v| Mode::parse(&v)) {
             s.env_mode = Some((mode, s.mode));
             s.mode = mode;
         }
@@ -1022,7 +1027,7 @@ impl Settings {
         crate::plugins::speedtest::sanitize(self);
     }
 
-    /// A mode picked in the UI; it ends the `RUSTYWIRE_MODE` override, so it is saved even when it matches it.
+    /// A mode picked in the UI; it ends the `RUSTWARDEN_MODE` override, so it is saved even when it matches it.
     pub fn set_mode(&mut self, mode: Mode) {
         self.mode = mode;
         self.env_mode = None;
@@ -1038,7 +1043,7 @@ impl Settings {
         }
         let mut out = self.clone();
         if let Some((env, file)) = self.env_mode {
-            // `RUSTYWIRE_MODE` is for one run; only a mode picked in the UI is written.
+            // `RUSTWARDEN_MODE` is for one run; only a mode picked in the UI is written.
             if self.mode == env {
                 out.mode = file;
             }
@@ -1238,7 +1243,7 @@ desktop = true"
 
     #[test]
     fn unreadable_file_is_backed_up_not_lost() {
-        let dir = std::env::temp_dir().join(format!("rustywire-settings-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("rustwarden-settings-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
         assert!(Settings::load_from(&path).load_error.is_none(), "a missing file is not an error");

@@ -44,16 +44,16 @@ jobs:
       - name: Check the exe needs no extra DLLs
         if: steps.plan.outputs.skip != 'true'
         run: |
-          bad="$(grep -aoiE '(vcruntime|msvcp|concrt|ucrtbase|api-ms-win-crt)[a-z0-9_.-]*\.dll' target/release/rustywire.exe | sort -u || true)"
+          bad="$(grep -aoiE '(vcruntime|msvcp|concrt|ucrtbase|api-ms-win-crt)[a-z0-9_.-]*\.dll' target/release/rustwarden.exe | sort -u || true)"
           if [ -n "$bad" ]; then echo "::error::exe depends on redistributable DLLs: $bad"; exit 1; fi
 
       - name: Package
         if: steps.plan.outputs.skip != 'true'
         run: |
-          cp target/release/rustywire.exe RustyWire.exe
+          cp target/release/rustwarden.exe RustWarden.exe
           # The version is signed with the hash, so a server can't relabel an old build as a new release.
           tag="${{ steps.plan.outputs.tag }}"
-          { sha256sum RustyWire.exe | awk '{print $1}'; echo "version=${tag#v}"; } > RustyWire.exe.sha256
+          { sha256sum RustWarden.exe | awk '{print $1}'; echo "version=${tag#v}"; } > RustWarden.exe.sha256
 
       - name: Sign the checksum (ECDSA P-256; the app refuses updates without a valid signature)
         if: steps.plan.outputs.skip != 'true'
@@ -62,7 +62,7 @@ jobs:
         run: |
           if [ -z "$UPDATE_SIGNING_KEY" ]; then echo "::error::repo secret UPDATE_SIGNING_KEY is not set"; exit 1; fi
           printf '%s\n' "$UPDATE_SIGNING_KEY" > "$RUNNER_TEMP/key.pem"
-          openssl dgst -sha256 -sign "$RUNNER_TEMP/key.pem" -out RustyWire.exe.sha256.sig RustyWire.exe.sha256
+          openssl dgst -sha256 -sign "$RUNNER_TEMP/key.pem" -out RustWarden.exe.sha256.sig RustWarden.exe.sha256
           rm -f "$RUNNER_TEMP/key.pem"
 
       - name: Publish release
@@ -70,6 +70,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ steps.plan.outputs.tag }}" RustyWire.exe RustyWire.exe.sha256 RustyWire.exe.sha256.sig \
+          gh release create "${{ steps.plan.outputs.tag }}" RustWarden.exe RustWarden.exe.sha256 RustWarden.exe.sha256.sig \
             --title "RustWarden ${{ steps.plan.outputs.version }}" \
             --notes-file notes.md --target "$GITHUB_SHA" --latest

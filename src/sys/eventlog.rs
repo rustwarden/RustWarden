@@ -10,7 +10,7 @@ use windows::core::{PCWSTR, w};
 const EVENT_ID: u32 = 1000;
 
 pub fn write(important: bool, message: &str) {
-    let Ok(h) = (unsafe { RegisterEventSourceW(PCWSTR::null(), w!("RustyWire")) }) else { return };
+    let Ok(h) = (unsafe { RegisterEventSourceW(PCWSTR::null(), w!("RustWarden")) }) else { return };
     let text = wide(message);
     let strings = [PCWSTR(text.as_ptr())];
     let kind = if important { EVENTLOG_WARNING_TYPE } else { EVENTLOG_INFORMATION_TYPE };

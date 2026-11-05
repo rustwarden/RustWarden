@@ -23,6 +23,7 @@ mod geo;
 mod icons;
 mod live;
 mod metrics;
+mod migrate;
 mod netparse;
 mod netpkt;
 mod pcap;
@@ -105,13 +106,17 @@ fn main() -> eframe::Result {
         _ if sys::autostart::signal_show() => return Ok(()),
         _ => {}
     }
+    // Settings, history, rules and the service from before the rename to RustWarden; true: the service has opened the new window.
+    if shots.is_none() && migrate::run() {
+        return Ok(());
+    }
     // Safeguard whichever way we got here (service, hand-elevated, `--elevated` restart): only one window per session.
     if shots.is_none() && !sys::autostart::claim_instance(std::env::args().any(|a| a == "--elevated")) {
         return Ok(());
     }
     // No console in release, so a panic would vanish: keep the last one next to the other temp files.
     std::panic::set_hook(Box::new(|info| {
-        let _ = std::fs::write(std::env::temp_dir().join("rustywire-panic.log"), format!("{info}\n{}", std::backtrace::Backtrace::force_capture()));
+        let _ = std::fs::write(std::env::temp_dir().join("rustwarden-panic.log"), format!("{info}\n{}", std::backtrace::Backtrace::force_capture()));
     }));
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("RustWarden")

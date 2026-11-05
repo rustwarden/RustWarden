@@ -29,24 +29,24 @@ pub struct Snapshot {
 /// Exposition-format text for `s`. Label values are escaped as the format requires.
 pub fn render(s: &Snapshot) -> String {
     let mut out = String::new();
-    let _ = writeln!(out, "# HELP rustywire_traffic_bytes Bytes moved to and from internet addresses in the last 24 hours.");
-    let _ = writeln!(out, "# TYPE rustywire_traffic_bytes gauge");
-    let _ = writeln!(out, "rustywire_traffic_bytes{{direction=\"down\"}} {}", s.wan_down);
-    let _ = writeln!(out, "rustywire_traffic_bytes{{direction=\"up\"}} {}", s.wan_up);
-    let _ = writeln!(out, "# HELP rustywire_blocked_connections Connection attempts blocked in the last 24 hours.");
-    let _ = writeln!(out, "# TYPE rustywire_blocked_connections gauge");
-    let _ = writeln!(out, "rustywire_blocked_connections {}", s.blocked);
-    let _ = writeln!(out, "# HELP rustywire_alerts_total Alerts raised, by kind.");
-    let _ = writeln!(out, "# TYPE rustywire_alerts_total counter");
+    let _ = writeln!(out, "# HELP rustwarden_traffic_bytes Bytes moved to and from internet addresses in the last 24 hours.");
+    let _ = writeln!(out, "# TYPE rustwarden_traffic_bytes gauge");
+    let _ = writeln!(out, "rustwarden_traffic_bytes{{direction=\"down\"}} {}", s.wan_down);
+    let _ = writeln!(out, "rustwarden_traffic_bytes{{direction=\"up\"}} {}", s.wan_up);
+    let _ = writeln!(out, "# HELP rustwarden_blocked_connections Connection attempts blocked in the last 24 hours.");
+    let _ = writeln!(out, "# TYPE rustwarden_blocked_connections gauge");
+    let _ = writeln!(out, "rustwarden_blocked_connections {}", s.blocked);
+    let _ = writeln!(out, "# HELP rustwarden_alerts_total Alerts raised, by kind.");
+    let _ = writeln!(out, "# TYPE rustwarden_alerts_total counter");
     for (kind, n) in &s.alerts {
-        let _ = writeln!(out, "rustywire_alerts_total{{kind=\"{}\"}} {n}", label(kind));
+        let _ = writeln!(out, "rustwarden_alerts_total{{kind=\"{}\"}} {n}", label(kind));
     }
-    let _ = writeln!(out, "# HELP rustywire_app_traffic_bytes Bytes per app in the last 24 hours, for the busiest {TOP_APPS} apps.");
-    let _ = writeln!(out, "# TYPE rustywire_app_traffic_bytes gauge");
+    let _ = writeln!(out, "# HELP rustwarden_app_traffic_bytes Bytes per app in the last 24 hours, for the busiest {TOP_APPS} apps.");
+    let _ = writeln!(out, "# TYPE rustwarden_app_traffic_bytes gauge");
     for (app, down, up) in s.apps.iter().take(TOP_APPS) {
         let app = label(app);
-        let _ = writeln!(out, "rustywire_app_traffic_bytes{{app=\"{app}\",direction=\"down\"}} {down}");
-        let _ = writeln!(out, "rustywire_app_traffic_bytes{{app=\"{app}\",direction=\"up\"}} {up}");
+        let _ = writeln!(out, "rustwarden_app_traffic_bytes{{app=\"{app}\",direction=\"down\"}} {down}");
+        let _ = writeln!(out, "rustwarden_app_traffic_bytes{{app=\"{app}\",direction=\"up\"}} {up}");
     }
     out
 }
@@ -197,17 +197,17 @@ mod tests {
     #[test]
     fn render_lists_each_metric_and_escapes_labels() {
         let text = render(&Snapshot { apps: vec![("a\"b\\c".into(), 1.0, 2.0)], ..sample() });
-        assert!(text.contains("rustywire_traffic_bytes{direction=\"down\"} 10\n"));
-        assert!(text.contains("rustywire_blocked_connections 3\n"));
-        assert!(text.contains("rustywire_alerts_total{kind=\"arp\"} 4\n"));
-        assert!(text.contains("rustywire_app_traffic_bytes{app=\"a\\\"b\\\\c\",direction=\"up\"} 2\n"));
+        assert!(text.contains("rustwarden_traffic_bytes{direction=\"down\"} 10\n"));
+        assert!(text.contains("rustwarden_blocked_connections 3\n"));
+        assert!(text.contains("rustwarden_alerts_total{kind=\"arp\"} 4\n"));
+        assert!(text.contains("rustwarden_app_traffic_bytes{app=\"a\\\"b\\\\c\",direction=\"up\"} 2\n"));
     }
 
     #[test]
     fn metrics_answers_loopback_requests() {
         let reply = exchange("GET /metrics HTTP/1.1\r\nHost: 127.0.0.1:PORT\r\n\r\n");
         assert!(reply.starts_with("HTTP/1.1 200 OK"));
-        assert!(reply.contains("rustywire_blocked_connections 3"));
+        assert!(reply.contains("rustwarden_blocked_connections 3"));
     }
 
     #[test]

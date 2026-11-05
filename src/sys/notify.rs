@@ -22,7 +22,7 @@ fn copy(dst: &mut [u16], text: &str) {
 fn worker(rx: std::sync::mpsc::Receiver<(String, String)>) {
     let hinst = unsafe { GetModuleHandleW(PCWSTR::null()) }.ok();
     let hwnd = unsafe {
-        CreateWindowExW(WINDOW_EX_STYLE(0), w!("STATIC"), PCWSTR(wide("RustyWire notifications").as_ptr()), WS_OVERLAPPED, 0, 0, 0, 0, Some(HWND_MESSAGE), None, hinst.map(|h| h.into()), None)
+        CreateWindowExW(WINDOW_EX_STYLE(0), w!("STATIC"), PCWSTR(wide("RustWarden notifications").as_ptr()), WS_OVERLAPPED, 0, 0, 0, 0, Some(HWND_MESSAGE), None, hinst.map(|h| h.into()), None)
     };
     let Ok(hwnd) = hwnd else { return };
     let mut added = false;

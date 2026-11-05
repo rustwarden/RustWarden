@@ -271,11 +271,11 @@ mod tests {
     }
 
     #[test]
-    fn rustywire_needs_are_protected() {
+    fn rustwarden_needs_are_protected() {
         for f in ["curl.exe", "NSLookup.exe", "powershell.exe", "usoclient.exe", "TiWorker.exe", "MsMpEng.exe"] {
             assert!(is_protected(&format!(r"C:\Windows\System32\{f}"), "x"));
         }
-        assert!(is_protected(r"C:\x\RustyWire.exe", r"c:\x\rustywire.exe"));
+        assert!(is_protected(r"C:\x\RustWarden.exe", r"c:\x\rustwarden.exe"));
         assert!(!is_protected(r"C:\Windows\explorer.exe", "x"));
     }
 

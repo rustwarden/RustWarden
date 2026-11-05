@@ -42,19 +42,19 @@ jobs:
       - name: Capture the screens
         shell: pwsh
         env:
-          RUSTYWIRE_SHOTS: ${{ github.workspace }}\docs\screenshots
+          RUSTWARDEN_SHOTS: ${{ github.workspace }}\docs\screenshots
           # Mesa would otherwise pick its D3D12 driver, which fails on the runner (E_INVALIDARG on the first frame).
           GALLIUM_DRIVER: llvmpipe
         run: |
-          New-Item -ItemType Directory -Force $env:RUSTYWIRE_SHOTS | Out-Null
+          New-Item -ItemType Directory -Force $env:RUSTWARDEN_SHOTS | Out-Null
           # The app exits 0 once every PNG is written, and 1 if one failed; a hang is killed after 5 minutes.
-          $p = Start-Process -FilePath "target\release\rustywire.exe" -PassThru -RedirectStandardError "$env:RUNNER_TEMP\stderr.txt" -RedirectStandardOutput "$env:RUNNER_TEMP\stdout.txt"
+          $p = Start-Process -FilePath "target\release\rustwarden.exe" -PassThru -RedirectStandardError "$env:RUNNER_TEMP\stderr.txt" -RedirectStandardOutput "$env:RUNNER_TEMP\stdout.txt"
           if (-not $p.WaitForExit(300000)) { $p.Kill(); Write-Host "timed out" }
           $code = $p.ExitCode
-          Write-Host ("rustywire exit code: {0} (0x{0:X})" -f $code)
-          Get-ChildItem $env:RUSTYWIRE_SHOTS
+          Write-Host ("rustwarden exit code: {0} (0x{0:X})" -f $code)
+          Get-ChildItem $env:RUSTWARDEN_SHOTS
           if ($code -ne 0) {
-            foreach ($f in "$env:RUNNER_TEMP\stderr.txt", "$env:RUNNER_TEMP\stdout.txt", "$env:TEMP\rustywire-panic.log", "$env:LOCALAPPDATA\RustWarden\rustywire.log") {
+            foreach ($f in "$env:RUNNER_TEMP\stderr.txt", "$env:RUNNER_TEMP\stdout.txt", "$env:TEMP\rustwarden-panic.log", "$env:LOCALAPPDATA\RustWarden\rustwarden.log") {
               if (Test-Path $f) { Write-Host "--- $f"; Get-Content $f -Tail 60 }
             }
             exit $code

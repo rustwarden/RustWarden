@@ -1,5 +1,5 @@
 //! SQLite persistence: bucketed traffic history, apps, hostnames, alerts, devices and a
-//! small key/value table for monitor baselines. Lives in `%LOCALAPPDATA%\RustyWire\`.
+//! small key/value table for monitor baselines. Lives in `%LOCALAPPDATA%\RustWarden\`.
 
 use super::bucket::Scale;
 use crate::data::{AlertCheck, DnsEntry, Scope, TrafficDir, TrafficFilter};
@@ -938,7 +938,7 @@ mod tests {
 
     #[test]
     fn concurrent_writers_all_store_and_keep_the_chain() {
-        let path = std::env::temp_dir().join(format!("rustywire-chain-{}.db", std::process::id()));
+        let path = std::env::temp_dir().join(format!("rustwarden-chain-{}.db", std::process::id()));
         let _ = std::fs::remove_file(&path);
         Db::open(&path).unwrap();
         let writers: Vec<_> = (0..4)

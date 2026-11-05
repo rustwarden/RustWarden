@@ -17,8 +17,8 @@ use crate::sys::firewall::{self, Rule, RuleSpec};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-pub const GROUP: &str = "RustyWire";
-pub const NAME_PREFIX: &str = "RustyWire ";
+pub const GROUP: &str = "RustWarden";
+pub const NAME_PREFIX: &str = "RustWarden ";
 /// Settings key holding the app keys the user removed from the Firewall tab, one per line.
 pub const REMOVED_KEY: &str = "protect_removed";
 
@@ -67,7 +67,7 @@ const PROFILES_KEY: &str = "fw_profiles";
 const ACTIVE_PROFILE_KEY: &str = "fw_profile";
 pub const DEFAULT_PROFILE: &str = "Default";
 /// Where inactive profiles' rules wait, switched off. Not [`GROUP`], so nothing of ours touches them.
-const STASH_GROUP: &str = "RustyWire saved profiles";
+const STASH_GROUP: &str = "RustWarden saved profiles";
 
 /// Per profile ("fw_since@name", unix time): programs not seen since then, and without a rule,
 /// are left off the Firewall tab and unknown to Prompt, so a new profile starts afresh.
@@ -160,8 +160,8 @@ fn fnv(s: &str) -> u32 {
     s.bytes().fold(0x811c_9dc5u32, |h, b| (h ^ u32::from(b)).wrapping_mul(0x0100_0193))
 }
 
-/// "RustyWire block out: chrome.exe [3fa9c1d2]". The hash of the full path keeps two programs
-/// with the same file name apart. A service's rule reads "RustyWire block out: svchost.exe (wuauserv) [..]".
+/// "RustWarden block out: chrome.exe [3fa9c1d2]". The hash of the full path keeps two programs
+/// with the same file name apart. A service's rule reads "RustWarden block out: svchost.exe (wuauserv) [..]".
 pub fn rule_name(direction: Direction, path: &str, service: &str) -> String {
     tagged_name(
         match direction {
@@ -218,15 +218,15 @@ fn block_spec(direction: Direction, path: &str, service: &str, enabled: bool) ->
 }
 
 /// Per-address rules from the malicious-IP list; hidden from the Firewall tab, which lists programs.
-const THREAT_PREFIX: &str = "RustyWire threat ";
+const THREAT_PREFIX: &str = "RustWarden threat ";
 /// Per-destination rules (domain, ASN, country); also hidden from the Firewall tab and the profile switch. See `super::dest`.
-pub const DEST_PREFIX: &str = "RustyWire dest ";
+pub const DEST_PREFIX: &str = "RustWarden dest ";
 
 /// Per-program blocks of the peer-to-peer guard (no VPN, so no peer-to-peer); also hidden from the Firewall tab. See `super::p2p`.
-pub const P2P_PREFIX: &str = "RustyWire p2p ";
+pub const P2P_PREFIX: &str = "RustWarden p2p ";
 
 /// The ping allow rules Prompt creates; hidden from the Firewall tab like the other aux rules.
-const ICMP_PREFIX: &str = "RustyWire icmp ";
+const ICMP_PREFIX: &str = "RustWarden icmp ";
 /// Stands in for a program path in the prompt about pings, which Windows doesn't attribute to a program.
 pub const ICMP_PATH: &str = "icmp:ping";
 
@@ -253,7 +253,7 @@ fn icmp_specs() -> Vec<RuleSpec> {
 
 /// The rule that lets the driver engine's re-sent packets through. Windows gives such a packet no owning program ("System"),
 /// so with Prompt or Block All on (outbound blocked by default) the firewall would drop everything the engine handles.
-const ENGINE_RULE: &str = "RustyWire engine allow out: System";
+const ENGINE_RULE: &str = "RustWarden engine allow out: System";
 
 fn engine_spec() -> RuleSpec {
     RuleSpec {
@@ -288,7 +288,7 @@ pub fn allow_engine_traffic(on: bool) -> Result<(), String> {
 fn is_aux(name: &str) -> bool {
     name.starts_with(THREAT_PREFIX) || name.starts_with(DEST_PREFIX) || name.starts_with(P2P_PREFIX) || name.starts_with(ICMP_PREFIX) || name == ENGINE_RULE
 }
-const BLOCK_ALL_PREFIX: &str = "RustyWire block-all exception";
+const BLOCK_ALL_PREFIX: &str = "RustWarden block-all exception";
 
 /// What Block All keeps open: RustWarden itself, the Windows tools it runs for lookups, and DHCP renewals (so leases survive the undo).
 fn block_all_exceptions(own_exe: &str) -> Vec<RuleSpec> {
@@ -308,7 +308,7 @@ fn block_all_exceptions(own_exe: &str) -> Vec<RuleSpec> {
     };
     let win = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
     let mut rules = vec![
-        RuleSpec { program: Some(own_exe.to_owned()), ..base("RustyWire", "Keeps RustWarden itself connected.") },
+        RuleSpec { program: Some(own_exe.to_owned()), ..base("RustWarden", "Keeps RustWarden itself connected.") },
         RuleSpec { protocol: Some(17), local_ports: Some("68".into()), remote_ports: Some("67".into()), ..base("DHCP", "Lets the network lease be renewed.") },
     ];
     // All of RustWarden's web lookups (threat feeds, VirusTotal, ASN, webhooks) go through these helpers.
@@ -433,6 +433,34 @@ fn remove_exceptions() {
             let _ = firewall::remove_rule(&r.name);
         }
     }
+}
+
+/// Rules made under the old name (RustyWire) take the RustWarden name and groups, so the app keeps owning them.
+/// Returns how many it renamed, or the first error after trying them all. The Block All exception for RustWarden
+/// itself is remade for `own_exe`, since it named the old exe.
+pub fn adopt_legacy_rules(own_exe: &str) -> Result<usize, String> {
+    const OLD: &str = "RustyWire";
+    let mut found = Vec::new();
+    for group in [OLD, "RustyWire saved profiles", "RustyWire helper lease"] {
+        found.extend(firewall::rules_in_group(group)?.0);
+    }
+    found.extend(firewall::rules_named("RustyWire ")?);
+    found.sort_by(|a, b| a.name.cmp(&b.name));
+    found.dedup_by(|a, b| a.name == b.name);
+    let (mut renamed, mut error) = (0, None);
+    for r in found {
+        let name = r.name.replace(OLD, "RustWarden");
+        let group = r.grouping.strip_prefix(OLD).map_or(r.grouping.clone(), |rest| format!("RustWarden{rest}"));
+        match firewall::adopt_rule(&r.name, &name, &group) {
+            Ok(()) => renamed += 1,
+            Err(e) => error = Some(e),
+        }
+        if name == format!("{BLOCK_ALL_PREFIX}: RustWarden") && !r.program.eq_ignore_ascii_case(own_exe) {
+            let _ = firewall::remove_rule(&name);
+            let _ = firewall::add_rule(&block_all_exceptions(own_exe)[0]);
+        }
+    }
+    error.map_or(Ok(renamed), Err)
 }
 
 /// What [`remove_all_owned`] did. `failed` holds one message per rule that could not be changed.
@@ -621,7 +649,7 @@ impl FwController {
                 && !d.is_empty()
                 && let Ok(db) = self.shared.open_db()
             {
-                crate::applog::line("rustywire.log", &format!("RustWarden firewall rules were changed outside RustWarden: {}", d.describe(usize::MAX)));
+                crate::applog::line("rustwarden.log", &format!("RustWarden firewall rules were changed outside RustWarden: {}", d.describe(usize::MAX)));
                 self.shared.alert(&db, AlertKind::FirewallRules, "Windows Firewall", "RustWarden rules were changed outside RustWarden:", &d.describe(5), "");
             }
             // Saved after the report, so a change is reported once and not again at every start.
@@ -1148,9 +1176,9 @@ impl FwController {
 
     /// Brings the other firewall's per-program rules under RustWarden's control by
     /// moving them into our group, so they show on the Firewall tab. With `rename` they also get
-    /// RustyWire's naming (the other firewall then no longer recognises them); without it the names stay,
+    /// RustWarden's naming (the other firewall then no longer recognises them); without it the names stay,
     /// so they keep working if that firewall returns. Returns how many.
-    /// Rules for no particular program, and ones that would duplicate a RustyWire rule, stay as they are.
+    /// Rules for no particular program, and ones that would duplicate a RustWarden rule, stay as they are.
     pub fn import_rules(&self, rename: bool) -> Result<usize, String> {
         self.need_admin()?;
         let _g = self.lock_op();
@@ -1387,12 +1415,12 @@ mod tests {
 
     #[test]
     fn drift_finds_missing_altered_and_added_rules() {
-        let before = [info("RustyWire a", true), info("RustyWire b", true), info("RustyWire c", true)];
+        let before = [info("RustWarden a", true), info("RustWarden b", true), info("RustWarden c", true)];
         assert_eq!(drift(&before, &before), Drift::default());
-        let now = [info("RustyWire a", true), info("RustyWire b", false), info("RustyWire d", true)];
+        let now = [info("RustWarden a", true), info("RustWarden b", false), info("RustWarden d", true)];
         let d = drift(&before, &now);
-        assert_eq!(d, Drift { missing: vec!["RustyWire c".into()], altered: vec!["RustyWire b".into()], added: vec!["RustyWire d".into()] });
-        assert_eq!(d.describe(5), "1 missing (RustyWire c); 1 altered (RustyWire b); 1 added (RustyWire d)");
+        assert_eq!(d, Drift { missing: vec!["RustWarden c".into()], altered: vec!["RustWarden b".into()], added: vec!["RustWarden d".into()] });
+        assert_eq!(d.describe(5), "1 missing (RustWarden c); 1 altered (RustWarden b); 1 added (RustWarden d)");
     }
 
     #[test]
@@ -1400,13 +1428,13 @@ mod tests {
         let exception = info(&format!("{BLOCK_ALL_PREFIX}: DHCP"), true);
         assert!(drift(std::slice::from_ref(&exception), &[]).is_empty());
         assert!(drift(&[], &[exception]).is_empty());
-        let many: Vec<FwRuleInfo> = (0..7).map(|i| info(&format!("RustyWire r{i}"), true)).collect();
-        assert_eq!(drift(&many, &[]).describe(2), "7 missing (RustyWire r0, RustyWire r1, …)");
+        let many: Vec<FwRuleInfo> = (0..7).map(|i| info(&format!("RustWarden r{i}"), true)).collect();
+        assert_eq!(drift(&many, &[]).describe(2), "7 missing (RustWarden r0, RustWarden r1, …)");
     }
 
     #[test]
     fn manifest_round_trips_and_skips_bad_lines() {
-        let rules = [info("RustyWire a", true), FwRuleInfo { service: "wuauserv".into(), outbound: false, block: false, ..info("RustyWire b", false) }];
+        let rules = [info("RustWarden a", true), FwRuleInfo { service: "wuauserv".into(), outbound: false, block: false, ..info("RustWarden b", false) }];
         assert_eq!(parse_manifest(&manifest_text(&rules)), rules);
         assert!(parse_manifest("").is_empty());
         let text = format!("{}\nnot a rule\na\tb\tc\t12\n", manifest_text(&rules[..1]));
@@ -1416,28 +1444,28 @@ mod tests {
     #[test]
     fn rescue_deletes_only_ours_and_hands_imported_back() {
         let rules = [
-            named("RustyWire", "RustyWire block out: chrome.exe [00000001]"),
-            named("RustyWire", &format!("{IMPORT_PREFIX}in.app_1.profile_1.mode_2}}")),
-            named("RustyWire", "Allow everything"),
-            named("Core Networking", "RustyWire block out: x"),
+            named("RustWarden", "RustWarden block out: chrome.exe [00000001]"),
+            named("RustWarden", &format!("{IMPORT_PREFIX}in.app_1.profile_1.mode_2}}")),
+            named("RustWarden", "Allow everything"),
+            named("Core Networking", "RustWarden block out: x"),
             named("", "Windows Defender Firewall: something"),
         ];
         let (delete, hand_back) = plan_removals(&rules);
-        assert_eq!(delete, vec!["RustyWire block out: chrome.exe [00000001]"]);
+        assert_eq!(delete, vec!["RustWarden block out: chrome.exe [00000001]"]);
         assert_eq!(hand_back, vec![format!("{IMPORT_PREFIX}in.app_1.profile_1.mode_2}}")]);
     }
 
     #[test]
     fn only_our_group_and_prefix_count_as_ours() {
-        assert!(is_ours("RustyWire", "RustyWire block out: chrome.exe [00000001]"));
+        assert!(is_ours("RustWarden", "RustWarden block out: chrome.exe [00000001]"));
         // Right name, wrong group (someone else's rule named like ours).
-        assert!(!is_ours("Core Networking", "RustyWire block out: x"));
+        assert!(!is_ours("Core Networking", "RustWarden block out: x"));
         // Right group, wrong name (a rule dropped into our group by someone else).
-        assert!(!is_ours("RustyWire", "Allow everything"));
-        assert!(!is_ours("", "RustyWire block out: x"));
-        assert!(!is_ours("rustywire", "RustyWire block out: x"));
+        assert!(!is_ours("RustWarden", "Allow everything"));
+        assert!(!is_ours("", "RustWarden block out: x"));
+        assert!(!is_ours("rustwarden", "RustWarden block out: x"));
         // Imported rules count only once they sit in our group.
-        assert!(is_ours("RustyWire", &format!("{IMPORT_PREFIX}in.app_1.profile_1.mode_2}}")));
+        assert!(is_ours("RustWarden", &format!("{IMPORT_PREFIX}in.app_1.profile_1.mode_2}}")));
         assert!(!is_ours("Other", &format!("{IMPORT_PREFIX}in.app_1.profile_1.mode_2}}")));
     }
 
@@ -1445,7 +1473,7 @@ mod tests {
     fn rule_names_are_stable_and_distinguish_paths() {
         let a = rule_name(Direction::Out, r"C:\Apps\one\tool.exe", "");
         let b = rule_name(Direction::Out, r"C:\Apps\two\tool.exe", "");
-        assert!(a.starts_with("RustyWire block out: tool.exe ["));
+        assert!(a.starts_with("RustWarden block out: tool.exe ["));
         assert_ne!(a, b);
         assert_eq!(a, rule_name(Direction::Out, r"c:\apps\ONE\tool.exe", ""));
         assert!(rule_name(Direction::In, r"C:\x\y.exe", "").contains("block in:"));
@@ -1485,7 +1513,7 @@ mod tests {
     const SVCHOST: &str = r"C:\Windows\System32\svchost.exe";
 
     fn rule(program: &str, service: &str, block: bool) -> Rule {
-        Rule { name: format!("RustyWire block out: {service}"), grouping: GROUP.into(), program: program.into(), service: service.into(), outbound: true, block, enabled: true }
+        Rule { name: format!("RustWarden block out: {service}"), grouping: GROUP.into(), program: program.into(), service: service.into(), outbound: true, block, enabled: true }
     }
 
     #[test]
@@ -1493,7 +1521,7 @@ mod tests {
         let s = block_spec(Direction::Out, SVCHOST, "wuauserv", true);
         assert_eq!(s.service.as_deref(), Some("wuauserv"));
         assert_eq!(s.program.as_deref(), Some(SVCHOST));
-        assert!(s.name.starts_with("RustyWire block out: svchost.exe (wuauserv) ["));
+        assert!(s.name.starts_with("RustWarden block out: svchost.exe (wuauserv) ["));
         assert_ne!(s.name, rule_name(Direction::Out, SVCHOST, ""));
         assert_ne!(s.name, block_spec(Direction::Out, SVCHOST, "bits", true).name);
         assert_eq!(rule_key(&rule(SVCHOST, "WuAuServ", true)), service_key(&key_for_path(SVCHOST), "wuauserv"));
@@ -1529,20 +1557,20 @@ mod tests {
         let rule = |name: &str, program: &str| Rule { name: name.into(), grouping: String::new(), program: program.into(), service: String::new(), outbound: true, block: false, enabled: true };
         let rules = [
             rule(&format!("{IMPORT_PREFIX}out.app_1}}"), r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
-            rule("RustyWire allow out: x", r"c:\x\y.exe"),
+            rule("RustWarden allow out: x", r"c:\x\y.exe"),
             rule("Core Networking", "System"),
             rule("Store", ""),
             rule("Backup", r"C:\WINDOWS\SystemApps\x.exe"),
-            rule(&format!("{BLOCK_ALL_PREFIX}: RustyWire"), r"C:\RustyWire.exe"),
+            rule(&format!("{BLOCK_ALL_PREFIX}: RustWarden"), r"C:\RustWarden.exe"),
         ];
-        assert_eq!(rules_to_suspend(&rules, r"c:\windows"), [format!("{IMPORT_PREFIX}out.app_1}}").as_str(), "RustyWire allow out: x"]);
+        assert_eq!(rules_to_suspend(&rules, r"c:\windows"), [format!("{IMPORT_PREFIX}out.app_1}}").as_str(), "RustWarden allow out: x"]);
     }
 
     #[test]
     fn block_all_exceptions_are_ours_and_allow() {
-        let ex = block_all_exceptions(r"C:\RustyWire.exe");
+        let ex = block_all_exceptions(r"C:\RustWarden.exe");
         assert!(ex.iter().all(|r| !r.block && r.grouping == GROUP && is_ours(&r.grouping, &r.name) && r.name.starts_with(BLOCK_ALL_PREFIX)));
-        assert_eq!(ex[0].program.as_deref(), Some(r"C:\RustyWire.exe"));
+        assert_eq!(ex[0].program.as_deref(), Some(r"C:\RustWarden.exe"));
         // The lookup helpers stay reachable too.
         for tool in ["curl.exe", "nslookup.exe", "powershell.exe"] {
             assert!(ex.iter().any(|r| r.program.as_deref().is_some_and(|p| p.to_lowercase().ends_with(tool))));

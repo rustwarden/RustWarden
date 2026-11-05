@@ -1,6 +1,6 @@
 //! Driver mode's optional network driver: WinDivert, a signed third-party packet driver. It is never
 //! bundled: the user presses a button, the official release zip is downloaded, checked against a pinned
-//! SHA-256, and only its DLL and driver file are kept in `Program Files\RustyWire\driver`: elevated code loads
+//! SHA-256, and only its DLL and driver file are kept in `Program Files\RustWarden\driver`: elevated code loads
 //! that DLL, so a program without administrator rights must not be able to replace it. The DLL starts the
 //! driver service itself the first time it is used. This module is the part that doesn't need Windows
 //! APIs: what is pinned, what state the folder is in, and the install/remove steps.
@@ -38,13 +38,18 @@ pub fn dir() -> PathBuf {
 /// service (which points at the old driver file). Needs administrator rights. True when a working install was there,
 /// so the caller can put it back in the new folder.
 pub fn retire_old_folder() -> bool {
-    let old = data_dir().join("driver");
-    if !old.exists() {
-        return false;
+    let mut was_installed = false;
+    // The second is where versions before the rename to RustWarden kept it.
+    for old in [data_dir().join("driver"), crate::settings::legacy_admin_dir().join("driver")] {
+        if !old.exists() {
+            continue;
+        }
+        was_installed |= state_in(&old) == DriverState::Ready;
+        let _ = crate::sys::defender::remove_exclusion(&old.to_string_lossy());
+        let _ = remove_steps(&old);
     }
-    let was_installed = state_in(&old) == DriverState::Ready;
-    let _ = crate::sys::defender::remove_exclusion(&old.to_string_lossy());
-    let _ = remove_steps(&old);
+    // Empty once the driver is gone; migrate.rs moved the rest.
+    let _ = std::fs::remove_dir(crate::settings::legacy_admin_dir());
     was_installed
 }
 
@@ -182,7 +187,7 @@ mod tests {
     use super::*;
 
     fn scratch(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("rustywire-driver-test-{name}-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("rustwarden-driver-test-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d

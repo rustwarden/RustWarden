@@ -22,7 +22,7 @@ use windows::Win32::System::Threading::{CREATE_UNICODE_ENVIRONMENT, CreateProces
 use windows::Win32::UI::WindowsAndMessaging::{WTS_CONSOLE_CONNECT, WTS_SESSION_LOGON};
 use windows::core::{PWSTR, w};
 
-const SERVICE: &str = "RustyWire";
+const SERVICE: &str = "RustWarden";
 /// What Services (services.msc) lists; the short name above stays for compatibility.
 const DISPLAY: windows::core::PCWSTR = w!("RustWarden Firewall");
 const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
@@ -85,7 +85,7 @@ fn in_program_files(exe: &Path) -> bool {
     under(exe, "ProgramFiles") || under(exe, "ProgramFiles(x86)")
 }
 
-/// `RustyWire.lnk` in a known folder (the user's Desktop, or their Start menu Programs).
+/// `RustWarden.lnk` in a known folder (the user's Desktop, or their Start menu Programs).
 fn lnk_in(folder: &windows::core::GUID) -> Option<std::path::PathBuf> {
     use windows::Win32::System::Com::CoTaskMemFree;
     use windows::Win32::UI::Shell::{KF_FLAG_DEFAULT, SHGetKnownFolderPath};
@@ -93,7 +93,7 @@ fn lnk_in(folder: &windows::core::GUID) -> Option<std::path::PathBuf> {
         let p = SHGetKnownFolderPath(folder, KF_FLAG_DEFAULT, None).ok()?;
         let dir = p.to_string().ok();
         CoTaskMemFree(Some(p.0 as *const c_void));
-        Some(std::path::PathBuf::from(dir?).join("RustyWire.lnk"))
+        Some(std::path::PathBuf::from(dir?).join("RustWarden.lnk"))
     }
 }
 
@@ -124,24 +124,25 @@ fn shortcut(lnk: Option<std::path::PathBuf>, exe: &Path) {
     })();
 }
 
-/// Where the service's exe lives: this exe if it is already in Program Files, else `%ProgramFiles%\RustyWire`.
-fn installed_exe() -> Result<std::path::PathBuf, String> {
+/// Where the service's exe lives: this exe if it is already in Program Files, else `%ProgramFiles%\RustWarden`.
+pub(crate) fn installed_exe() -> Result<std::path::PathBuf, String> {
     let me = std::env::current_exe().map_err(|e| e.to_string())?;
-    if in_program_files(&me) {
+    // An exe updated in place inside the old RustyWire folder is copied to the new one.
+    if in_program_files(&me) && !me.starts_with(crate::settings::legacy_admin_dir()) {
         return Ok(me);
     }
-    Ok(std::path::PathBuf::from(std::env::var("ProgramFiles").map_err(|e| e.to_string())?).join("RustyWire").join("RustyWire.exe"))
+    Ok(std::path::PathBuf::from(std::env::var("ProgramFiles").map_err(|e| e.to_string())?).join("RustWarden").join("RustWarden.exe"))
 }
 
 /// Installs the service from wherever the exe is run (e.g. Downloads) by re-running it elevated with
 /// `--install-service`: one UAC prompt, no helper scripts. Outside Program Files that run first copies the
-/// exe to `%ProgramFiles%\RustyWire` and the service runs the copy, so it survives the original being
+/// exe to `%ProgramFiles%\RustWarden` and the service runs the copy, so it survives the original being
 /// moved or rebuilt. Adds the desktop and Start menu shortcuts asked for.
 pub fn install_service(desktop: bool, start_menu: bool) -> Result<(), String> {
     match run_elevated("--install-service") {
         None => return Err("Service was not installed (administrator approval is required)".into()),
         Some(0) => {}
-        Some(_) => return Err("Service install failed; is RustyWire.exe in Program Files still running?".into()),
+        Some(_) => return Err("Service install failed; is RustWarden.exe in Program Files still running?".into()),
     }
     let exe = installed_exe()?;
     if !service_installed() || !exe.exists() {
@@ -187,7 +188,7 @@ pub fn uninstall_service() -> Result<(), String> {
 }
 
 fn downloads_exe() -> Result<std::path::PathBuf, String> {
-    Ok(std::path::PathBuf::from(std::env::var("USERPROFILE").map_err(|e| e.to_string())?).join("Downloads").join("RustyWire.exe"))
+    Ok(std::path::PathBuf::from(std::env::var("USERPROFILE").map_err(|e| e.to_string())?).join("Downloads").join("RustWarden.exe"))
 }
 
 // ---- elevated side (`--install-service` / `--uninstall-service`) ----
@@ -195,7 +196,7 @@ fn downloads_exe() -> Result<std::path::PathBuf, String> {
 /// Stops and deletes the service if it exists, waiting (up to 5 s) for it to stop so its exe can be replaced.
 unsafe fn remove_service(scm: SC_HANDLE) {
     unsafe {
-        let Ok(svc) = OpenServiceW(scm, w!("RustyWire"), SERVICE_ALL_ACCESS) else { return };
+        let Ok(svc) = OpenServiceW(scm, w!("RustWarden"), SERVICE_ALL_ACCESS) else { return };
         authorize_stop();
         let mut st = SERVICE_STATUS::default();
         let _ = ControlService(svc, SERVICE_CONTROL_STOP, &mut st);
@@ -237,7 +238,7 @@ pub fn install_elevated() -> Result<(), String> {
         let bin = crate::sys::wide(&format!("\"{}\" --service", exe.display()));
         let svc = CreateServiceW(
             scm,
-            w!("RustyWire"),
+            w!("RustWarden"),
             DISPLAY,
             SERVICE_ALL_ACCESS,
             SERVICE_WIN32_OWN_PROCESS,
@@ -285,7 +286,7 @@ pub fn uninstall_elevated() -> Result<(), String> {
 
 /// Set when a later launch asked the running window to come forward.
 pub static SHOW: AtomicBool = AtomicBool::new(false);
-const SHOW_EVENT: windows::core::PCWSTR = w!("Local\\RustyWireShow");
+const SHOW_EVENT: windows::core::PCWSTR = w!("Local\\RustWardenShow");
 
 /// Running GUI: lets a later launch (which may be unelevated) bring this window back from the tray.
 pub fn watch_show(ctx: egui::Context) {
@@ -329,7 +330,7 @@ pub fn claim_instance(patient: bool) -> bool {
     use windows::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS};
     use windows::Win32::System::Threading::CreateMutexW;
     for _ in 0..if patient { 100 } else { 1 } {
-        match unsafe { CreateMutexW(None, false, w!("Local\\RustyWireInstance")) } {
+        match unsafe { CreateMutexW(None, false, w!("Local\\RustWardenInstance")) } {
             // The handle is deliberately never closed: the lock lasts as long as the process.
             Ok(_) if unsafe { windows::Win32::Foundation::GetLastError() } != ERROR_ALREADY_EXISTS => return true,
             // An elevated owner's mutex can't be opened from an unelevated process: still taken.
@@ -358,7 +359,7 @@ pub fn ensure_service_running() {
     }
 }
 
-/// Ending RustyWire.exe in Task Manager kills the service without a stop request; Windows starts it again a second later.
+/// Ending RustWarden.exe in Task Manager kills the service without a stop request; Windows starts it again a second later.
 fn set_recovery(svc: SC_HANDLE) {
     let mut actions = [SC_ACTION { Type: SC_ACTION_RESTART, Delay: 1000 }; 3];
     let fail = SERVICE_FAILURE_ACTIONSW { dwResetPeriod: 60, cActions: actions.len() as u32, lpsaActions: actions.as_mut_ptr(), ..Default::default() };
@@ -372,7 +373,7 @@ fn set_recovery(svc: SC_HANDLE) {
 fn ensure_recovery() {
     unsafe {
         let Ok(scm) = OpenSCManagerW(windows::core::PCWSTR::null(), windows::core::PCWSTR::null(), SC_MANAGER_CONNECT) else { return };
-        if let Ok(svc) = OpenServiceW(scm, w!("RustyWire"), SERVICE_CHANGE_CONFIG) {
+        if let Ok(svc) = OpenServiceW(scm, w!("RustWarden"), SERVICE_CHANGE_CONFIG) {
             set_recovery(svc);
             let _ = ChangeServiceConfigW(
                 svc,
@@ -395,9 +396,14 @@ fn ensure_recovery() {
 
 /// Ends every other process running this exe's image name (the GUI, however it was started); returns how many.
 fn end_other_instances() -> i32 {
+    std::env::current_exe().ok().and_then(|p| p.file_name().map(|n| end_processes(&n.to_string_lossy()))).unwrap_or(0)
+}
+
+/// Ends every process but this one whose image is called `name` (any case); returns how many.
+fn end_processes(name: &str) -> i32 {
     use windows::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS};
     use windows::Win32::System::Threading::{GetCurrentProcessId, OpenProcess, PROCESS_TERMINATE, TerminateProcess};
-    let Some(name) = std::env::current_exe().ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_lowercase())) else { return 0 };
+    let name = name.to_lowercase();
     let mut ended = 0;
     unsafe {
         let me = GetCurrentProcessId();
@@ -495,14 +501,63 @@ pub fn startup_hidden() -> bool {
 }
 
 pub fn set_startup(on: bool, hidden: bool) -> Result<(), String> {
+    set_startup_for(&std::env::current_exe().map_err(|e| e.to_string())?, on, hidden)
+}
+
+fn set_startup_for(exe: &Path, on: bool, hidden: bool) -> Result<(), String> {
     let mut c = quiet("reg");
     if on {
-        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
         c.args(["add", RUN_KEY, "/v", SERVICE, "/t", "REG_SZ", "/d", &format!("\"{}\" --launch{}", exe.display(), if hidden { " --hidden" } else { "" }), "/f"]);
     } else {
         c.args(["delete", RUN_KEY, "/v", SERVICE, "/f"]);
     }
     if ok(c) { Ok(()) } else { Err("Couldn't change the startup entry".into()) }
+}
+
+// ---- migration from the old name (RustyWire), see migrate.rs ----
+
+/// Elevated: deletes the service called RustyWire and ends the processes of that name (a kill would otherwise
+/// be undone by the service's restart action). True if the service existed.
+pub fn remove_legacy_service() -> bool {
+    let existed = unsafe {
+        let Ok(scm) = OpenSCManagerW(windows::core::PCWSTR::null(), windows::core::PCWSTR::null(), SC_MANAGER_ALL_ACCESS) else { return false };
+        let svc = OpenServiceW(scm, w!("RustyWire"), SERVICE_ALL_ACCESS);
+        if let Ok(svc) = &svc {
+            // No actions and no array removes the restart-after-kill actions.
+            let _ = ChangeServiceConfig2W(*svc, SERVICE_CONFIG_FAILURE_ACTIONS, Some(&SERVICE_FAILURE_ACTIONSW::default() as *const _ as *const c_void));
+            let _ = DeleteService(*svc);
+            let _ = CloseServiceHandle(*svc);
+        }
+        let _ = CloseServiceHandle(scm);
+        svc.is_ok()
+    };
+    end_processes("RustyWire.exe");
+    // A killed process leaves its ETW session running.
+    let mut c = quiet("logman");
+    c.args(["stop", "RustyWire-Net", "-ets"]);
+    let _ = c.status();
+    existed
+}
+
+/// Moves the start-with-Windows entry and the shortcuts called RustyWire over to RustWarden, pointing at `exe`.
+pub fn adopt_legacy_entries(exe: &Path) {
+    let mut c = quiet("reg");
+    c.args(["query", RUN_KEY, "/v", "RustyWire"]);
+    if let Ok(o) = c.output()
+        && o.status.success()
+    {
+        let mut d = quiet("reg");
+        d.args(["delete", RUN_KEY, "/v", "RustyWire", "/f"]);
+        let _ = d.status();
+        let _ = set_startup_for(exe, true, String::from_utf8_lossy(&o.stdout).contains("--hidden"));
+    }
+    for lnk in [desktop_lnk(), start_menu_lnk()].into_iter().flatten() {
+        let old = lnk.with_file_name("RustyWire.lnk");
+        if old.exists() {
+            let _ = std::fs::remove_file(old);
+            shortcut(Some(lnk), exe);
+        }
+    }
 }
 
 // ---- stop requests (services.msc, sc stop) ----
@@ -511,10 +566,10 @@ pub fn set_startup(on: bool, hidden: bool) -> Result<(), String> {
 // UI, so it signals the window through named events only administrators can use: the service sets `ASK`,
 // the window answers `ACK` at once, then `OK` (right password, or no password set) or `NO`. A stop the window
 // starts itself (restart, update, install) sets `OK` beforehand.
-const EV_ASK: windows::core::PCWSTR = w!("Global\\RustyWireStopAsk");
-const EV_ACK: windows::core::PCWSTR = w!("Global\\RustyWireStopAck");
-const EV_OK: windows::core::PCWSTR = w!("Global\\RustyWireStopOk");
-const EV_NO: windows::core::PCWSTR = w!("Global\\RustyWireStopNo");
+const EV_ASK: windows::core::PCWSTR = w!("Global\\RustWardenStopAsk");
+const EV_ACK: windows::core::PCWSTR = w!("Global\\RustWardenStopAck");
+const EV_OK: windows::core::PCWSTR = w!("Global\\RustWardenStopOk");
+const EV_NO: windows::core::PCWSTR = w!("Global\\RustWardenStopNo");
 
 /// How long the service waits for the password (the window gives up after the same time).
 pub const STOP_ASK_MS: u32 = 300_000;
@@ -650,7 +705,7 @@ fn report_step(state: SERVICE_STATUS_CURRENT_STATE, checkpoint: u32) {
 }
 
 unsafe extern "system" fn service_main(argc: u32, _argv: *mut PWSTR) {
-    let Ok(handle) = (unsafe { RegisterServiceCtrlHandlerExW(w!("RustyWire"), Some(handler), None) }) else { return };
+    let Ok(handle) = (unsafe { RegisterServiceCtrlHandlerExW(w!("RustWarden"), Some(handler), None) }) else { return };
     STATUS.store(handle.0 as isize, Ordering::SeqCst);
     make_events();
     report(SERVICE_RUNNING);
@@ -735,7 +790,7 @@ fn logon_hidden() -> bool {
             if RegOpenCurrentUser(KEY_READ.0, &mut hkcu).is_ok() {
                 let mut buf = [0u16; 1024];
                 let mut len = size_of_val(&buf) as u32;
-                let r = RegGetValueW(hkcu, w!(r"Software\Microsoft\Windows\CurrentVersion\Run"), w!("RustyWire"), RRF_RT_REG_SZ, None, Some(buf.as_mut_ptr() as *mut c_void), Some(&mut len));
+                let r = RegGetValueW(hkcu, w!(r"Software\Microsoft\Windows\CurrentVersion\Run"), w!("RustWarden"), RRF_RT_REG_SZ, None, Some(buf.as_mut_ptr() as *mut c_void), Some(&mut len));
                 hidden = r.is_ok() && crate::sys::from_wide(&buf).contains("--hidden");
                 let _ = RegCloseKey(hkcu);
             }

@@ -185,7 +185,7 @@ mod tests {
 
     #[test]
     fn hash_of_known_content() {
-        let path = std::env::temp_dir().join("rustywire-hash-test.txt");
+        let path = std::env::temp_dir().join("rustwarden-hash-test.txt");
         std::fs::write(&path, b"abc").unwrap();
         assert_eq!(hash_file(&path.to_string_lossy()), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
         let _ = std::fs::remove_file(path);

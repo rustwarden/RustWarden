@@ -1,4 +1,4 @@
-//! README screenshots. `RUSTYWIRE_SHOTS=<folder>` starts RustWarden in Demo mode, walks through the screens
+//! README screenshots. `RUSTWARDEN_SHOTS=<folder>` starts RustWarden in Demo mode, walks through the screens
 //! below, saves each as a PNG in that folder and exits (non-zero if a PNG could not be written).
 //! `.github/workflows/screenshots.yml` runs it on a Windows runner and commits the result.
 
@@ -82,9 +82,9 @@ pub fn settings() -> crate::settings::Settings {
     s
 }
 
-/// The folder named by `RUSTYWIRE_SHOTS`, when this run is a screenshot run.
+/// The folder named by `RUSTWARDEN_SHOTS`, when this run is a screenshot run.
 pub fn folder() -> Option<PathBuf> {
-    std::env::var_os("RUSTYWIRE_SHOTS").map(PathBuf::from)
+    std::env::var_os("RUSTWARDEN_SHOTS").map(PathBuf::from)
 }
 
 impl Shots {

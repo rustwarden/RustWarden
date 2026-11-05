@@ -385,7 +385,7 @@ mod tests {
         assert_eq!(critical_reason(&service_key(SYSTEM_KEY, "smb"), "", "", root), Some("System can't be blocked"));
         assert!(critical_reason("x", r"C:\Windows\System32\svchost.exe", "", root).is_some());
         assert!(critical_reason("x", r"C:\Windows\System32\lsass.exe", "", root).is_some());
-        assert_eq!(critical_reason("x", r"D:\apps\RustyWire.exe", r"d:\apps\rustywire.exe", root), Some("RustWarden can't be blocked"));
+        assert_eq!(critical_reason("x", r"D:\apps\RustWarden.exe", r"d:\apps\rustwarden.exe", root), Some("RustWarden can't be blocked"));
         // A program called svchost.exe elsewhere is an ordinary program.
         assert!(critical_reason("x", r"C:\Users\me\svchost.exe", "", root).is_none());
         assert!(critical_reason("x", r"C:\Program Files\Google\Chrome\Application\chrome.exe", "", root).is_none());

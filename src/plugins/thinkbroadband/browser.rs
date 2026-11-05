@@ -37,7 +37,7 @@ pub fn sign_out() -> std::io::Result<()> {
 }
 
 pub(crate) fn profile_dir() -> PathBuf {
-    crate::settings::data_dir().join("RustyWire").join("thinkbroadband-webview")
+    crate::settings::data_dir().join("RustWarden").join("thinkbroadband-webview")
 }
 
 /// Helper-side: the window is up for an extra check.
@@ -162,7 +162,7 @@ pub fn fetch(urls: &[String]) -> Result<Vec<(u16, String)>, String> {
     // One folder per call: the poll, a day backfill and an import can overlap.
     static RUN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
     let run = RUN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("rustywire-tbb-{}-{run}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("rustwarden-tbb-{}-{run}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let mut args = vec!["fetch".to_owned(), dir.to_string_lossy().into_owned()];

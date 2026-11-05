@@ -65,7 +65,7 @@ pub struct LiveBackend {
 
 /// The history database, also opened by the thinkbroadband / Ping tab.
 pub fn db_path() -> std::path::PathBuf {
-    crate::settings::data_dir().join("rustywire.db")
+    crate::settings::data_dir().join("rustwarden.db")
 }
 
 impl LiveBackend {
@@ -507,7 +507,7 @@ impl Backend for LiveBackend {
         let local_blocked = |key: &str| rules.iter().any(|r| r.block && firewall::row_key(&r.program, &r.service) == key && firewall::is_lan(&r.name));
         // Prompt denies by default: an app with no rules yet (just removed, or new) is denied until answered.
         let ask = self.shared.state().fw.ask_active;
-        let undecided = |key: &str| ask && !rules.iter().any(|r| firewall::row_key(&r.program, &r.service) == key && !r.name.starts_with("RustyWire block-all"));
+        let undecided = |key: &str| ask && !rules.iter().any(|r| firewall::row_key(&r.program, &r.service) == key && !r.name.starts_with("RustWarden block-all"));
         let thirty_days = 30 * 86_400;
 
         let hidden = self.hidden_keys();
@@ -518,7 +518,7 @@ impl Backend for LiveBackend {
         let vts: Vec<Vt> = self.with_db(|db| Ok(apps.iter().map(|a| self.vt.get(db, &a.hash)).collect()));
         for (i, a) in apps.iter().enumerate().filter(|(_, a)| !hidden.contains(&a.key)) {
             // Any RustWarden rule keeps an app on the list (an allow rule too, or it couldn't be removed).
-            let has_rule = rules.iter().any(|r| firewall::row_key(&r.program, &r.service) == a.key && !r.name.starts_with("RustyWire block-all"));
+            let has_rule = rules.iter().any(|r| firewall::row_key(&r.program, &r.service) == a.key && !r.name.starts_with("RustWarden block-all"));
             let active = traffic.active_apps.contains(&a.id);
             // A removed app stays hidden until it is seen again (new or continuing connection) or gets a rule.
             if !has_rule && (removed.get(&a.key).is_some_and(|&at| a.last_seen <= at) || a.last_seen < since) {

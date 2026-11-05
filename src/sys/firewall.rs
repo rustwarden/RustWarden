@@ -286,14 +286,14 @@ mod tests {
 
     #[test]
     fn service_sid_query_works_without_administrator() {
-        assert!(service_has_sid("no-such-service-for-rustywire").is_err());
+        assert!(service_has_sid("no-such-service-for-rustwarden").is_err());
         assert!(service_has_sid("Dnscache").is_ok());
     }
 
     #[test]
     fn reading_rules_works_without_administrator() {
         // Read-only: finds nothing in a group that cannot exist, but must be able to enumerate.
-        let (ours, total) = rules_in_group("RustyWire-test-group-that-does-not-exist").expect("enumerate rules");
+        let (ours, total) = rules_in_group("RustWarden-test-group-that-does-not-exist").expect("enumerate rules");
         assert!(ours.is_empty());
         assert!(total > 0);
         assert!(profile_state().is_ok());

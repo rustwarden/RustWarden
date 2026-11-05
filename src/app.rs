@@ -521,7 +521,7 @@ pub struct RustWarden {
     pub(crate) stop_asked: Option<std::time::Instant>,
     /// Whether the Windows service is installed (cached; asking costs a process spawn).
     pub(crate) service: bool,
-    /// Set by `RUSTYWIRE_SHOTS`: walks the README screens and then quits (see shots.rs).
+    /// Set by `RUSTWARDEN_SHOTS`: walks the README screens and then quits (see shots.rs).
     shots: Option<crate::shots::Shots>,
 }
 
@@ -650,7 +650,7 @@ impl RustWarden {
         let window = default_window(settings.mode);
         let mut app = Self {
             traffic: TrafficState {
-                view: std::env::var("RUSTYWIRE_VIEW").ok().and_then(|v| v.parse().ok()).unwrap_or(settings.traffic_view.min(2)),
+                view: std::env::var("RUSTWARDEN_VIEW").ok().and_then(|v| v.parse().ok()).unwrap_or(settings.traffic_view.min(2)),
                 range,
                 window,
                 loaded_at: 0.0,
@@ -714,8 +714,8 @@ impl RustWarden {
             notes: Vec::new(),
             backend,
             settings,
-            // Dev aid: RUSTYWIRE_TAB=0..4 picks the starting tab, RUSTYWIRE_VIEW=0..2 the traffic view.
-            tab: std::env::var("RUSTYWIRE_TAB").ok().and_then(|v| v.parse::<usize>().ok()).and_then(|i| Tab::ALL.get(i).copied()).or(start_tab).unwrap_or(Tab::Traffic),
+            // Dev aid: RUSTWARDEN_TAB=0..4 picks the starting tab, RUSTWARDEN_VIEW=0..2 the traffic view.
+            tab: std::env::var("RUSTWARDEN_TAB").ok().and_then(|v| v.parse::<usize>().ok()).and_then(|i| Tab::ALL.get(i).copied()).or(start_tab).unwrap_or(Tab::Traffic),
             tbb: Default::default(),
             ping_view: Default::default(),
             speedtest: Default::default(),
@@ -1488,7 +1488,7 @@ Start RustWarden as administrator once: it undoes Block All automatically."
     pub fn confirm_restore_defaults(&mut self) {
         self.dialog = Some(Dialog::Confirm(Confirm {
             title: "Restore firewall defaults?".into(),
-            body: "This deletes every Windows Firewall rule that RustWarden created (the \"RustyWire\" group) and nothing else. Rules from Windows or other programs are not touched.".into(),
+            body: "This deletes every Windows Firewall rule that RustWarden created (the \"RustWarden\" group) and nothing else. Rules from Windows or other programs are not touched.".into(),
             yes: "Remove RustWarden rules".into(),
             action: ConfirmAction::RestoreDefaults,
         }));

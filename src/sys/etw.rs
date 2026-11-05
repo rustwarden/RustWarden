@@ -24,7 +24,7 @@ use windows::Win32::System::Diagnostics::Etw::{
 };
 use windows::core::{GUID, PCWSTR, PWSTR};
 
-const SESSION_NAME: &str = "RustyWire-Net";
+const SESSION_NAME: &str = "RustWarden-Net";
 const KERNEL_NETWORK: GUID = GUID::from_u128(0x7DD42A49_5329_4832_8DFD_43D979153A88);
 const DNS_CLIENT: GUID = GUID::from_u128(0x1C95126E_7EEA_49A9_A3FE_A378B03DDB4D);
 

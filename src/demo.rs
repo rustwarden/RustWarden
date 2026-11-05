@@ -888,7 +888,7 @@ impl Backend for MockBackend {
     }
 
     fn start_capture(&self, conn: &LiveConn) -> Result<String, String> {
-        let path = format!(r"C:\Users\Demo\AppData\Local\RustyWire\captures\{}-demo.pcap", conn.app);
+        let path = format!(r"C:\Users\Demo\AppData\Local\RustWarden\captures\{}-demo.pcap", conn.app);
         self.state().capture = Some((path.clone(), Instant::now()));
         Ok(path)
     }

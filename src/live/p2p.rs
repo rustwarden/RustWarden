@@ -4,7 +4,7 @@
 //! the user picks are kept off the network, both ways, whenever no VPN adapter is up.
 //!
 //! The block is on the whole program (a firewall rule can't single out its peer traffic) and its rules
-//! are named `RustyWire p2p <hash> in|out` in RustWarden's group, so "Restore firewall defaults" removes them.
+//! are named `RustWarden p2p <hash> in|out` in RustWarden's group, so "Restore firewall defaults" removes them.
 
 use super::apps::{critical_reason, system_root};
 use super::firewall::{FwController, GROUP, P2P_PREFIX};
@@ -224,7 +224,7 @@ mod tests {
 
     #[test]
     fn never_blocks_ourselves_or_windows() {
-        let own = r"c:\apps\rustywire.exe";
+        let own = r"c:\apps\rustwarden.exe";
         let keys = vec![own.to_owned(), r"c:\windows\system32\svchost.exe".to_owned()];
         assert!(blocked_keys(true, false, &keys, own, r"c:\windows").is_empty());
     }

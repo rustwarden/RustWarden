@@ -223,7 +223,7 @@ fn upload_unknown(db: &Db, key: &str, hash: &str) -> Vt {
         Ok(_) => {}
         Err(_) => return Vt::Failed,
     }
-    crate::applog::line("rustywire.log", &format!("VirusTotal upload, confirmed by the user: {} ({hash})", path.display()));
+    crate::applog::line("rustwarden.log", &format!("VirusTotal upload, confirmed by the user: {} ({hash})", path.display()));
     let body = curl(key, &format!("url = \"{API}\"\nform = \"file=@\\\"{name}\\\"\"\n"), Some(dir), "300");
     if body.is_some_and(|b| b.trim_end().ends_with("200")) { Vt::Analysing } else { Vt::Failed }
 }

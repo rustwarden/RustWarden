@@ -33,7 +33,7 @@ See **[FEATURES.md](FEATURES.md)** for the full list.
 
 ### Built to be safe
 - **Local first.** Anything that talks to the internet is off until you turn it on, and secrets are stored encrypted with Windows DPAPI.
-- **Reversible.** Every firewall rule and QoS policy RustWarden creates is tagged as its own, and one button (or `rustywire --remove-all-rules`) removes them all.
+- **Reversible.** Every firewall rule and QoS policy RustWarden creates is tagged as its own, and one button (or `rustwarden --remove-all-rules`) removes them all.
 
 [Download](#download) | [Build from source](#build-from-source) | [All features](FEATURES.md) | [Rescue: remove all rules](#rescue-remove-every-rustwarden-firewall-rule)
 

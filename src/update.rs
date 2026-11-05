@@ -1,8 +1,8 @@
 //! Self-update from the private GitHub repo's releases, through the user's update server (Settings > Other):
 //! a script that holds the GitHub token and lists releases (`?updatecheck=true`, added here, never typed by the
 //! user) with direct download links. Everything goes through `curl.exe`; the download is only installed if its SHA-256 matches the
-//! `RustyWire.exe.sha256` asset published beside it, and that file carries an ECDSA P-256 signature
-//! (`RustyWire.exe.sha256.sig`, made in CI with a key only the repo's secrets hold) that must verify
+//! `RustWarden.exe.sha256` asset published beside it, and that file carries an ECDSA P-256 signature
+//! (`RustWarden.exe.sha256.sig`, made in CI with a key only the repo's secrets hold) that must verify
 //! against the public key built in below. A tampered release or a hostile update server can't pass that.
 
 use crate::settings::UpdateChannel;
@@ -25,8 +25,8 @@ fn public_from(version: &str) -> bool {
 /// Query the update server is asked with; hardcoded so the user only enters the address of the script.
 const CHECK_QUERY: &str = "updatecheck=true";
 /// Release assets are named after the exe. Releases made right after the rebrand carry `RustWarden.exe*`, earlier and later ones
-/// `RustyWire.exe*`, so both are accepted (the plain name first).
-const ASSET_STEMS: [&str; 2] = ["RustyWire.exe", "RustWarden.exe"];
+/// `RustyWire.exe*`, so both are accepted (the current name first).
+const ASSET_STEMS: [&str; 2] = ["RustWarden.exe", "RustyWire.exe"];
 const SHA_SUFFIX: &str = ".sha256";
 const SIG_SUFFIX: &str = ".sha256.sig";
 /// Public half of the release signing key (uncompressed P-256 point; the private half is the repo secret `UPDATE_SIGNING_KEY`).
@@ -420,7 +420,7 @@ mod tests {
 
     #[test]
     fn refuses_a_wrong_hash() {
-        let dir = std::env::temp_dir().join("rustywire-update-test");
+        let dir = std::env::temp_dir().join("rustwarden-update-test");
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("x.exe");
         std::fs::write(&file, b"MZ fake program").unwrap();

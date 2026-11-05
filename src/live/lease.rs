@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 
 const KEY: &str = "helper_leases";
 /// Group of the allow rules made here; not `firewall::GROUP`, so the Firewall tab and its change check ignore them.
-pub const GROUP: &str = "RustyWire helper lease";
+pub const GROUP: &str = "RustWarden helper lease";
 /// How long a lease lasts. Starting the helper again renews it once half is gone.
 const SECS: i64 = 600;
 const IDLE_RECHECK: i64 = 60;
@@ -207,7 +207,7 @@ mod tests {
     #[test]
     fn leases_round_trip() {
         let v = vec![
-            Lease { exe: r"C:\Windows\System32\curl.exe".into(), expires: 99, suspended: vec!["Block curl".into(), "RustyWire x".into()] },
+            Lease { exe: r"C:\Windows\System32\curl.exe".into(), expires: 99, suspended: vec!["Block curl".into(), "RustWarden x".into()] },
             Lease { exe: r"C:\a\speedtest.exe".into(), expires: 5, suspended: vec![] },
         ];
         assert_eq!(decode(&encode(&v)), v);
