@@ -1,0 +1,2 @@
+# Store and check out text files with LF so Windows autocrlf and LF-writing tools (rustfmt) agree.
+* text=auto eol=lf

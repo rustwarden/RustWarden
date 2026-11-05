@@ -1,0 +1,27 @@
+# Rust build output
+/target
+**/*.rs.bk
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Editors and IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Local environment and secrets
+.env
+.env.*
+*.local.toml
+
+# Logs and temp files
+*.log
+*.tmp
+*.bak
+

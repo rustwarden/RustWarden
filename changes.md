@@ -1,0 +1,1 @@
+- [Norman] feat: RustWarden 1.0.0, the first public release. Releases and updates come from this GitHub repo.

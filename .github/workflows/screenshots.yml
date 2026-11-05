@@ -1,0 +1,78 @@
+name: Screenshots
+
+# Renders the README screenshots from the app itself (Demo data, so no personal data), then commits them to docs/screenshots/.
+# Run it by hand: Actions > Screenshots > Run workflow.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  screenshots:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Build (release)
+        run: cargo build --release --locked
+
+      # The runner has no OpenGL 2.0 (the app's renderer needs it), so a pinned software OpenGL (Mesa llvmpipe)
+      # is copied beside the exe. Windows loads a DLL from the exe's folder before System32.
+      - name: Software OpenGL (Mesa llvmpipe 26.2.5)
+        env:
+          MESA_SHA256: 997123ef4ce8896204ab912d5b54f19372c487ff9835bcefafa2fca23b8953c2
+        run: |
+          mkdir -p "$RUNNER_TEMP/mesa"
+          curl -fsSL -o "$RUNNER_TEMP/mesa/mesa.7z" https://github.com/pal1000/mesa-dist-win/releases/download/26.2.5/mesa3d-26.2.5-release-msvc.7z
+          echo "$MESA_SHA256  $RUNNER_TEMP/mesa/mesa.7z" | sha256sum -c -
+          7z e "$RUNNER_TEMP/mesa/mesa.7z" -o"$RUNNER_TEMP/mesa" x64/opengl32.dll x64/libgallium_wgl.dll -y
+          cp "$RUNNER_TEMP/mesa/opengl32.dll" "$RUNNER_TEMP/mesa/libgallium_wgl.dll" target/release/
+
+      # Started from PowerShell so the real Windows exit code reaches the log (Git Bash's timeout squashes it to one byte).
+      - name: Capture the screens
+        shell: pwsh
+        env:
+          RUSTYWIRE_SHOTS: ${{ github.workspace }}\docs\screenshots
+          # Mesa would otherwise pick its D3D12 driver, which fails on the runner (E_INVALIDARG on the first frame).
+          GALLIUM_DRIVER: llvmpipe
+        run: |
+          New-Item -ItemType Directory -Force $env:RUSTYWIRE_SHOTS | Out-Null
+          # The app exits 0 once every PNG is written, and 1 if one failed; a hang is killed after 5 minutes.
+          $p = Start-Process -FilePath "target\release\rustywire.exe" -PassThru -RedirectStandardError "$env:RUNNER_TEMP\stderr.txt" -RedirectStandardOutput "$env:RUNNER_TEMP\stdout.txt"
+          if (-not $p.WaitForExit(300000)) { $p.Kill(); Write-Host "timed out" }
+          $code = $p.ExitCode
+          Write-Host ("rustywire exit code: {0} (0x{0:X})" -f $code)
+          Get-ChildItem $env:RUSTYWIRE_SHOTS
+          if ($code -ne 0) {
+            foreach ($f in "$env:RUNNER_TEMP\stderr.txt", "$env:RUNNER_TEMP\stdout.txt", "$env:TEMP\rustywire-panic.log", "$env:LOCALAPPDATA\RustWarden\rustywire.log") {
+              if (Test-Path $f) { Write-Host "--- $f"; Get-Content $f -Tail 60 }
+            }
+            exit $code
+          }
+
+      - name: Commit the screenshots
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/screenshots
+          if git diff --cached --quiet; then
+            echo "Screenshots unchanged"
+            exit 0
+          fi
+          git commit -m "docs: refresh README screenshots"
+          # Someone may have pushed while this ran: rebase onto the latest main and try again.
+          for i in 1 2 3 4 5; do
+            git pull --rebase origin "${GITHUB_REF_NAME}" && git push && exit 0
+            sleep 5
+          done
+          exit 1
