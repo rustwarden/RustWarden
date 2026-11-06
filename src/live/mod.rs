@@ -598,6 +598,10 @@ impl Backend for LiveBackend {
         self.fw.set_verdict(key, direction, verdict)
     }
 
+    fn block_program(&self, path: &str) -> Result<String, String> {
+        self.fw.block_path(path)
+    }
+
     fn remove_app(&self, key: &str) -> Result<(), String> {
         self.fw.remove_app(key)
     }

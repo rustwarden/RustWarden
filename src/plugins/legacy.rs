@@ -76,6 +76,13 @@ pub fn run(s: &mut Settings, raw: &toml::Table) -> bool {
         s.plugins.insert("ha".to_owned(), PluginState { enabled, ..PluginState::default() });
         changed = true;
     }
+    // Prometheus metrics were a General setting: keep them on, on the same port, as a plugin.
+    if !s.plugins.contains_key("prometheus") && raw.get("metrics").and_then(|v| v.as_bool()) == Some(true) {
+        let port = raw.get("metrics_port").and_then(|v| v.as_integer()).filter(|p| (1024..=65535).contains(p)).unwrap_or(9877);
+        manager::seed("prometheus", BTreeMap::from([("port".to_owned(), port.to_string())]), BTreeMap::new());
+        s.plugins.insert("prometheus".to_owned(), PluginState { enabled: true, ..PluginState::default() });
+        changed = true;
+    }
     changed
 }
 

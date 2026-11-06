@@ -682,6 +682,18 @@ impl FwController {
         self.apply_verdict(key, &path, direction, verdict)
     }
 
+    /// Blocks the program at `path` in both directions (its rules are RustWarden's own, so they show on the Firewall tab
+    /// and go with "Restore firewall defaults").
+    pub fn block_path(&self, path: &str) -> Result<String, String> {
+        self.need_admin()?;
+        let _g = self.lock_op();
+        let key = super::apps::key_for_path(path);
+        for direction in [Direction::Out, Direction::In] {
+            self.apply_verdict(&key, path, direction, Verdict::Blocked)?;
+        }
+        Ok(format!("Blocked {}", super::apps::file_name(path)))
+    }
+
     /// Adds or removes the block rule for `path`, or for one service inside it when `key` is a service row.
     /// The caller holds the op lock.
     fn apply_verdict(&self, key: &str, path: &str, direction: Direction, verdict: Verdict) -> Result<(), String> {

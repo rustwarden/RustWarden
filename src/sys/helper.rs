@@ -8,7 +8,30 @@ use std::io::{BufRead, Read};
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+/// Each plugin's running helper, with the flag that asks it to stop.
+static RUNNING: Mutex<Vec<(String, Arc<AtomicBool>)>> = Mutex::new(Vec::new());
+
+/// Asks the plugin's running helper to stop; it is killed within a fraction of a second.
+pub fn stop(plugin: &str) {
+    for (p, flag) in RUNNING.lock().unwrap_or_else(|e| e.into_inner()).iter() {
+        if p == plugin {
+            flag.store(true, Ordering::SeqCst);
+        }
+    }
+}
+
+/// Stops every helper as RustWarden closes, so none is left running (a tunnel, say) with nothing to manage it.
+pub fn stop_all() {
+    let running = RUNNING.lock().unwrap_or_else(|e| e.into_inner());
+    running.iter().for_each(|(_, flag)| flag.store(true, Ordering::SeqCst));
+    if !running.is_empty() {
+        std::thread::sleep(Duration::from_millis(300));
+    }
+}
 
 fn user_dir(plugin: &str) -> PathBuf {
     crate::settings::data_dir().join(plugin)
@@ -57,7 +80,8 @@ pub fn ready(plugin: &str, exe: &str, exe_sha256: &str) -> bool {
     dir(plugin).join(exe).is_file()
 }
 
-/// Downloads `url`, checks the zip against `zip_sha256` and unpacks `exe` from it. Blocks, so callers run it on a worker.
+/// Downloads `url`, checks it against `zip_sha256` and unpacks `exe` from it (a url ending in `.exe` is the program
+/// itself, so it is only checked). Blocks, so callers run it on a worker.
 pub fn install(plugin: &str, url: &str, zip_sha256: &str, exe: &str) -> Result<(), String> {
     if !valid_exe_name(exe) {
         return Err("that isn't a program name".into());
@@ -71,6 +95,10 @@ pub fn install(plugin: &str, url: &str, zip_sha256: &str, exe: &str) -> Result<(
     if !sha_of(&zip).eq_ignore_ascii_case(zip_sha256) {
         let _ = std::fs::remove_file(&zip);
         return Err("The download did not match the expected checksum, so it was thrown away.".into());
+    }
+    if url.to_ascii_lowercase().ends_with(".exe") {
+        let _ = std::fs::remove_file(dir.join(exe));
+        return std::fs::rename(&zip, dir.join(exe)).map_err(|e| format!("Can't save {exe}: {e}"));
     }
     // tar.exe ships with Windows 10+ and reads zip files, so no archive crate is needed.
     let mut tar = crate::sys::tool("tar.exe");
@@ -99,7 +127,7 @@ pub fn start(
     exe: &str,
     args: Vec<String>,
     timeout: Duration,
-    on_line: impl Fn(String) + Send + 'static,
+    on_line: impl Fn(String) + Send + Sync + 'static,
     on_done: impl FnOnce(Result<String, String>) + Send + 'static,
 ) -> Result<(), String> {
     if !valid_exe_name(exe) {
@@ -109,15 +137,42 @@ pub fn start(
     if !path.is_file() {
         return Err(format!("{exe} isn't downloaded yet"));
     }
+    let stop = Arc::new(AtomicBool::new(false));
+    {
+        let mut running = RUNNING.lock().unwrap_or_else(|e| e.into_inner());
+        running.retain(|(p, f)| p != plugin && !Arc::ptr_eq(f, &stop));
+        running.push((plugin.to_owned(), stop.clone()));
+    }
     std::thread::spawn(move || {
         let mut cmd = Command::new(&path);
         cmd.args(&args).stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null()).creation_flags(crate::sys::NO_WINDOW);
         let mut child = match crate::sys::etw::spawn_own(&mut cmd) {
             Ok(c) => c,
-            Err(e) => return on_done(Err(format!("Can't run the program: {e}"))),
+            Err(e) => {
+                RUNNING.lock().unwrap_or_else(|e| e.into_inner()).retain(|(_, f)| !Arc::ptr_eq(f, &stop));
+                return on_done(Err(format!("Can't run the program: {e}")));
+            }
         };
         let (stdout, mut stderr) = (child.stdout.take(), child.stderr.take());
+        // A program that runs until stopped (a tunnel) logs to stderr as it goes, so those lines are passed on too
+        // (and read while it runs, so the pipe never fills); otherwise stderr is only read at the end.
+        let stream_err = timeout.is_zero();
+        let on_line = Arc::new(on_line);
         let reader = std::thread::spawn(move || {
+            let err_lines = stderr.take().filter(|_| stream_err).map(|e| {
+                let on_line = on_line.clone();
+                std::thread::spawn(move || {
+                    let mut tail = std::collections::VecDeque::new();
+                    for line in std::io::BufReader::new(e).lines().map_while(Result::ok) {
+                        on_line(line.clone());
+                        if tail.len() == 20 {
+                            tail.pop_front();
+                        }
+                        tail.push_back(line);
+                    }
+                    Vec::from(tail).join("\n")
+                })
+            });
             if let Some(o) = stdout {
                 for line in std::io::BufReader::new(o).lines().map_while(Result::ok) {
                     on_line(line);
@@ -127,13 +182,18 @@ pub fn start(
             if let Some(e) = &mut stderr {
                 let _ = e.read_to_string(&mut rest);
             }
-            rest
+            err_lines.map_or(rest, |t| t.join().unwrap_or_default())
         });
         let started = Instant::now();
         let end = loop {
             match child.try_wait() {
                 Ok(Some(_)) => break Ok(()),
-                Ok(None) if started.elapsed() > timeout => {
+                Ok(None) if stop.load(Ordering::SeqCst) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break Err("The program was stopped".to_owned());
+                }
+                Ok(None) if !timeout.is_zero() && started.elapsed() > timeout => {
                     let _ = child.kill();
                     let _ = child.wait();
                     break Err("The program timed out".to_owned());
@@ -143,6 +203,7 @@ pub fn start(
             }
         };
         let stderr = reader.join().unwrap_or_default();
+        RUNNING.lock().unwrap_or_else(|e| e.into_inner()).retain(|(_, f)| !Arc::ptr_eq(f, &stop));
         on_done(end.map(|()| stderr));
     });
     Ok(())

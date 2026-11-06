@@ -161,6 +161,26 @@ pub fn helper_start(exe: &str, args: &[String], timeout_secs: u32) -> Result<(),
     text(host(&HostCall::HelperStart { exe: exe.into(), args: args.to_vec(), timeout_secs })).map(|_| ())
 }
 
+/// Needs "helper.exe". Stops the helper program started with [`helper_start`].
+pub fn helper_stop() {
+    let _ = host(&HostCall::HelperStop);
+}
+
+/// The UPnP router found by [`upnp_discover`].
+#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize)]
+pub struct Gateway {
+    /// The router's description (an http address on the private network).
+    pub location: String,
+    /// This PC's address on the router's network.
+    pub local_ip: String,
+}
+
+/// Needs "upnp". Takes about 3 seconds.
+pub fn upnp_discover() -> Result<Gateway, String> {
+    let json = text(host(&HostCall::UpnpDiscover))?;
+    serde_json::from_str(&json).map_err(|e| e.to_string())
+}
+
 /// How often this plugin wants `Call::Tick`, in milliseconds (0 = as the manifest says).
 pub fn set_tick(millis: u32) {
     let _ = host(&HostCall::SetTick { millis });

@@ -34,6 +34,9 @@ const PLUGINS: &[(&str, &str)] = &[
     ("opnsense", "plugin-opnsense"),
     ("speedtest", "plugin-speedtest"),
     ("thinkbroadband", "plugin-thinkbroadband"),
+    ("prometheus", "plugin-prometheus"),
+    ("upnp", "plugin-upnp"),
+    ("cloudflare", "plugin-cloudflare"),
 ];
 
 /// Builds the plugins for wasm32-wasip1 into OUT_DIR/plugins/<id>.wasm so `bundled.rs` can embed them.

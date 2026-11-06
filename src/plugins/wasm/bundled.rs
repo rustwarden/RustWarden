@@ -13,7 +13,7 @@ macro_rules! bundle {
 }
 
 // Keep in step with PLUGINS in build.rs.
-bundle!("discord", "slack", "pushbullet", "ntfy", "gotify", "webhook", "ping", "ha", "virustotal", "opnsense", "speedtest", "thinkbroadband");
+bundle!("discord", "slack", "pushbullet", "ntfy", "gotify", "webhook", "ping", "ha", "virustotal", "opnsense", "speedtest", "thinkbroadband", "prometheus", "upnp", "cloudflare");
 
 /// Every built-in plugin that loads, in list order. One that fails to load is skipped (and logged), never fatal.
 pub fn found() -> Vec<Found> {
@@ -40,6 +40,59 @@ mod tests {
     fn load(id: &str) -> Option<crate::plugins::wasm::loader::Plugin> {
         let bytes = ALL.iter().find(|(i, _)| *i == id).map(|(_, b)| *b).filter(|b| !b.is_empty())?;
         Some(Plugin::load(bytes).unwrap())
+    }
+
+    #[test]
+    fn the_prometheus_plugin_keeps_its_port() {
+        use plugin_sdk::{Call, Event, Reply};
+        use rusqlite::Connection;
+        use std::collections::BTreeSet;
+        let Some(mut p) = load("prometheus") else { return };
+        assert_eq!(p.manifest.permissions, ["metrics.serve".to_owned()]);
+        p.bind(Connection::open_in_memory().unwrap(), BTreeSet::from(["metrics.serve".to_owned()]), false).unwrap();
+        assert!(matches!(p.call(&Call::Event(Event::Number { id: "port".into(), value: 80.0 })).unwrap(), Reply::Done));
+        assert_eq!(p.host().config.get("port").map(String::as_str), Some("1024"), "a privileged port is raised to 1024");
+    }
+
+    /// Demo mode forwards against a made-up router: the mapping is listed with a public address and can be removed.
+    #[test]
+    fn the_upnp_plugin_forwards_and_removes_in_demo() {
+        use plugin_sdk::{Call, Event, Reply};
+        use rusqlite::Connection;
+        use std::collections::BTreeSet;
+        let Some(mut p) = load("upnp") else { return };
+        assert_eq!(p.manifest.permissions, ["upnp".to_owned()]);
+        p.bind(Connection::open_in_memory().unwrap(), BTreeSet::from(["upnp".to_owned()]), true).unwrap();
+        let click = |p: &mut crate::plugins::wasm::loader::Plugin, id: &str| p.call(&Call::Event(Event::Click { id: id.into() })).unwrap();
+        click(&mut p, "forward");
+        let maps = p.host().config.get("maps").cloned().unwrap_or_default();
+        assert_eq!(maps.lines().count(), 1, "{maps}");
+        let Reply::Ui(tree) = p.call(&Call::RenderTab { tab: "upnp".into() }).unwrap() else { panic!("no page") };
+        assert!(format!("{tree:?}").contains("Copy address"));
+        click(&mut p, "rm:0");
+        assert_eq!(p.host().config.get("maps").map(String::as_str), Some(""));
+    }
+
+    /// Demo mode starts and stops a pretend tunnel without running anything.
+    #[test]
+    fn the_cloudflare_plugin_pretends_in_demo() {
+        use plugin_sdk::{Call, Event, Reply};
+        use rusqlite::Connection;
+        use std::collections::BTreeSet;
+        let Some(mut p) = load("cloudflare") else { return };
+        assert_eq!(p.manifest.permissions, ["helper.exe".to_owned()]);
+        p.bind(Connection::open_in_memory().unwrap(), BTreeSet::from(["helper.exe".to_owned()]), true).unwrap();
+        p.host().config.insert("mode".into(), "token".into());
+        p.host().secrets.insert("token".into(), "eyJhIjoiYWJjZGVmZ2hpamtsbW5vcCJ9".into());
+        let page = |p: &mut crate::plugins::wasm::loader::Plugin| match p.call(&Call::RenderTab { tab: "tunnel".into() }).unwrap() {
+            Reply::Ui(tree) => format!("{tree:?}"),
+            other => panic!("{other:?}"),
+        };
+        assert!(page(&mut p).contains("Stopped"));
+        p.call(&Call::Event(Event::Click { id: "start".into() })).unwrap();
+        assert!(page(&mut p).contains("Running"));
+        p.call(&Call::Event(Event::Click { id: "stop".into() })).unwrap();
+        assert!(page(&mut p).contains("Stopped"));
     }
 
     /// The ping plugin the way the manager runs it: its schema, then a tick, then the page and the chart's own query.

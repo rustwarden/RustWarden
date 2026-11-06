@@ -123,7 +123,7 @@ impl Host {
                     return Err("a helper program is already running".into());
                 }
                 let (busy, done_notify, line_notify) = (self.helper_busy.clone(), notify.clone(), notify);
-                let timeout = std::time::Duration::from_secs(u64::from(timeout_secs.clamp(1, 600)));
+                let timeout = std::time::Duration::from_secs(if timeout_secs == 0 { 0 } else { u64::from(timeout_secs.clamp(1, 600)) });
                 let started = crate::sys::helper::start(
                     &self.id,
                     &exe,
@@ -142,6 +142,17 @@ impl Host {
                     self.helper_busy.store(false, Ordering::SeqCst);
                 }
                 started.map(|()| String::new())
+            }
+            HostCall::HelperStop => {
+                crate::sys::helper::stop(&self.id);
+                Ok(String::new())
+            }
+            HostCall::UpnpDiscover => {
+                if self.demo {
+                    return Err("UPnP isn't used in Demo mode".into());
+                }
+                let g = crate::sys::upnp::discover()?;
+                Ok(serde_json::json!({"location": g.location, "local_ip": g.local_ip}).to_string())
             }
             HostCall::SetTick { millis } => {
                 self.tick_ms = (millis != 0).then(|| millis.clamp(50, 3_600_000));

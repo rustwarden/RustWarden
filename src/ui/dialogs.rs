@@ -1750,16 +1750,6 @@ fn general_section(ui: &mut Ui, s: &mut Settings, out: &mut Outcome) {
         );
     });
 
-    group(ui, "Prometheus metrics", |c| {
-        c.row("Serve metrics", "Prometheus text metrics for programs on this computer only. Off by default.", |ui| {
-            crate::widgets::small_toggle(ui, &mut s.metrics);
-        });
-        c.enable(s.metrics);
-        c.row("Port", &format!("http://127.0.0.1:{}/metrics", s.metrics_port), |ui| {
-            ui.add(egui::DragValue::new(&mut s.metrics_port).range(1024..=65535));
-        });
-    });
-
     group(ui, "History", |c| {
         c.row("Traffic history", "How long Live mode keeps traffic history.", |ui| {
             crate::widgets::num_field(ui, &mut s.retention_days, 1..=3650, " days");

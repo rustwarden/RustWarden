@@ -100,6 +100,11 @@ fn draw(ui: &mut Ui, tree: &mut UiTree, env: &Env, ev: &mut Vec<Event>) {
         UiTree::Column(children) => {
             ui.vertical(|ui| children.iter_mut().for_each(|c| draw(ui, c, env, ev)));
         }
+        UiTree::Copy { label, value } => {
+            if ui.button(label.as_str()).clicked() {
+                ui.ctx().copy_text(value.chars().take(500).collect());
+            }
+        }
         UiTree::Separator => {
             ui.separator();
         }

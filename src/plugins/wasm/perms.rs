@@ -10,7 +10,8 @@ pub fn needed(call: &HostCall) -> Option<&'static str> {
         HostCall::Devices => Some("devices.annotate"),
         HostCall::RaiseAlert { .. } => Some("alerts.write"),
         HostCall::BrowserSignIn | HostCall::BrowserFetch { .. } | HostCall::BrowserSignOut => Some("browser.session"),
-        HostCall::HelperReady { .. } | HostCall::HelperInstall { .. } | HostCall::HelperStart { .. } => Some("helper.exe"),
+        HostCall::HelperReady { .. } | HostCall::HelperInstall { .. } | HostCall::HelperStart { .. } | HostCall::HelperStop => Some("helper.exe"),
+        HostCall::UpnpDiscover => Some("upnp"),
         _ => None,
     }
 }

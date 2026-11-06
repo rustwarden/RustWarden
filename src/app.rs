@@ -339,6 +339,8 @@ pub enum ConfirmAction {
         rename: bool,
     },
     BlockWindowsExtras,
+    /// Block the program picked on screen (its exe path).
+    BlockProgram(String),
     /// Apply a rules file chosen in Settings > Other (see `rules_file`).
     ApplyRules(Box<crate::rules_file::RulesFile>),
     /// End one open connection (Live connections tab).
@@ -504,6 +506,9 @@ pub struct RustWarden {
     /// The open tray menu, if any.
     pub(crate) tray_menu: Option<crate::ui::TrayMenu>,
     pub(crate) tray_act: Option<crate::ui::TrayAct>,
+    /// The "Block an app by clicking it" picker: running now, and its answer (the program, or `None` when cancelled).
+    pub(crate) picking: bool,
+    pub(crate) picked: Arc<Mutex<Option<Option<crate::sys::picker::Pick>>>>,
     /// A timed Prompt: when it ends (unix time) and the mode to go back to (`None` was Disabled).
     pub(crate) prompt_timer: Option<(i64, Option<FirewallMode>)>,
     /// The mode seen at the last poll (`None` before the first), to notice Prompt being switched on.
@@ -767,6 +772,8 @@ impl RustWarden {
             window_visible: true,
             tray_menu: None,
             tray_act: None,
+            picking: false,
+            picked: Arc::default(),
             prompt_timer: None,
             prompt_seen: None,
             quitting: false,
@@ -1007,6 +1014,8 @@ Start RustWarden as administrator once: it undoes Block All automatically."
             self.notify(&format!("Couldn't save settings: {e}"));
         }
         self.backend = make_backend(&self.settings);
+        // The endpoint reads from the old backend; apply_metrics starts a new one.
+        self.metrics = None;
         self.backend.set_repaint(ctx.clone());
         self.backend.set_traffic_filter(&self.traffic.filter);
         self.traffic.window = default_window(mode);
@@ -1318,6 +1327,10 @@ Start RustWarden as administrator once: it undoes Block All automatically."
                 self.open_settings();
                 ui.close();
             }
+            if row(ui, Icon::Click, "Block an app by clicking it") {
+                self.start_picker(&ctx);
+                ui.close();
+            }
             if row(ui, Icon::Export, "Save snapshot") {
                 self.request_snapshot(&ctx);
                 ui.close();
@@ -1518,6 +1531,7 @@ Start RustWarden as administrator once: it undoes Block All automatically."
                     Ok(if failed == 0 { format!("Imported rules: {done} applied") } else { format!("Imported rules: {done} applied, {failed} couldn't be (program not found or protected)") })
                 })
             }
+            ConfirmAction::BlockProgram(path) => self.run_bg(move |b| b.block_program(&path)),
             ConfirmAction::BlockWindowsExtras => self.run_bg(|b| b.block_windows_extras().map(|n| format!("Blocked internet access for {n} Windows program(s)"))),
             ConfirmAction::WindowsExtras { group, act } => self.run_bg(move |b| {
                 b.windows_extras_act(group, act).map(|n| match (n, act) {
@@ -1613,7 +1627,9 @@ Start RustWarden as administrator once: it undoes Block All automatically."
     /// Shows the outcome of a finished snapshot.
     /// Starts, restarts or stops the metrics endpoint to match Settings > Integrations. Dropping the old one stops it.
     pub(crate) fn apply_metrics(&mut self) {
-        let want = self.settings.metrics.then_some(self.settings.metrics_port);
+        // On while the Prometheus plugin runs; its port is the plugin's own setting.
+        let want = crate::plugins::wasm::manager::granted_settings("prometheus", "metrics.serve")
+            .map(|(config, _)| config.get("port").and_then(|p| p.parse::<u16>().ok()).filter(|p| *p >= 1024).unwrap_or(9877));
         if self.metrics.as_ref().map(|m| m.port()) == want {
             return;
         }
@@ -1621,6 +1637,44 @@ Start RustWarden as administrator once: it undoes Block All automatically."
         if let Some(port) = want {
             let backend = self.backend.clone();
             self.metrics = Some(crate::metrics::Endpoint::start(port, Arc::new(move || backend.metrics_snapshot())));
+        }
+    }
+
+    /// Starts "Block an app by clicking it": a + cursor over the screen that tints the window under the mouse.
+    pub(crate) fn start_picker(&mut self, ctx: &egui::Context) {
+        if self.picking {
+            return;
+        }
+        self.picking = true;
+        self.notify("Click the app to block. Esc or a right click cancels.");
+        let (slot, ctx) = (self.picked.clone(), ctx.clone());
+        crate::sys::picker::start(move |pick| {
+            *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(pick);
+            ctx.request_repaint();
+        });
+    }
+
+    /// Asks before blocking what the picker found.
+    fn poll_picker(&mut self, ctx: &egui::Context) {
+        let Some(pick) = self.picked.lock().unwrap_or_else(|e| e.into_inner()).take() else { return };
+        self.picking = false;
+        let Some(pick) = pick else { return };
+        // Started from the tray, the window may be hidden, and the confirmation is in it.
+        self.show_window(ctx, true);
+        let own = std::env::current_exe().map(|p| p.to_string_lossy().to_lowercase()).unwrap_or_default();
+        if pick.path.to_lowercase() == own {
+            return self.notify("That is RustWarden itself.");
+        }
+        let name = pick.path.rsplit(['\\', '/']).next().unwrap_or(&pick.path).to_owned();
+        if matches!(self.dialog, None | Some(Dialog::Info { .. })) {
+            self.dialog = Some(Dialog::Confirm(Confirm {
+                title: format!("Block {name}?"),
+                body: format!("{}\n\nThis blocks the program's internet access in both directions. Undo it from the Firewall tab.", pick.path),
+                yes: "Block it".into(),
+                action: ConfirmAction::BlockProgram(pick.path),
+            }));
+        } else {
+            self.notify("Close the open dialog, then pick the app again.");
         }
     }
 
@@ -1823,6 +1877,8 @@ impl eframe::App for RustWarden {
         self.poll_whois();
         self.poll_alert_check();
         self.poll_history_export();
+        self.apply_metrics();
+        self.poll_picker(&ctx);
         self.poll_weekly_report();
         // Close button / taskbar close hide to the tray; only tray Exit really quits.
         // Without a tray icon there would be no way back, so the window just closes (after the password, if set).
@@ -1923,6 +1979,7 @@ impl eframe::App for RustWarden {
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         crate::live::geo::QUIT.store(true, std::sync::atomic::Ordering::Relaxed);
+        crate::sys::helper::stop_all();
         self.backend.exit();
     }
 }

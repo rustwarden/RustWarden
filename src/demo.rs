@@ -671,6 +671,10 @@ impl Backend for MockBackend {
             .collect()
     }
 
+    fn block_program(&self, path: &str) -> Result<String, String> {
+        Ok(format!("Demo: {} would be blocked", path.rsplit(['\\', '/']).next().unwrap_or(path)))
+    }
+
     fn set_verdict(&self, key: &str, direction: Direction, verdict: Verdict) -> Result<(), String> {
         let mut s = self.state();
         let app = s.apps.iter_mut().find(|a| a.key == key).ok_or("Unknown app")?;

@@ -12,11 +12,21 @@ use std::path::PathBuf;
 /// The one dialog open on this page, kept in egui's temp data.
 #[derive(Clone)]
 enum Modal {
-    Approve { id: String, grant: Vec<bool> },
+    Approve {
+        id: String,
+        grant: Vec<bool>,
+    },
     Settings(String),
     Permissions(String),
-    Remove { path: Option<PathBuf>, id: Option<String>, name: String, data: bool },
+    Remove {
+        path: Option<PathBuf>,
+        id: Option<String>,
+        name: String,
+        data: bool,
+    },
     Install(String),
+    /// Uninstalled built-in plugins to bring back: (id, name, ticked).
+    Reinstall(Vec<(String, String, bool)>),
 }
 
 fn modal_id() -> egui::Id {
@@ -106,6 +116,8 @@ fn perm_text(p: &str) -> &'static str {
         "alerts.read" => "Read your alerts, and send them on to the sites it may contact",
         "alerts.write" => "Raise alerts of its own (shown, logged and sent on like RustWarden's own)",
         "devices.annotate" => "Read the devices found by the network scan and add names or badges to them",
+        "upnp" => "Find your router and open or close ports on it with UPnP",
+        "metrics.serve" => "Serve RustWarden's metrics on this computer (127.0.0.1) at the port you set",
         "programs.hash" => "See the file hash and name of programs that use the network",
         "helper.exe" => "Download a helper program and run it",
         "browser.session" => "Open a sign-in window for its site and fetch pages from it",
@@ -212,16 +224,12 @@ fn files(ui: &mut Ui, s: &mut Settings, kind: Kind) {
     }
     if !removed.is_empty() {
         ui.add_space(8.0);
-        ui.label(egui::RichText::new("Uninstalled").strong());
-        for f in removed {
-            ui.horizontal(|ui| {
-                ui.label(&f.manifest.name);
-                if ui.button("Restore").clicked() {
-                    s.plugins.entry(f.manifest.id.clone()).or_default().removed = false;
-                    manager::preview(&s.plugins);
-                }
-            });
-        }
+        ui.horizontal(|ui| {
+            ui.weak(format!("{} built-in plugin(s) uninstalled", removed.len()));
+            if ui.button("Reinstall default plugins…").clicked() {
+                open = Some(Modal::Reinstall(removed.iter().map(|f| (f.manifest.id.clone(), f.manifest.name.clone(), true)).collect()));
+            }
+        });
     }
     // Files that didn't load: shown once, under the System page only.
     if kind == Kind::System {
@@ -422,6 +430,40 @@ fn modal(ctx: &egui::Context, s: &mut Settings) {
                 close = true;
             }
         }
+        Modal::Reinstall(items) => {
+            let mut go = false;
+            if !widgets::dialog("Reinstall default plugins").show(ctx, |ui| {
+                ui.set_width(420.0);
+                ui.spacing_mut().item_spacing.y = 6.0;
+                ui.label("These built-in plugins were uninstalled. Tick the ones to bring back; they return switched off, with the settings and data they had if you kept them.");
+                egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
+                    for (_, name, on) in items.iter_mut() {
+                        widgets::switch(ui, on, name.as_str());
+                    }
+                });
+                ui.horizontal(|ui| {
+                    let all = items.iter().all(|i| i.2);
+                    if ui.button(if all { "Select none" } else { "Select all" }).clicked() {
+                        items.iter_mut().for_each(|i| i.2 = !all);
+                    }
+                    if ui.add_enabled(items.iter().any(|i| i.2), egui::Button::new("Reinstall")).clicked() {
+                        go = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        close = true;
+                    }
+                });
+            }) {
+                close = true;
+            }
+            if go {
+                for (id, _, _) in items.iter().filter(|i| i.2) {
+                    s.plugins.entry(id.clone()).or_default().removed = false;
+                }
+                manager::preview(&s.plugins);
+                close = true;
+            }
+        }
         Modal::Install(path) => {
             let mut install = false;
             if !widgets::dialog("Install plugin").show(ctx, |ui| {
@@ -456,7 +498,7 @@ mod tests {
 
     #[test]
     fn every_permission_the_host_knows_has_a_description() {
-        for p in ["alerts.read", "alerts.write", "ping", "devices.annotate", "programs.hash", "helper.exe", "browser.session"] {
+        for p in ["alerts.read", "alerts.write", "ping", "devices.annotate", "programs.hash", "metrics.serve", "upnp", "helper.exe", "browser.session"] {
             assert!(!perm_text(p).starts_with("A permission this version"), "{p}");
         }
     }

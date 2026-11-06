@@ -113,6 +113,11 @@ pub enum UiTree {
     /// A whole-tab page of latency and packet-loss charts, drawn by RustWarden (the layout Broadband Quality
     /// and Ping share). It must be the only thing on its tab page.
     LatencyChart(Box<LatencyChart>),
+    /// A button that copies `value` to the clipboard (at most 500 characters).
+    Copy {
+        label: String,
+        value: String,
+    },
 }
 
 /// One chart on a [`LatencyChart`] page.
@@ -370,14 +375,17 @@ pub enum HostCall {
         exe_sha256: String,
     },
     /// Downloads the zip at `url` (https, on one of the manifest's `http_hosts`), checks it against `zip_sha256`
-    /// and unpacks `exe`. Blocks until done. Needs "helper.exe".
+    /// and unpacks `exe`; when `url` ends in `.exe` it is the program itself and is only checked. Blocks until done.
+    /// Needs "helper.exe".
     HelperInstall {
         url: String,
         zip_sha256: String,
         exe: String,
     },
     /// Runs the downloaded `exe` with `args` (no shell) and returns at once; each line it prints comes back as
-    /// `Call::HelperLine`, then one `Call::HelperDone`. One at a time. Needs "helper.exe".
+    /// `Call::HelperLine`, then one `Call::HelperDone`. One at a time. `timeout_secs` is 1 to 600, or 0 to let it run
+    /// until `HelperStop` or until RustWarden closes; then the lines it prints to its error output come back as `Call::HelperLine`
+    /// too, as they happen. Needs "helper.exe".
     HelperStart {
         exe: String,
         args: Vec<String>,
@@ -387,6 +395,12 @@ pub enum HostCall {
     SetTick {
         millis: u32,
     },
+    /// Stops the running helper program (the one `HelperStart` began); a no-op when none runs. Needs "helper.exe".
+    HelperStop,
+    /// Looks for a UPnP router on the network (about 3 seconds) and answers a JSON `{"location","local_ip"}`: the address
+    /// of the router's description (always a private-network http address) and this PC's address on that network.
+    /// Needs "upnp".
+    UpnpDiscover,
     /// The devices the network scan has found, as a JSON array of `{"mac","ip","name"}` (empty in Demo mode).
     /// A plugin with this permission also fills its `p_<id>__devices` table (mac, found, name, area, kind, model, url),
     /// which RustWarden reads to name and mark those devices on the Scanner tab. Needs "devices.annotate".

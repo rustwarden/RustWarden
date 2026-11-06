@@ -1010,6 +1010,9 @@ pub trait Backend: Send + Sync {
     fn firewall_info(&self) -> FirewallInfo;
     fn firewall_apps(&self) -> Vec<FirewallApp>;
     fn set_verdict(&self, key: &str, direction: Direction, verdict: Verdict) -> Result<(), String>;
+    /// Blocks the program at `path` in both directions, even one RustWarden has not seen use the network yet
+    /// (picked on screen with "Block an app by clicking it"). Returns what to tell the user.
+    fn block_program(&self, path: &str) -> Result<String, String>;
     /// Forgets the user's decisions for one app: deletes its RustWarden rules and takes it off the
     /// list until it is active again. It never touches rules RustWarden didn't create.
     fn remove_app(&self, key: &str) -> Result<(), String>;
