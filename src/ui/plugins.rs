@@ -104,6 +104,7 @@ fn perm_text(p: &str) -> &'static str {
     match p {
         "ping" => "Send pings (ICMP) to addresses you enter",
         "alerts.read" => "Read your alerts, and send them on to the sites it may contact",
+        "alerts.write" => "Raise alerts of its own (shown, logged and sent on like RustWarden's own)",
         "devices.annotate" => "Read the devices found by the network scan and add names or badges to them",
         "programs.hash" => "See the file hash and name of programs that use the network",
         "helper.exe" => "Download a helper program and run it",
@@ -447,4 +448,16 @@ fn modal(ctx: &egui::Context, s: &mut Settings) {
         }
     }
     set_modal(ctx, if close { None } else { Some(m) });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::perm_text;
+
+    #[test]
+    fn every_permission_the_host_knows_has_a_description() {
+        for p in ["alerts.read", "alerts.write", "ping", "devices.annotate", "programs.hash", "helper.exe", "browser.session"] {
+            assert!(!perm_text(p).starts_with("A permission this version"), "{p}");
+        }
+    }
 }

@@ -11,3 +11,4 @@
 - [Norman] fix: removing a plugin with "Remove Plugin Data" ticked now waits (unseen) for the plugin to stop before deleting its settings and tables, so nothing is still writing to them.
 - [Norman] fix: the plugin list drops the Running/Off text (the switch says it) so the Permissions button is no longer overlapped, and the permissions dialog no longer draws a missing-glyph square.
 - [Norman] fix: built-in plugins without an image icon (the notification services, Ping Monitor, Speedtest, VirusTotal, OPNsense) show their painted logos again on Settings > Plugins.
+- [Norman] fix: the permissions dialog describes the "alerts.write" permission (thinkbroadband) instead of calling it unknown.
