@@ -100,6 +100,21 @@ fn draw(ui: &mut Ui, tree: &mut UiTree, env: &Env, ev: &mut Vec<Event>) {
         UiTree::Column(children) => {
             ui.vertical(|ui| children.iter_mut().for_each(|c| draw(ui, c, env, ev)));
         }
+        UiTree::Card { title, rows } => {
+            ui.scope(|ui| {
+                crate::ui::fluent::style(ui);
+                crate::ui::fluent::group(ui, title, |c| {
+                    for r in rows.iter_mut() {
+                        match r {
+                            UiTree::Setting { title, sub, control } => c.row(title, sub, |ui| draw(ui, control, env, ev)),
+                            other => c.block(|ui| draw(ui, other, env, ev)),
+                        }
+                    }
+                });
+            });
+            ui.add_space(8.0);
+        }
+        UiTree::Setting { control, .. } => draw(ui, control, env, ev),
         UiTree::Copy { label, value } => {
             if ui.button(label.as_str()).clicked() {
                 ui.ctx().copy_text(value.chars().take(500).collect());

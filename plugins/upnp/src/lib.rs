@@ -210,57 +210,52 @@ fn num(key: &str, default: u16) -> u16 {
     guest::config_get(key).parse().ok().filter(|p| *p >= 1).unwrap_or(default)
 }
 
+fn setting(title: &str, sub: &str, control: UiTree) -> UiTree {
+    UiTree::Setting { title: title.into(), sub: sub.into(), control: Box::new(control) }
+}
+
 fn page() -> UiTree {
     let ip = guest::config_get("ext_ip");
     let router = saved_router();
-    let mut rows = vec![
-        UiTree::Weak(
-            "For when you can't reach the router's own settings: RustWarden asks the router (UPnP) to open a random public port that leads to a port on this PC. Needs UPnP switched on in the router."
-                .into(),
-        ),
-        UiTree::Row(vec![
-            UiTree::Button { id: "find".into(), text: "Find my router".into() },
-            UiTree::Label(match (&router, ip.is_empty()) {
-                (None, _) => "No router found yet".to_owned(),
-                (Some(_), true) => "Router found; its public address is unknown".to_owned(),
-                (Some(_), false) => format!("Router found. Public address: {ip}"),
-            }),
-        ]),
-    ];
+    let status = match (&router, ip.is_empty()) {
+        (None, _) => "No router found yet".to_owned(),
+        (Some(_), true) => "Router found; its public address is unknown".to_owned(),
+        (Some(_), false) => format!("Router found. Public address: {ip}"),
+    };
+    let mut router_rows = vec![setting("Router", &format!("{status}. Needs UPnP switched on in the router."), UiTree::Button { id: "find".into(), text: "Find my router".into() })];
     if !ip.is_empty() && not_public(&ip) {
-        rows.push(UiTree::Label("⚠ The router's address is not a public one (your provider shares one address between customers, or another router sits in front). A forwarded port will not be reachable from the internet.".into()));
+        router_rows.push(UiTree::Label("⚠ The router's address is not a public one (your provider shares one address between customers, or another router sits in front). A forwarded port will not be reachable from the internet.".into()));
     }
     let msg = guest::config_get("msg");
     if !msg.is_empty() {
-        rows.push(UiTree::Label(msg));
+        router_rows.push(UiTree::Label(msg));
     }
-    rows.push(UiTree::Separator);
-    rows.push(UiTree::Heading("Forward a port".into()));
-    rows.push(UiTree::Row(vec![
-        UiTree::Label("Port on this PC".into()),
-        UiTree::Number { id: "internal".into(), value: f64::from(num("internal", 80)), min: 1.0, max: 65535.0 },
-        UiTree::Dropdown { id: "proto".into(), options: PROTOS.iter().map(|p| (*p).to_owned()).collect(), selected: usize::from(guest::config_get("proto") == "UDP") },
-        UiTree::TextField { id: "desc".into(), value: guest::config_get("desc") },
-        UiTree::Button { id: "forward".into(), text: "Forward".into() },
-    ]));
-    rows.push(UiTree::Weak("The description names the mapping on the router, as \"RustWarden: <description>\".".into()));
-    rows.push(UiTree::Separator);
+    let proto = UiTree::Dropdown { id: "proto".into(), options: PROTOS.iter().map(|p| (*p).to_owned()).collect(), selected: usize::from(guest::config_get("proto") == "UDP") };
+    let form = vec![
+        setting("Port on this PC", "The service to reach, such as 80 for a web server.", UiTree::Number { id: "internal".into(), value: f64::from(num("internal", 80)), min: 1.0, max: 65535.0 }),
+        setting("Protocol", "", proto),
+        setting("Description", "Names the mapping on the router, as \"RustWarden: <description>\".", UiTree::TextField { id: "desc".into(), value: guest::config_get("desc") }),
+        setting("Open a public port", "The router picks a random public port that leads here.", UiTree::Button { id: "forward".into(), text: "Forward".into() }),
+    ];
     let maps = load_maps();
-    rows.push(UiTree::Heading("Forwarded ports".into()));
+    let mut list = Vec::new();
     if maps.is_empty() {
-        rows.push(UiTree::Weak("None yet.".into()));
+        list.push(UiTree::Weak("None yet.".into()));
     }
     for (i, m) in maps.iter().enumerate() {
         let shown = if ip.is_empty() { format!(":{}", m.external) } else { format!("{ip}:{}", m.external) };
-        let mut row = vec![UiTree::Label(format!("{shown} → this PC, port {} ({}) {}", m.internal, m.proto, m.desc))];
-        row.push(UiTree::Copy { label: "Copy address".into(), value: shown });
-        row.push(UiTree::Button { id: format!("rm:{i}"), text: "Remove".into() });
-        rows.push(UiTree::Row(row));
+        let buttons = UiTree::Row(vec![UiTree::Copy { label: "Copy address".into(), value: shown.clone() }, UiTree::Button { id: format!("rm:{i}"), text: "Remove".into() }]);
+        list.push(setting(&shown, &format!("→ this PC, port {} ({}) {}", m.internal, m.proto, m.desc), buttons));
     }
     if !maps.is_empty() {
-        rows.push(UiTree::Button { id: "rm_all".into(), text: "Remove all".into() });
+        list.push(setting("Remove every mapping", "Closes all the ports listed above.", UiTree::Button { id: "rm_all".into(), text: "Remove all".into() }));
     }
-    UiTree::Column(rows)
+    UiTree::Column(vec![
+        UiTree::Weak("For when you can't reach the router's own settings: RustWarden asks the router (UPnP) to open a random public port that leads to a port on this PC.".into()),
+        UiTree::Card { title: String::new(), rows: router_rows },
+        UiTree::Card { title: "Forward a port".into(), rows: form },
+        UiTree::Card { title: "Forwarded ports".into(), rows: list },
+    ])
 }
 
 fn say(msg: &str) {

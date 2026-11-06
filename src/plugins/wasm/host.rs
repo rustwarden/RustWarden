@@ -278,7 +278,7 @@ fn curl_config(url: &str, headers: &[String], body: Option<&str>, insecure: bool
 show-error
 max-time = 10
 max-filesize = 1048576
-write-out = \"\n%{{http_code}}\"
+write-out = \"\\n%{{http_code}}\"
 url = {}
 ",
         quote(url)
@@ -403,6 +403,7 @@ mod tests {
         assert!(c.contains("data-raw = \"{\\\"x\\\":1}\""));
         assert!(!c.contains("insecure"), "certificates are checked unless the plugin was allowed not to");
         assert!(curl_config("https://h", &[], None, true).contains("\ninsecure\n"));
+        assert!(curl_config("https://h", &[], None, false).contains(r#"write-out = "\n%{http_code}""#), "the status marker must stay on one line");
     }
 
     #[test]

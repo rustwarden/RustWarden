@@ -12,20 +12,62 @@ pub struct Gateway {
     pub local_ip: String,
 }
 
-/// Asks the network for a gateway and waits up to three seconds. Blocks, so callers run it on a worker.
+/// Asks every local network for a gateway and waits up to three seconds. Blocks, so callers run it on a worker.
+/// The question goes out of each network card on its own: with a VPN on, a plain multicast leaves through the
+/// VPN and the router never hears it.
 pub fn discover() -> Result<Gateway, String> {
-    let sock = UdpSocket::bind("0.0.0.0:0").map_err(|e| format!("can't open a network socket: {e}"))?;
-    sock.set_read_timeout(Some(Duration::from_millis(500))).map_err(|e| e.to_string())?;
-    sock.send_to(SEARCH.as_bytes(), "239.255.255.250:1900").map_err(|e| format!("can't ask the network for a router: {e}"))?;
+    use std::os::windows::io::AsRawSocket;
+    use windows::Win32::Networking::WinSock::{IP_MULTICAST_IF, IPPROTO_IP, SOCKET, setsockopt};
+    let mut socks = Vec::new();
+    for ip in local_networks() {
+        let Ok(sock) = UdpSocket::bind((ip, 0)) else { continue };
+        let _ = sock.set_nonblocking(true);
+        // SAFETY: the socket is open for the whole call; the option is the 4 address bytes.
+        unsafe { setsockopt(SOCKET(sock.as_raw_socket() as usize), IPPROTO_IP.0, IP_MULTICAST_IF, Some(&ip.octets())) };
+        if sock.send_to(SEARCH.as_bytes(), "239.255.255.250:1900").is_ok() {
+            socks.push((sock, ip));
+        }
+    }
+    // Last resort: let Windows pick the way out.
+    if let Ok(sock) = UdpSocket::bind("0.0.0.0:0") {
+        let _ = sock.set_nonblocking(true);
+        if sock.send_to(SEARCH.as_bytes(), "239.255.255.250:1900").is_ok() {
+            socks.push((sock, Ipv4Addr::UNSPECIFIED));
+        }
+    }
+    if socks.is_empty() {
+        return Err("can't ask the network for a router: no usable network connection".into());
+    }
     let (started, mut buf) = (Instant::now(), [0u8; 2048]);
     while started.elapsed() < Duration::from_secs(3) {
-        let Ok((n, _)) = sock.recv_from(&mut buf) else { continue };
-        let Some(location) = location_of(&String::from_utf8_lossy(&buf[..n])) else { continue };
-        let Some(addr) = lan_addr(&location) else { continue };
-        let local = UdpSocket::bind("0.0.0.0:0").and_then(|s| s.connect(addr).and_then(|()| s.local_addr())).map_err(|e| e.to_string())?;
-        return Ok(Gateway { location, local_ip: local.ip().to_string() });
+        for (sock, ip) in &socks {
+            let Ok((n, _)) = sock.recv_from(&mut buf) else { continue };
+            let Some(location) = location_of(&String::from_utf8_lossy(&buf[..n])) else { continue };
+            let Some(addr) = lan_addr(&location) else { continue };
+            let local = if ip.is_unspecified() {
+                UdpSocket::bind("0.0.0.0:0").and_then(|s| s.connect(addr).and_then(|()| s.local_addr())).map(|a| a.ip()).map_err(|e| e.to_string())?
+            } else {
+                IpAddr::V4(*ip)
+            };
+            return Ok(Gateway { location, local_ip: local.to_string() });
+        }
+        std::thread::sleep(Duration::from_millis(50));
     }
-    Err("No UPnP router answered. UPnP may be switched off on the router, or this PC isn't on its network.".into())
+    Err(format!("No UPnP router answered on {} network(s). UPnP may be switched off on the router, or a firewall is blocking the answer (UDP, from port 1900).", socks.len().saturating_sub(1)))
+}
+
+/// This PC's private IPv4 addresses on real (not VPN) network cards that are up.
+fn local_networks() -> Vec<Ipv4Addr> {
+    let Ok(adapters) = super::netinfo::adapters() else { return Vec::new() };
+    adapters
+        .iter()
+        .filter(|a| a.up && !a.loopback && !a.tunnel)
+        .flat_map(|a| a.addrs.iter())
+        .filter_map(|(ip, _)| match ip {
+            IpAddr::V4(v4) if v4.is_private() || v4.is_link_local() => Some(*v4),
+            _ => None,
+        })
+        .collect()
 }
 
 /// The LOCATION header of an SSDP reply.

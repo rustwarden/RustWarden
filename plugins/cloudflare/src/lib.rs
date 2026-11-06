@@ -73,7 +73,8 @@ fn args_for(step: Step, name: &str, host: &str, service: &str, token: &str) -> V
 fn step_succeeded(step: Step, text: &str) -> bool {
     let t = text.to_lowercase();
     match step {
-        Step::Login => t.contains("cert.pem") && !t.contains("error"),
+        // An old certificate makes cloudflared refuse a new login, which is as good as being logged in.
+        Step::Login => t.contains("successfully logged in") || t.contains("existing certificate"),
         Step::Create => t.contains("created tunnel") || t.contains("already exists"),
         Step::Route => t.contains("added cname") || t.contains("already exists") || t.contains("already configured"),
         Step::Run | Step::Idle => true,
@@ -119,11 +120,9 @@ fn say(msg: impl Into<String>) {
 fn begin(step: Step) {
     let token = if token_mode() { guest::secret_get("token") } else { String::new() };
     let args = args_for(step, &cfg("name", "rustwarden"), &guest::config_get("host"), &cfg("service", "http://localhost:80"), &token);
-    let timeout = match step {
-        Step::Run => 0,
-        Step::Login => 600,
-        _ => 120,
-    };
+    // 0: the helper then streams cloudflared's output as it goes (it logs to stderr), so the sign-in address and any error
+    // show at once. Every step ends by itself or by Stop.
+    let timeout = 0;
     with(|s| {
         s.step = step;
         s.log.clear();
@@ -178,7 +177,9 @@ fn finished(ok: bool, message: &str) {
     let (step, log) = with(|s| (s.step, s.log.join("\n")));
     if !ok {
         with(|s| s.step = Step::Idle);
-        return say(format!("⚠ {}", message.lines().next().unwrap_or("it stopped")));
+        let tail = log.lines().rev().filter(|l| !l.trim().is_empty()).take(2).collect::<Vec<_>>();
+        let why = if message.contains("stopped") { message.lines().next().unwrap_or("it stopped").to_owned() } else { tail.into_iter().rev().collect::<Vec<_>>().join(" / ") };
+        return say(format!("⚠ {why}"));
     }
     let text = format!("{log}\n{message}");
     if step == Step::Run {
@@ -213,68 +214,73 @@ fn install() {
 
 // ---- the page ----
 
+fn setting(title: &str, sub: &str, control: UiTree) -> UiTree {
+    UiTree::Setting { title: title.into(), sub: sub.into(), control: Box::new(control) }
+}
+
 fn page() -> UiTree {
     let (step, log, url, message) = with(|s| (s.step, s.log.clone(), s.login_url.clone(), s.message.clone()));
-    let running = step == Step::Run;
-    let mut rows = vec![UiTree::Weak(
+    let idle = step == Step::Idle;
+    let enabled = |on: bool, b: UiTree| if on { b } else { UiTree::Disabled(Box::new(b)) };
+    let mut cards = vec![UiTree::Weak(
         "Makes a service on this PC reachable from the internet through Cloudflare, without opening a port. You need a free Cloudflare account. The tunnel runs while RustWarden does.".into(),
     )];
     if !guest::is_demo() && !guest::helper_ready(EXE, SHA256) {
-        rows.push(UiTree::Button { id: "install".into(), text: "Download cloudflared (about 55 MB)".into() });
-        rows.push(UiTree::Weak(format!("From github.com/cloudflare/cloudflared, version {VERSION}. It is only kept if its SHA-256 is {SHA256}.")));
+        cards.push(UiTree::Card {
+            title: String::new(),
+            rows: vec![setting(
+                "Download cloudflared",
+                &format!("About 55 MB from github.com/cloudflare/cloudflared, version {VERSION}. Only kept if its SHA-256 is {SHA256}."),
+                UiTree::Button { id: "install".into(), text: "Download".into() },
+            )],
+        });
     } else {
-        rows.push(UiTree::Row(vec![
-            UiTree::Label("Sign in with".into()),
-            UiTree::Dropdown { id: "mode".into(), options: MODES.iter().map(|m| (*m).to_owned()).collect(), selected: usize::from(token_mode()) },
-        ]));
+        let mut rows = vec![setting("Sign in with", "", UiTree::Dropdown { id: "mode".into(), options: MODES.iter().map(|m| (*m).to_owned()).collect(), selected: usize::from(token_mode()) })];
         if token_mode() {
-            rows.push(UiTree::Weak("Make the tunnel and its public hostname in the Cloudflare dashboard (Zero Trust > Networks > Tunnels), then paste its token.".into()));
-            rows.push(UiTree::Password { id: "token".into(), value: guest::secret_get("token") });
-            rows.push(UiTree::Weak("The token is passed to cloudflared on its command line, so administrators of this PC can see it while the tunnel runs.".into()));
+            rows.push(setting(
+                "Tunnel token",
+                "Make the tunnel and its public hostname in the Cloudflare dashboard (Zero Trust > Networks > Tunnels), then paste its token. It is passed to cloudflared on its command line, so administrators of this PC can see it while the tunnel runs.",
+                UiTree::Password { id: "token".into(), value: guest::secret_get("token") },
+            ));
         } else if guest::config_get("logged_in") != "1" {
-            rows.push(UiTree::Weak("Opens Cloudflare in your browser. Choose the domain the tunnel may use.".into()));
-            let login = UiTree::Button { id: "login".into(), text: "Log in with Cloudflare".into() };
-            rows.push(if step == Step::Idle { login } else { UiTree::Disabled(Box::new(login)) });
+            let mut buttons = vec![enabled(idle, UiTree::Button { id: "login".into(), text: "Log in with Cloudflare".into() })];
             if step == Step::Login {
-                rows.push(UiTree::Weak("Waiting for you to finish in the browser…".into()));
+                buttons.push(UiTree::Button { id: "stop".into(), text: "Cancel".into() });
             }
+            let sub = if step == Step::Login { "Waiting for you to finish in the browser…" } else { "Opens Cloudflare in your browser. Choose the domain the tunnel may use." };
+            rows.push(setting("Cloudflare account", sub, UiTree::Row(buttons)));
             if !url.is_empty() {
                 rows.push(UiTree::Link { text: "Browser didn't open? Open the sign-in page".into(), url });
             }
         } else {
-            rows.push(UiTree::Grid {
-                columns: 2,
-                children: vec![
-                    UiTree::Label("Tunnel name".into()),
-                    UiTree::TextField { id: "name".into(), value: cfg("name", "rustwarden") },
-                    UiTree::Label("Public hostname".into()),
-                    UiTree::TextField { id: "host".into(), value: guest::config_get("host") },
-                    UiTree::Label("Send traffic to".into()),
-                    UiTree::TextField { id: "service".into(), value: cfg("service", "http://localhost:80") },
-                ],
-            });
-            rows.push(UiTree::Weak("The hostname must be on the domain you chose when logging in; a DNS record for it is added.".into()));
-            rows.push(UiTree::Button { id: "relogin".into(), text: "Log in again".into() });
+            rows.push(setting("Tunnel name", "", UiTree::TextField { id: "name".into(), value: cfg("name", "rustwarden") }));
+            rows.push(setting(
+                "Public hostname",
+                "A name on the domain you chose when logging in; a DNS record for it is added.",
+                UiTree::TextField { id: "host".into(), value: guest::config_get("host") },
+            ));
+            rows.push(setting("Send traffic to", "", UiTree::TextField { id: "service".into(), value: cfg("service", "http://localhost:80") }));
+            rows.push(setting("Cloudflare account", "Logged in.", enabled(idle, UiTree::Button { id: "relogin".into(), text: "Log in again".into() })));
         }
-        let start = UiTree::Button { id: "start".into(), text: "Start tunnel".into() };
-        let stop = UiTree::Button { id: "stop".into(), text: "Stop tunnel".into() };
-        rows.push(UiTree::Row(vec![if step == Step::Idle { start } else { UiTree::Disabled(Box::new(start)) }, if step == Step::Idle { UiTree::Disabled(Box::new(stop)) } else { stop }]));
-        rows.push(UiTree::Label(match step {
-            Step::Idle => "Stopped".to_owned(),
-            Step::Login => "Logging in…".to_owned(),
-            Step::Create => "Creating the tunnel…".to_owned(),
-            Step::Route => "Adding the DNS record…".to_owned(),
-            Step::Run => "Running".to_owned(),
-        }));
+        cards.push(UiTree::Card { title: String::new(), rows });
+        let state = match step {
+            Step::Idle => "Stopped",
+            Step::Login => "Logging in…",
+            Step::Create => "Creating the tunnel…",
+            Step::Route => "Adding the DNS record…",
+            Step::Run => "Running",
+        };
+        let buttons = UiTree::Row(vec![enabled(idle, UiTree::Button { id: "start".into(), text: "Start tunnel".into() }), enabled(!idle, UiTree::Button { id: "stop".into(), text: "Stop".into() })]);
+        let mut run = vec![setting("Tunnel", state, buttons)];
+        if !message.is_empty() {
+            run.push(UiTree::Label(message));
+        }
+        cards.push(UiTree::Card { title: String::new(), rows: run });
     }
-    if !message.is_empty() {
-        rows.push(UiTree::Label(message));
+    if !log.is_empty() {
+        cards.push(UiTree::Card { title: "Output".into(), rows: log.into_iter().map(UiTree::Weak).collect() });
     }
-    if running || !log.is_empty() {
-        rows.push(UiTree::Separator);
-        rows.extend(log.into_iter().map(UiTree::Weak));
-    }
-    UiTree::Column(rows)
+    UiTree::Column(cards)
 }
 
 fn event(e: Event) {
@@ -381,6 +387,7 @@ mod tests {
         assert!(!step_succeeded(Step::Create, "failed to create tunnel"));
         assert!(step_succeeded(Step::Route, "Added CNAME a.example.com which will route to this tunnel"));
         assert!(step_succeeded(Step::Login, "You have successfully logged in. ... saved to: C:\\Users\\x\\.cloudflared\\cert.pem"));
+        assert!(step_succeeded(Step::Login, "You have an existing certificate at C:\\x\\cert.pem which login would overwrite"));
         assert!(!step_succeeded(Step::Login, "error: could not open the browser"));
     }
 

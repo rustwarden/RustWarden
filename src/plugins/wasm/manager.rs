@@ -575,14 +575,80 @@ pub fn take_notes() -> Vec<(String, String)> {
     g.active.iter().flat_map(|(id, a)| std::mem::take(&mut lock(&a.pages).notes).into_iter().map(move |n| (id.clone(), n))).collect()
 }
 
+/// Alerts kept back while the internet is down, as (when, important, title, text).
+static HELD: Mutex<Vec<(std::time::Instant, bool, String, String)>> = Mutex::new(Vec::new());
+/// At most this many are kept; the oldest go first.
+const HELD_MAX: usize = 50;
+static WATCH: std::sync::Once = std::sync::Once::new();
+static OFFLINE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Hands an alert to every running plugin the user gave "alerts.read". Returns at once; delivery is the plugin's own business.
+/// While the internet is down the alert is held and handed over, marked as delayed, once it is back.
 pub fn broadcast_alert(important: bool, title: &str, text: &str) {
+    WATCH.call_once(|| {
+        std::thread::spawn(|| {
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                let offline = crate::sys::netinfo::internet_connected() == Some(false);
+                OFFLINE.store(offline, std::sync::atomic::Ordering::Relaxed);
+                if !offline {
+                    release_held();
+                }
+            }
+        });
+    });
+    if OFFLINE.load(std::sync::atomic::Ordering::Relaxed) {
+        let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
+        if held.len() >= HELD_MAX {
+            held.remove(0);
+        }
+        held.push((std::time::Instant::now(), important, title.to_owned(), text.to_owned()));
+        return;
+    }
+    deliver_alert(important, title, text);
+}
+
+/// Sends what was held, oldest first, each with how late it is.
+fn release_held() {
+    let held = std::mem::take(&mut *HELD.lock().unwrap_or_else(|e| e.into_inner()));
+    for (when, important, title, text) in held {
+        deliver_alert(
+            important,
+            &title,
+            &format!(
+                "{text}
+(Delayed {}: the internet was down.)",
+                late(when.elapsed().as_secs())
+            ),
+        );
+    }
+}
+
+fn late(secs: u64) -> String {
+    match secs {
+        0..=89 => format!("{secs} s"),
+        90..=5399 => format!("{} min", (secs + 30) / 60),
+        _ => format!("{} h", (secs + 1800) / 3600),
+    }
+}
+
+fn deliver_alert(important: bool, title: &str, text: &str) {
     let g = st();
     for a in g.active.values() {
         let allowed = |p: &String| p == "alerts.read";
         if a.granted.iter().any(allowed) && a.manifest.permissions.iter().any(allowed) {
             let _ = a.tx.send(Job::Alert { important, title: title.to_owned(), text: text.to_owned() });
         }
+    }
+}
+
+#[cfg(test)]
+mod hold_tests {
+    #[test]
+    fn says_how_late() {
+        assert_eq!(super::late(30), "30 s");
+        assert_eq!(super::late(600), "10 min");
+        assert_eq!(super::late(7200), "2 h");
     }
 }
 

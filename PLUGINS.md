@@ -56,13 +56,13 @@ plugin_sdk::export!(Mine);
 | `RenderSettings` | the plugin's Settings button |
 | `Event(..)` | the user clicked, typed, switched or picked something; answer `Reply::Done`, the page is drawn again after |
 | `Tick` | every `tick_secs` seconds (0 = never), for background work |
-| `Alert { .. }` | an alert was raised (needs `alerts.read`) |
+| `Alert { .. }` | an alert was raised (needs `alerts.read`). While the internet is down alerts are held (up to 50) and arrive once it is back, with "(Delayed ...)" added to the text |
 
 Each call gets a fixed budget of instructions; a plugin that loops forever is stopped and the call fails. Memory is capped at 64 MB.
 
 ### Pages
 
-Return a `UiTree`: `Disabled(widget)` greys a control out, and two whole-page widgets are drawn by RustWarden from data you send: `LatencyChart` (the Broadband Quality / Ping charts; it reads samples with the SQL you give, from your own tables, and can show a form in a window of its own and a sign-in banner) and `Speedtest` (dial, route map, history). Otherwise return: `Label`, `Heading`, `Weak`, `Button`, `TextField`, `Password`, `Switch`, `Dropdown`, `Number`, `Link` (http/https only), `Grid`, `Row`, `Column`, `Separator`, `Image` (PNG). RustWarden draws them, so plugins always match the app's look. Every control has an `id`; you get it back in the `Event`.
+Return a `UiTree`: `Card { title, rows }` draws a Windows 11 Settings style card, whose rows are `Setting { title, sub, control }` (title and a dim line at the left, the control at the right) or any other widget; `Disabled(widget)` greys a control out, and two whole-page widgets are drawn by RustWarden from data you send: `LatencyChart` (the Broadband Quality / Ping charts; it reads samples with the SQL you give, from your own tables, and can show a form in a window of its own and a sign-in banner) and `Speedtest` (dial, route map, history). Otherwise return: `Label`, `Heading`, `Weak`, `Button`, `TextField`, `Password`, `Switch`, `Dropdown`, `Number`, `Link` (http/https only), `Grid`, `Row`, `Column`, `Separator`, `Image` (PNG). RustWarden draws them, so plugins always match the app's look. Every control has an `id`; you get it back in the `Event`.
 
 ### What you may ask RustWarden for
 
