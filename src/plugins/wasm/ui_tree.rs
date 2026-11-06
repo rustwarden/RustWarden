@@ -100,6 +100,23 @@ fn draw(ui: &mut Ui, tree: &mut UiTree, env: &Env, ev: &mut Vec<Event>) {
         UiTree::Column(children) => {
             ui.vertical(|ui| children.iter_mut().for_each(|c| draw(ui, c, env, ev)));
         }
+        UiTree::Info(text) => {
+            egui::Frame::NONE
+                .fill(crate::theme::accent_soft())
+                .stroke(egui::Stroke::new(1.0, crate::theme::accent().gamma_multiply(0.4)))
+                .corner_radius(8)
+                .inner_margin(egui::Margin::symmetric(14, 12))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal_top(|ui| {
+                        let (rect, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
+                        crate::icons::paint(ui.painter(), crate::icons::Icon::Info, rect, crate::theme::accent_text());
+                        ui.add_space(6.0);
+                        ui.add(egui::Label::new(egui::RichText::new(text.as_str()).font(crate::theme::font(14.0)).color(crate::theme::text())).wrap());
+                    });
+                });
+            ui.add_space(12.0);
+        }
         UiTree::Card { title, rows } => {
             ui.scope(|ui| {
                 crate::ui::fluent::style(ui);
@@ -112,7 +129,7 @@ fn draw(ui: &mut Ui, tree: &mut UiTree, env: &Env, ev: &mut Vec<Event>) {
                     }
                 });
             });
-            ui.add_space(8.0);
+            ui.add_space(12.0);
         }
         UiTree::Setting { control, .. } => draw(ui, control, env, ev),
         UiTree::Copy { label, value } => {

@@ -12,14 +12,16 @@ pub struct Gateway {
     pub local_ip: String,
 }
 
-/// Asks every local network for a gateway and waits up to three seconds. Blocks, so callers run it on a worker.
+/// Asks every local network for gateways and listens for three seconds. Blocks, so callers run it on a worker.
 /// The question goes out of each network card on its own: with a VPN on, a plain multicast leaves through the
-/// VPN and the router never hears it.
-pub fn discover() -> Result<Gateway, String> {
+/// VPN and the router never hears it. The answers are ordered with the network's real router (its default gateway)
+/// first, because other things answer too (VMware's virtual networks, a second router behind the first).
+pub fn discover() -> Result<Vec<Gateway>, String> {
     use std::os::windows::io::AsRawSocket;
     use windows::Win32::Networking::WinSock::{IP_MULTICAST_IF, IPPROTO_IP, SOCKET, setsockopt};
+    let (nets, routers) = local_networks();
     let mut socks = Vec::new();
-    for ip in local_networks() {
+    for ip in nets {
         let Ok(sock) = UdpSocket::bind((ip, 0)) else { continue };
         let _ = sock.set_nonblocking(true);
         // SAFETY: the socket is open for the whole call; the option is the 4 address bytes.
@@ -38,36 +40,48 @@ pub fn discover() -> Result<Gateway, String> {
     if socks.is_empty() {
         return Err("can't ask the network for a router: no usable network connection".into());
     }
+    let mut found: Vec<(Gateway, IpAddr)> = Vec::new();
     let (started, mut buf) = (Instant::now(), [0u8; 2048]);
     while started.elapsed() < Duration::from_secs(3) {
         for (sock, ip) in &socks {
-            let Ok((n, _)) = sock.recv_from(&mut buf) else { continue };
-            let Some(location) = location_of(&String::from_utf8_lossy(&buf[..n])) else { continue };
-            let Some(addr) = lan_addr(&location) else { continue };
-            let local = if ip.is_unspecified() {
-                UdpSocket::bind("0.0.0.0:0").and_then(|s| s.connect(addr).and_then(|()| s.local_addr())).map(|a| a.ip()).map_err(|e| e.to_string())?
-            } else {
-                IpAddr::V4(*ip)
-            };
-            return Ok(Gateway { location, local_ip: local.to_string() });
+            while let Ok((n, _)) = sock.recv_from(&mut buf) {
+                let Some(location) = location_of(&String::from_utf8_lossy(&buf[..n])) else { continue };
+                let Some(addr) = lan_addr(&location) else { continue };
+                if found.iter().any(|(g, _)| g.location == location) {
+                    continue;
+                }
+                let local = if ip.is_unspecified() {
+                    UdpSocket::bind("0.0.0.0:0").and_then(|s| s.connect(addr).and_then(|()| s.local_addr())).map(|a| a.ip()).unwrap_or(IpAddr::V4(*ip))
+                } else {
+                    IpAddr::V4(*ip)
+                };
+                found.push((Gateway { location, local_ip: local.to_string() }, addr.ip()));
+            }
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    Err(format!("No UPnP router answered on {} network(s). UPnP may be switched off on the router, or a firewall is blocking the answer (UDP, from port 1900).", socks.len().saturating_sub(1)))
+    if found.is_empty() {
+        return Err(format!(
+            "No UPnP router answered on {} network(s). UPnP may be switched off on the router, or a firewall is blocking the answer (UDP, from port 1900).",
+            socks.len().saturating_sub(1)
+        ));
+    }
+    found.sort_by_key(|(_, ip)| !routers.contains(ip));
+    Ok(found.into_iter().map(|(g, _)| g).collect())
 }
 
-/// This PC's private IPv4 addresses on real (not VPN) network cards that are up.
-fn local_networks() -> Vec<Ipv4Addr> {
-    let Ok(adapters) = super::netinfo::adapters() else { return Vec::new() };
-    adapters
-        .iter()
-        .filter(|a| a.up && !a.loopback && !a.tunnel)
+/// This PC's private IPv4 addresses on real (not VPN) network cards that are up, and those cards' default gateways.
+fn local_networks() -> (Vec<Ipv4Addr>, Vec<IpAddr>) {
+    let Ok(adapters) = super::netinfo::adapters() else { return Default::default() };
+    let real = || adapters.iter().filter(|a| a.up && !a.loopback && !a.tunnel);
+    let nets = real()
         .flat_map(|a| a.addrs.iter())
         .filter_map(|(ip, _)| match ip {
             IpAddr::V4(v4) if v4.is_private() || v4.is_link_local() => Some(*v4),
             _ => None,
         })
-        .collect()
+        .collect();
+    (nets, real().flat_map(|a| a.gateways.iter().copied()).collect())
 }
 
 /// The LOCATION header of an SSDP reply.

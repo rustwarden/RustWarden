@@ -137,6 +137,9 @@ pub fn start(
     if !path.is_file() {
         return Err(format!("{exe} isn't downloaded yet"));
     }
+    // "{dir}" in an argument is the plugin's own folder, so a program can keep its files there (removed with the plugin's data).
+    let folder = dir(plugin).to_string_lossy().into_owned();
+    let args: Vec<String> = args.into_iter().map(|a| a.replace("{dir}", &folder)).collect();
     let stop = Arc::new(AtomicBool::new(false));
     {
         let mut running = RUNNING.lock().unwrap_or_else(|e| e.into_inner());

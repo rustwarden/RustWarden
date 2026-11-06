@@ -724,7 +724,9 @@ pub fn page(ui: &mut egui::Ui, id: &str, key: &str, backend: Option<Arc<dyn crat
     }
     if let Some(tree) = g.trees.get_mut(key) {
         let env = ui_tree::Env { plugin: id, demo, key: format!("{id}/{key}"), backend };
-        let events = ui_tree::show(ui, tree, &env);
+        // A tab page sits in from the window's edge like the built-in tabs; the chart pages draw to the edge themselves.
+        let inset = key != SETTINGS_KEY && !matches!(tree, UiTree::Speedtest(_) | UiTree::LatencyChart(_));
+        let events = if inset { egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 0)).show(ui, |ui| ui_tree::show(ui, tree, &env)).inner } else { ui_tree::show(ui, tree, &env) };
         drop(g);
         lock(&pages).busy += events.len();
         for e in events {

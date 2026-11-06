@@ -113,6 +113,8 @@ pub enum UiTree {
     /// A whole-tab page of latency and packet-loss charts, drawn by RustWarden (the layout Broadband Quality
     /// and Ping share). It must be the only thing on its tab page.
     LatencyChart(Box<LatencyChart>),
+    /// An information banner (the blue bar at the top of RustWarden's own pages) with an info icon.
+    Info(String),
     /// A titled card in the Windows 11 Settings look (no title when empty). Its `rows` are [`UiTree::Setting`]s or
     /// anything else, which is padded as a free-form block.
     Card {

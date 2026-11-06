@@ -128,16 +128,29 @@ fn find_router() -> Result<Router, String> {
         guest::config_set("ext_ip", "203.0.113.7");
         return Ok(save_router(r));
     }
-    let gateway = guest::upnp_discover()?;
+    let mut problems = Vec::new();
+    for gateway in guest::upnp_discover()? {
+        match try_gateway(&gateway) {
+            Ok((r, ip)) => {
+                guest::config_set("ext_ip", &ip);
+                return Ok(save_router(r));
+            }
+            Err(e) => problems.push(format!("{}: {e}", gateway.location)),
+        }
+    }
+    Err(format!("Found UPnP devices but none gave out an internet connection. {}", problems.join("; ")))
+}
+
+/// Reads one gateway's description and asks it for its public address, which proves it is the internet router.
+fn try_gateway(gateway: &guest::Gateway) -> Result<(Router, String), String> {
     let (status, desc) = guest::http_raw(&gateway.location, &[], None, false)?;
     if status != 200 {
-        return Err(format!("the router's description answered HTTP {status}"));
+        return Err(format!("its description answered HTTP {status}"));
     }
-    let (service, control) = control_of(&desc, &gateway.location).ok_or("the router has no UPnP internet connection service")?;
-    let r = save_router(Router { control, service, local_ip: gateway.local_ip });
-    let ip = soap(&r.control, &r.service, "GetExternalIPAddress", &[]).ok().and_then(|b| tag(&b, "NewExternalIPAddress")).unwrap_or_default();
-    guest::config_set("ext_ip", &ip);
-    Ok(r)
+    let (service, control) = control_of(&desc, &gateway.location).ok_or("it has no UPnP internet connection service")?;
+    let body = soap(&control, &service, "GetExternalIPAddress", &[]).map_err(|e| format!("asking for the public address failed ({e})"))?;
+    let ip = tag(&body, "NewExternalIPAddress").filter(|ip| !ip.is_empty()).ok_or("it gave no public address (is the router online?)")?;
+    Ok((Router { control, service, local_ip: gateway.local_ip.clone() }, ip))
 }
 
 fn save_router(r: Router) -> Router {
@@ -251,7 +264,7 @@ fn page() -> UiTree {
         list.push(setting("Remove every mapping", "Closes all the ports listed above.", UiTree::Button { id: "rm_all".into(), text: "Remove all".into() }));
     }
     UiTree::Column(vec![
-        UiTree::Weak("For when you can't reach the router's own settings: RustWarden asks the router (UPnP) to open a random public port that leads to a port on this PC.".into()),
+        UiTree::Info("For when you can't reach the router's own settings: RustWarden asks the router (UPnP) to open a random public port that leads to a port on this PC.".into()),
         UiTree::Card { title: String::new(), rows: router_rows },
         UiTree::Card { title: "Forward a port".into(), rows: form },
         UiTree::Card { title: "Forwarded ports".into(), rows: list },

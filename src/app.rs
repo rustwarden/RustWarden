@@ -1950,7 +1950,7 @@ impl eframe::App for RustWarden {
             Tab::Plugin(i) => {
                 if let Some(t) = crate::plugins::wasm::manager::tabs().into_iter().nth(i) {
                     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-                        ui.add_space(8.0);
+                        ui.add_space(12.0);
                         crate::plugins::wasm::manager::page(ui, &t.id, &t.tab, Some(self.backend.clone()));
                     });
                 }

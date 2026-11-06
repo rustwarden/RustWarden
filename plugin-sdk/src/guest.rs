@@ -175,8 +175,8 @@ pub struct Gateway {
     pub local_ip: String,
 }
 
-/// Needs "upnp". Takes about 3 seconds.
-pub fn upnp_discover() -> Result<Gateway, String> {
+/// Needs "upnp". Every UPnP gateway that answered, the network's real router first. Takes about 3 seconds.
+pub fn upnp_discover() -> Result<Vec<Gateway>, String> {
     let json = text(host(&HostCall::UpnpDiscover))?;
     serde_json::from_str(&json).map_err(|e| e.to_string())
 }

@@ -151,8 +151,8 @@ impl Host {
                 if self.demo {
                     return Err("UPnP isn't used in Demo mode".into());
                 }
-                let g = crate::sys::upnp::discover()?;
-                Ok(serde_json::json!({"location": g.location, "local_ip": g.local_ip}).to_string())
+                let list: Vec<_> = crate::sys::upnp::discover()?.into_iter().map(|g| serde_json::json!({"location": g.location, "local_ip": g.local_ip})).collect();
+                Ok(serde_json::Value::Array(list).to_string())
             }
             HostCall::SetTick { millis } => {
                 self.tick_ms = (millis != 0).then(|| millis.clamp(50, 3_600_000));
