@@ -119,9 +119,15 @@ pub fn http_request(url: &str, headers: &[String], body: Option<&str>) -> Result
 
 /// The status and body of any answer, such as a 401 or 404; only a server that can't be reached is an error.
 pub fn http_raw(url: &str, headers: &[String], body: Option<&str>, insecure: bool) -> Result<(u16, String), String> {
+    http_raw_cookie(url, headers, body, insecure).map(|(status, body, _)| (status, body))
+}
+
+/// Like [`http_raw`], and also the answer's first `Set-Cookie` header (`name=value; attributes`, empty when there is none),
+/// for a server that keeps its session in a cookie; send it back as a `Cookie: name=value` header.
+pub fn http_raw_cookie(url: &str, headers: &[String], body: Option<&str>, insecure: bool) -> Result<(u16, String, String), String> {
     let json = text(host(&HostCall::HttpRaw { url: url.into(), headers: headers.to_vec(), body: body.map(str::to_owned), insecure }))?;
     let v: serde_json::Value = serde_json::from_str(&json).map_err(|e| e.to_string())?;
-    Ok((v["status"].as_u64().unwrap_or(0) as u16, v["body"].as_str().unwrap_or("").to_owned()))
+    Ok((v["status"].as_u64().unwrap_or(0) as u16, v["body"].as_str().unwrap_or("").to_owned(), v["cookie"].as_str().unwrap_or("").to_owned()))
 }
 
 /// Needs "alerts.write".

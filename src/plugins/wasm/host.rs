@@ -106,8 +106,8 @@ impl Host {
                 if insecure && !self.allow_insecure {
                     return Err("the plugin did not declare allow_insecure_tls".into());
                 }
-                let (status, body) = http_raw(&url, &headers, body.as_deref(), insecure)?;
-                Ok(serde_json::json!({"status": status, "body": body}).to_string())
+                let (status, body, cookie) = http_raw(&url, &headers, body.as_deref(), insecure)?;
+                Ok(serde_json::json!({"status": status, "body": body, "cookie": cookie}).to_string())
             }
             HostCall::HelperReady { exe, exe_sha256 } => Ok(if crate::sys::helper::ready(&self.id, &exe, &exe_sha256) { "1" } else { "0" }.to_owned()),
             HostCall::HelperInstall { url, zip_sha256, exe } => {
@@ -265,7 +265,7 @@ pub fn host_allowed(url: &str, hosts: &[String]) -> bool {
 }
 
 fn http(url: &str, headers: &[String], body: Option<&str>) -> Result<String, String> {
-    let (status, body) = http_raw(url, headers, body, false)?;
+    let (status, body, _) = http_raw(url, headers, body, false)?;
     answer(&status.to_string(), &body)
 }
 
@@ -278,7 +278,7 @@ fn curl_config(url: &str, headers: &[String], body: Option<&str>, insecure: bool
 show-error
 max-time = 10
 max-filesize = 1048576
-write-out = \"\\n%{{http_code}}\"
+write-out = \"\\n%header{{set-cookie}}\\n%{{http_code}}\"
 url = {}
 ",
         quote(url)
@@ -304,8 +304,15 @@ url = {}
     cfg
 }
 
-/// One request through curl: (status, body), or why the server couldn't be reached.
-fn http_raw(url: &str, headers: &[String], body: Option<&str>, insecure: bool) -> Result<(u16, String), String> {
+/// Splits curl's output (the body, then the first `Set-Cookie` header, then the status, one per line) into (status, body, cookie).
+fn split_reply(text: &str) -> (u16, String, String) {
+    let (rest, code) = text.rsplit_once('\n').unwrap_or(("", text));
+    let (body, cookie) = rest.rsplit_once('\n').unwrap_or(("", rest));
+    (code.trim().parse().unwrap_or(0), body.to_owned(), cookie.trim().to_owned())
+}
+
+/// One request through curl: (status, body, first Set-Cookie header), or why the server couldn't be reached.
+fn http_raw(url: &str, headers: &[String], body: Option<&str>, insecure: bool) -> Result<(u16, String, String), String> {
     let cfg = curl_config(url, headers, body, insecure);
     let out = crate::sys::curl::run(&cfg, None)?;
     if !out.status.success() {
@@ -315,9 +322,7 @@ fn http_raw(url: &str, headers: &[String], body: Option<&str>, insecure: bool) -
             format!("can't reach the server: {}", String::from_utf8_lossy(&out.stderr).trim())
         });
     }
-    let text = String::from_utf8_lossy(&out.stdout).into_owned();
-    let (body, code) = text.rsplit_once('\n').unwrap_or(("", &text));
-    Ok((code.trim().parse().unwrap_or(0), body.to_owned()))
+    Ok(split_reply(&String::from_utf8_lossy(&out.stdout)))
 }
 
 /// The body for a 2xx or 3xx answer, else an error naming the status.
@@ -403,7 +408,15 @@ mod tests {
         assert!(c.contains("data-raw = \"{\\\"x\\\":1}\""));
         assert!(!c.contains("insecure"), "certificates are checked unless the plugin was allowed not to");
         assert!(curl_config("https://h", &[], None, true).contains("\ninsecure\n"));
-        assert!(curl_config("https://h", &[], None, false).contains(r#"write-out = "\n%{http_code}""#), "the status marker must stay on one line");
+        assert!(curl_config("https://h", &[], None, false).contains(r#"write-out = "\n%header{set-cookie}\n%{http_code}""#), "the cookie and status markers must stay on their own lines");
+    }
+
+    #[test]
+    fn curl_output_is_split_into_status_body_and_cookie() {
+        assert_eq!(split_reply("{\"a\":1}\nsysauth=abc; path=/\n200"), (200, "{\"a\":1}".to_owned(), "sysauth=abc; path=/".to_owned()));
+        // No cookie: an empty line stands in; a body of several lines keeps its own breaks.
+        assert_eq!(split_reply("one\ntwo\n\n404"), (404, "one\ntwo".to_owned(), String::new()));
+        assert_eq!(split_reply("\n\n000"), (0, String::new(), String::new()));
     }
 
     #[test]

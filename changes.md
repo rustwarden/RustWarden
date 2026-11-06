@@ -33,3 +33,4 @@
 - [Norman] fix: Cloudflare Tunnel: when a tunnel of that name exists but this PC has no key for it ("credentials file not found"), the page says what to do.
 - [Norman] fix: Cloudflare Tunnel: the DNS step now overwrites a hostname that points at an older tunnel (Cloudflare error 1033 after changing the tunnel name).
 - [Norman] fix: Cloudflare Tunnel connects over http2 (TCP) instead of QUIC (UDP), which is blocked on many networks and left the tunnel disconnected (Cloudflare error 1033).
+- [Norman] feat: plugins can read a server's session cookie. `HttpRaw` replies now include `cookie` (the answer's first `Set-Cookie` header) and the plugin SDK has `http_raw_cookie`, for routers and servers that keep their login in a cookie (a TP-Link router plugin needs it). Existing plugins are unaffected.

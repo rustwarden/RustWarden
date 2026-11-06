@@ -355,7 +355,8 @@ pub enum HostCall {
         addrs: Vec<String>,
         count: u32,
     },
-    /// Like `HttpRequest`, but any HTTP status is an answer: replies `{"status": 404, "body": "..."}`. Only a failure to
+    /// Like `HttpRequest`, but any HTTP status is an answer: replies `{"status": 404, "body": "...", "cookie": "..."}`
+    /// (`cookie` is the answer's first `Set-Cookie` header, empty for none). Only a failure to
     /// reach the server is an error. `insecure` accepts a self-signed certificate and needs `Manifest.allow_insecure_tls`.
     HttpRaw {
         url: String,

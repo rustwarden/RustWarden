@@ -73,7 +73,7 @@ Always available (`plugin_sdk::guest`):
 - `db_exec` / `db_query`: SQLite, but only tables named `p_<id>__*` (your id with dashes as underscores, then two underscores). Put the `CREATE TABLE IF NOT EXISTS` statements in `Manifest.schema`; they run when the plugin starts.
 - `http_request`: only to the hosts in `Manifest.http_hosts`. `"*"` means any http(s) host, for plugins that post to an address the user types; the approval dialog says so.
 - `now`, `log`, `notify_in_app`
-- `http_raw`: like `http_request`, but any status is an answer (`(404, body)`). `insecure: true` accepts a server's own certificate and needs `allow_insecure_tls: true` in the manifest, which the approval dialog shows
+- `http_raw`: like `http_request`, but any status is an answer (`(404, body)`); `http_raw_cookie` also returns the answer's first `Set-Cookie` header, for a router or server that keeps its session in a cookie. `insecure: true` accepts a server's own certificate and needs `allow_insecure_tls: true` in the manifest, which the approval dialog shows
 - `set_tick(ms)`: ask for `Call::Tick` at your own rhythm (a dial that animates), `0` to go back to the manifest's
 
 Permissions (list them in `Manifest.permissions`; the user ticks each one):
