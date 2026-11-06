@@ -121,6 +121,8 @@ struct State {
     message: String,
     /// Config laid over a plugin's saved settings when it starts (screenshot runs; nothing is written).
     presets: BTreeMap<String, BTreeMap<String, String>>,
+    /// Workers still alive per plugin id (one that was switched off may take a moment to end).
+    workers: BTreeMap<String, usize>,
 }
 
 static STATE: Mutex<State> = Mutex::new(State {
@@ -134,6 +136,7 @@ static STATE: Mutex<State> = Mutex::new(State {
     ctx: None,
     message: String::new(),
     presets: BTreeMap::new(),
+    workers: BTreeMap::new(),
 });
 
 fn st() -> MutexGuard<'static, State> {
@@ -240,7 +243,14 @@ fn reconcile() {
     };
     for (f, state, channel, pages, config) in starts {
         let ctx = ctx.clone();
-        std::thread::spawn(move || run(f, state, demo, ctx, channel, pages, config));
+        let id = f.manifest.id.clone();
+        *st().workers.entry(id.clone()).or_default() += 1;
+        std::thread::spawn(move || {
+            run(f, state, demo, ctx, channel, pages, config);
+            if let Some(n) = st().workers.get_mut(&id) {
+                *n -= 1;
+            }
+        });
     }
     repaint(&ctx);
 }
@@ -687,6 +697,7 @@ pub fn remove(path: PathBuf, id: Option<String>, data: bool) {
             Err(e) => format!("couldn't delete {}: {e}. Removing a plugin needs administrator rights.", path.display()),
         };
         if let (true, Some(id)) = (data, id) {
+            wait_stopped(&id);
             let _ = std::fs::remove_file(saved_path(&id));
             drop_tables(&id);
         }
@@ -698,10 +709,23 @@ pub fn remove(path: PathBuf, id: Option<String>, data: bool) {
     });
 }
 
-/// Stops a plugin and deletes its saved settings, secrets and tables (the plugin itself stays installed).
+/// Waits until the plugin's worker has ended, so nothing is writing to the tables about to be dropped.
+fn wait_stopped(id: &str) {
+    // shortcut: gives up after 30 s (a worker stuck in a long browser or download call) and carries on.
+    for _ in 0..300 {
+        if st().workers.get(id).is_none_or(|n| *n == 0) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// Stops a plugin and deletes its saved settings, secrets and tables (the plugin itself stays installed). It waits for the
+/// plugin's worker to end first, so nothing is writing to the tables being dropped.
 pub fn erase(id: String) {
     st().active.remove(&id);
     std::thread::spawn(move || {
+        wait_stopped(&id);
         let _ = std::fs::remove_file(saved_path(&id));
         drop_tables(&id);
         repaint(&st().ctx);
