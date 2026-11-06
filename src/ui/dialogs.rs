@@ -1079,7 +1079,8 @@ impl RustWarden {
         }
         match outcome {
             Outcome::Keep => self.dialog = Some(dialog),
-            Outcome::Close => {}
+            // Switches flipped on the Plugins page start plugins at once; closing without Save puts them back.
+            Outcome::Close => crate::plugins::wasm::manager::apply(&self.settings, ctx),
             Outcome::Apply(s) => self.apply_settings(ctx, *s),
             Outcome::Confirmed(action) => self.run_confirmed(ctx, action),
             Outcome::Rename(mac, name) => {

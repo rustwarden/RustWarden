@@ -216,16 +216,15 @@ fn list_monitors() -> Result<Vec<Monitor>, String> {
 /// Downloads UTC days (`YYYY-MM-DD`) of monitors in one browser run: the result of each request, in order.
 /// Each day stands alone, so a day that isn't published yet (just after midnight) doesn't lose the others.
 fn fetch_days(requests: &[(u32, String)]) -> Result<Vec<Result<Vec<Sample>, String>>, String> {
-    let answers = guest::browser_fetch(&requests.iter().map(|(id, day)| day_url(*id, day)).collect::<Vec<_>>())?;
-    Ok(answers
-        .into_iter()
-        .zip(requests)
-        .map(
-            |((code, body), (id, day))| {
-                if code == 200 && body.trim_start().starts_with("<?xml") { Ok(parse_xml(&body).1) } else { Err(format!("thinkbroadband answered HTTP {code} for monitor {id} on {day}.")) }
-            },
-        )
-        .collect())
+    // A few days at a time, parsed as they come: a week of every monitor in one reply would not fit the plugin's memory.
+    let mut out = Vec::new();
+    for chunk in requests.chunks(6) {
+        let answers = guest::browser_fetch(&chunk.iter().map(|(id, day)| day_url(*id, day)).collect::<Vec<_>>())?;
+        out.extend(answers.into_iter().zip(chunk).map(|((code, body), (id, day))| {
+            if code == 200 && body.trim_start().starts_with("<?xml") { Ok(parse_xml(&body).1) } else { Err(format!("thinkbroadband answered HTTP {code} for monitor {id} on {day}.")) }
+        }));
+    }
+    Ok(out)
 }
 
 // ---- storing ----

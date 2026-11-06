@@ -81,14 +81,13 @@ fn files(ui: &mut Ui, s: &mut Settings, kind: Kind) {
     if mine.is_empty() {
         ui.weak(if view.scanning { "Looking for plugins…" } else { "No plugins of this kind are installed." });
     }
-    let grid = if kind == Kind::System { "plugin_files_system" } else { "plugin_files_notification" };
-    egui::Grid::new(grid).num_columns(5).spacing([16.0, 8.0]).striped(true).show(ui, |ui| {
-        for f in &mine {
-            let m = &f.manifest;
-            let first_party = f.first_party();
-            let approved = first_party || s.plugins.get(&m.id).is_some_and(|x| x.approved_hash == f.hash);
-            // Approved once, but the file is a different one now.
-            let changed = !approved && s.plugins.get(&m.id).is_some_and(|x| !x.approved_hash.is_empty());
+    for f in &mine {
+        let m = &f.manifest;
+        let first_party = f.first_party();
+        let approved = first_party || s.plugins.get(&m.id).is_some_and(|x| x.approved_hash == f.hash);
+        // Approved once, but the file is a different one now.
+        let changed = !approved && s.plugins.get(&m.id).is_some_and(|x| !x.approved_hash.is_empty());
+        ui.horizontal(|ui| {
             match core::texture(ui.ctx(), &format!("plugin-icon-{}", f.hash), &m.icon) {
                 Some(t) => {
                     ui.add(egui::Image::new((t.id(), vec2(20.0, 20.0))));
@@ -98,23 +97,33 @@ fn files(ui: &mut Ui, s: &mut Settings, kind: Kind) {
                 }
             }
             ui.vertical(|ui| {
-                ui.label(&m.name);
+                ui.set_width(250.0);
+                ui.label(egui::RichText::new(&m.name).strong());
                 ui.weak(if first_party { format!("v{} · built in", m.version) } else { format!("v{} by {}", m.version, m.author) });
-            });
-            ui.vertical(|ui| {
-                if approved {
-                    let mut on = s.plugins.get(&m.id).is_some_and(|x| x.enabled);
-                    if widgets::switch(ui, &mut on, if manager::running(&m.id) { "Running" } else { "Off" }).changed() {
-                        s.plugins.entry(m.id.clone()).or_default().enabled = on;
-                    }
-                } else if changed {
+                ui.weak(if m.permissions.is_empty() { "No extra permissions".to_owned() } else { m.permissions.join(", ") });
+                if changed {
                     ui.colored_label(crate::theme::orange(), "⚠ The file changed: approve it again");
-                } else {
+                } else if !approved {
                     ui.colored_label(crate::theme::orange(), "⚠ Third-party plugin: needs your approval");
                 }
-                ui.weak(if m.permissions.is_empty() { "No extra permissions".to_owned() } else { m.permissions.join(", ") });
             });
-            ui.horizontal(|ui| {
+            if approved {
+                let mut on = s.plugins.get(&m.id).is_some_and(|x| x.enabled);
+                ui.scope(|ui| {
+                    ui.set_min_width(110.0);
+                    if widgets::switch(ui, &mut on, if manager::running(&m.id) { "Running" } else { "Off" }).changed() {
+                        s.plugins.entry(m.id.clone()).or_default().enabled = on;
+                        // Starts (or stops) it now, so its settings can be opened before Save.
+                        manager::preview(&s.plugins);
+                    }
+                });
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if let Some(path) = f.path()
+                    && ui.button("Remove").clicked()
+                {
+                    open = Some(Modal::Remove { path: path.to_owned(), id: Some(m.id.clone()), name: m.name.clone(), data: false });
+                }
                 if !approved && ui.button("Review…").clicked() {
                     open = Some(Modal::Approve { id: m.id.clone(), grant: vec![false; m.permissions.len()] });
                 }
@@ -122,16 +131,9 @@ fn files(ui: &mut Ui, s: &mut Settings, kind: Kind) {
                     open = Some(Modal::Settings(m.id.clone()));
                 }
             });
-            if let Some(path) = f.path() {
-                if ui.button("Remove").clicked() {
-                    open = Some(Modal::Remove { path: path.to_owned(), id: Some(m.id.clone()), name: m.name.clone(), data: false });
-                }
-            } else {
-                ui.label("");
-            }
-            ui.end_row();
-        }
-    });
+        });
+        ui.separator();
+    }
     // Files that didn't load: shown once, under the System page only.
     if kind == Kind::System {
         for (path, err) in &view.bad {

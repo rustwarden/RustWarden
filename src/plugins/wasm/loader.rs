@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 use wasmtime::{Caller, Config, Engine, Linker, Memory, Module, Store, TypedFunc};
 
 /// Instructions a single call may run. shortcut: one budget for all calls, make it per-call if a plugin legitimately needs more.
-const FUEL: u64 = 200_000_000;
+const FUEL: u64 = 1_000_000_000;
 
 fn engine() -> &'static Engine {
     static E: OnceLock<Engine> = OnceLock::new();
@@ -55,7 +55,7 @@ fn slice(mem: &[u8], ptr: usize, len: usize) -> Result<&[u8], String> {
 
 /// Copies `data` into the plugin's memory through its `alloc` and returns the address.
 fn put(store: &mut impl wasmtime::AsContextMut, memory: Memory, alloc: &TypedFunc<i32, i32>, data: &[u8]) -> Result<i32, String> {
-    let ptr = alloc.call(&mut *store, data.len() as i32).map_err(|e| e.to_string())?;
+    let ptr = alloc.call(&mut *store, data.len() as i32).map_err(|e| e.root_cause().to_string())?;
     memory.write(&mut *store, ptr as u32 as usize, data).map_err(|e| e.to_string())?;
     Ok(ptr)
 }
@@ -112,10 +112,10 @@ impl Plugin {
 
     /// One call into the plugin on a fresh fuel budget; a trap (including running out of fuel) is an error.
     pub fn call(&mut self, call: &Call) -> Result<Reply, String> {
-        self.store.set_fuel(FUEL).map_err(|e| e.to_string())?;
+        self.store.set_fuel(FUEL).map_err(|e| e.root_cause().to_string())?;
         let json = serde_json::to_vec(call).map_err(|e| e.to_string())?;
         let ptr = put(&mut self.store, self.memory, &self.alloc, &json)?;
-        let (ptr, len) = unpack(self.call.call(&mut self.store, (ptr, json.len() as i32)).map_err(|e| e.to_string())?);
+        let (ptr, len) = unpack(self.call.call(&mut self.store, (ptr, json.len() as i32)).map_err(|e| e.root_cause().to_string())?);
         let reply = slice(self.memory.data(&self.store), ptr, len)?;
         match serde_json::from_slice(reply).map_err(|e| format!("bad reply from the plugin: {e}"))? {
             Reply::Err(e) => Err(e),

@@ -162,6 +162,13 @@ pub fn apply(s: &Settings, ctx: &egui::Context) {
     if first { scan() } else { reconcile() }
 }
 
+/// Starts or stops plugins to match switches the user just flipped in the open Settings dialog, before Save (Cancel
+/// goes back through `apply` with the saved settings).
+pub fn preview(plugins: &BTreeMap<String, PluginState>) {
+    st().want = plugins.clone();
+    reconcile();
+}
+
 /// Reads the plugin folder again (in the background).
 pub fn scan() {
     {
