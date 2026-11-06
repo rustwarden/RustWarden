@@ -29,26 +29,9 @@ pub fn run(config: &str, dir: Option<&Path>) -> Result<Output, String> {
     child.wait_with_output().map_err(|e| e.to_string())
 }
 
-/// A call to a REST API: `body` makes it a JSON POST, and the output ends with "\n<http status>".
-pub fn api_config(url: &str, auth: &str, body: Option<&str>) -> String {
-    let mut c = format!("silent\nshow-error\nmax-time = 10\nwrite-out = \"\\n%{{http_code}}\"\nheader = {}\n", quote(auth));
-    if let Some(b) = body {
-        c += &format!("header = \"Content-Type: application/json\"\ndata-raw = {}\n", quote(b));
-    }
-    c + &format!("url = {}\n", quote(url))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_value_cannot_break_out_of_the_config() {
-        let c = api_config("https://h/\"\nurl = \"evil", "Authorization: Bearer a\nb", Some("{\"x\":1}"));
-        assert_eq!(c.lines().filter(|l| l.starts_with("url")).count(), 1);
-        assert!(c.contains("Bearer a\\nb"));
-        assert!(c.contains("data-raw = \"{\\\"x\\\":1}\""));
-    }
 
     #[test]
     fn refuses_other_protocols() {

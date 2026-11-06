@@ -369,7 +369,7 @@ fn scan(shared: &Shared, network: &NetworkInfo, adapter: &Adapter) -> Result<(),
     let db = shared.open_db().map_err(|e| e.to_string())?;
     let now = crate::clock::now_unix();
     let prev = db.devices(&network.key).unwrap_or_default();
-    let ha = db.ha_all().unwrap_or_default();
+    let notes = db.device_notes(&crate::plugins::wasm::manager::annotator_ids()).unwrap_or_default();
     let gateways: HashSet<IpAddr> = adapter.gateways.iter().copied().collect();
     let mut online = Vec::new();
     let mut seen = Vec::new();
@@ -402,9 +402,9 @@ fn scan(shared: &Shared, network: &NetworkInfo, adapter: &Adapter) -> Result<(),
     }
     let settings = shared.settings();
     let gw: HashSet<String> = gateways.iter().map(ToString::to_string).collect();
-    // How a device reads in an alert: Home Assistant's name and area when matched, else its name or vendor.
+    // How a device reads in an alert: a plugin's name and area when matched (Home Assistant), else its name or vendor.
     let label = |mac: &str| -> String {
-        if let Some(h) = ha.get(mac) {
+        if let Some(h) = notes.get(mac) {
             return if h.area.is_empty() { h.name.clone() } else { format!("{}, {}", h.name, h.area) };
         }
         prev.iter().chain(&fresh).find(|d| d.mac == mac).map(|d| if d.name.is_empty() { d.vendor.clone() } else { d.name.clone() }).unwrap_or_default()

@@ -908,7 +908,9 @@ impl RustWarden {
             Dialog::Rename { mac, text } => {
                 let mut out = Outcome::Keep;
                 let dev = self.scanner.devices.iter().find(|d| d.mac == *mac);
-                let ha_url = dev.and_then(|d| crate::plugins::ha::ui::device_url(d, &self.settings));
+                let note_src = crate::plugins::wasm::manager::annotator();
+                let src_name = note_src.as_ref().map_or("Home Assistant", |s| s.name.as_str()).to_owned();
+                let ha_url = dev.and_then(crate::ui::notes::device_url);
                 if !crate::widgets::dialog("Device details").show(ctx, |ui| {
                     ui.set_min_width(380.0);
                     if let Some(d) = dev {
@@ -929,14 +931,14 @@ impl RustWarden {
                             row("First seen", &crate::clock::fmt_stamp(d.first_seen));
                             row("Last seen", &crate::clock::fmt_stamp(d.last_seen));
                             row("Times seen", &d.seen_count.to_string());
-                            if let Some(ha) = &d.ha {
-                                row("HA name", &ha.name);
-                                row("HA area", &ha.area);
-                                row("HA model", &ha.model);
+                            if let Some(n) = &d.note {
+                                row(&format!("{src_name} name"), &n.name);
+                                row(&format!("{src_name} area"), &n.area);
+                                row(&format!("{src_name} model"), &n.model);
                             }
                         });
                         if let Some(url) = &ha_url
-                            && ui.link("Open in Home Assistant").clicked()
+                            && ui.link(format!("Open in {src_name}")).clicked()
                         {
                             crate::sys::open_url(url);
                         }
@@ -1310,7 +1312,7 @@ fn alert_settings(ui: &mut Ui, s: &mut Settings) {
                         });
                         ui.label(egui::RichText::new(opts.level.hint()).color(theme::text_dim()));
                         if kind == AlertKind::ThinkBroadband {
-                            crate::plugins::thinkbroadband::ui::alert_options(ui, s);
+                            ui.label(egui::RichText::new("The packet-loss level is set in Settings > Plugins > thinkbroadband > Settings.").color(theme::text_dim()));
                         }
                         if kind == AlertKind::DeviceReturned {
                             ui.horizontal(|ui| {
@@ -1538,7 +1540,7 @@ fn sections() -> [(&'static str, Icon, egui::Color32); 12] {
         ("Malicious IPs", Icon::ShieldAlert, theme::red()),
         ("Privacy", Icon::Privacy, theme::text()),
         ("Countries & Network", Icon::Globe, theme::accent()),
-        ("Integrations", Icon::House, theme::accent()),
+        ("Plugins", Icon::House, theme::accent()),
         ("Other", Icon::More, theme::text()),
     ]
 }
@@ -1573,7 +1575,7 @@ fn settings_form(
         7 => threat_section(ui, s, lists, out),
         8 => privacy_section(ui, s, p2p),
         9 => countries_section(ui, s),
-        10 => group(ui, "", |c| c.block(|ui| crate::plugins::core::section(ui, s))),
+        10 => group(ui, "", |c| c.block(|ui| crate::ui::plugins::section(ui, s))),
         _ => other_section(ui, s, out),
     }
 }
@@ -1706,6 +1708,16 @@ fn general_section(ui: &mut Ui, s: &mut Settings, out: &mut Outcome) {
                 crate::widgets::small_toggle(ui, &mut s.split_kernel);
             },
         );
+    });
+
+    group(ui, "Prometheus metrics", |c| {
+        c.row("Serve metrics", "Prometheus text metrics for programs on this computer only. Off by default.", |ui| {
+            crate::widgets::small_toggle(ui, &mut s.metrics);
+        });
+        c.enable(s.metrics);
+        c.row("Port", &format!("http://127.0.0.1:{}/metrics", s.metrics_port), |ui| {
+            ui.add(egui::DragValue::new(&mut s.metrics_port).range(1024..=65535));
+        });
     });
 
     group(ui, "History", |c| {
@@ -1945,21 +1957,6 @@ fn quotas_section(ui: &mut Ui, s: &mut Settings, ctx: &QuotaUi) {
 }
 
 fn scanner_section(ui: &mut Ui, s: &mut Settings) {
-    group(ui, "Network tabs", |c| {
-        c.row("Ping Monitor tab", "Shows the tab under Network and pings your hosts every 30 seconds.", |ui| {
-            crate::widgets::small_toggle(ui, &mut s.ping.show_tab);
-        });
-        c.row("Speedtest tab", "Shows the tab under Network. Runs Ookla's speedtest-cli; nothing is downloaded until you press the button on the tab.", |ui| {
-            crate::widgets::small_toggle(ui, &mut s.speedtest.show_tab);
-        });
-        c.enable(s.speedtest.show_tab);
-        c.row("Automatic speed tests", "Minutes between tests (0 = only when I press Run test).", |ui| {
-            crate::widgets::num_field(ui, &mut s.speedtest.interval_mins, 0..=1440, " min");
-        });
-        c.row("Speedtest server ID", "0 = closest.", |ui| {
-            crate::widgets::num_field(ui, &mut s.speedtest.server_id, 0..=99_999_999, "");
-        });
-    });
     group(ui, "Scanning", |c| {
         c.row("Scan automatically", "", |ui| {
             crate::widgets::small_toggle(ui, &mut s.auto_scan);

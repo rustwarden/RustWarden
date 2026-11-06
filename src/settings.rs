@@ -475,21 +475,6 @@ pub struct Settings {
     pub alert_opts: BTreeMap<String, AlertOpts>,
     /// Master switch for sending alerts to the Windows event log.
     pub event_log: bool,
-    /// Discord webhook URL alerts are posted to; empty turns it off.
-    #[serde(with = "secret")]
-    pub discord_webhook: String,
-    #[serde(with = "secret")]
-    pub slack_webhook: String,
-    #[serde(with = "secret")]
-    pub pushbullet_token: String,
-    #[serde(with = "secret")]
-    pub generic_webhook: String,
-    /// ntfy topic URL, e.g. https://ntfy.sh/my-topic
-    #[serde(with = "secret")]
-    pub ntfy_url: String,
-    pub gotify_url: String,
-    #[serde(with = "secret")]
-    pub gotify_token: String,
     /// Idle time before "while you were away" starts counting, in minutes.
     pub away_after_minutes: u32,
     /// A known device back after this many days away raises the "device returned" alert.
@@ -539,11 +524,6 @@ pub struct Settings {
     pub public_ip_url: String,
     /// Whois icon: show the answer in RustWarden (rdap.org) instead of opening Shodan in the browser.
     pub whois_internal: bool,
-    /// VirusTotal API key; lookups are available only while this is set.
-    #[serde(with = "secret")]
-    pub virustotal_key: String,
-    /// Look up new programs automatically (needs the key).
-    pub virustotal_auto: bool,
     /// Address of the update server script; no automatic checks without it.
     pub update_url: String,
     /// Release (stable) or Playground (alpha) builds.
@@ -569,10 +549,6 @@ pub struct Settings {
     pub window: Option<[i32; 4]>,
     /// The Traffic tab's totals and timeline card is folded into a compact bar (graph view; other views always fold it).
     pub traffic_footer_collapsed: bool,
-    /// VirusTotal was added in Settings > Integrations (it also shows whenever a key is saved).
-    pub virustotal_added: bool,
-    /// External Notification services added in Settings > Integrations (ids; see `Service::id`).
-    pub notify_added: Vec<String>,
     /// Download malicious-IP lists and warn when a program reaches one.
     pub threat_protect: bool,
     /// Block such addresses in the firewall straight away (otherwise only warn).
@@ -593,16 +569,20 @@ pub struct Settings {
     pub dns_block_feeds: String,
     /// Alerts are posted to the API services even while snoozed.
     pub api_in_snooze: bool,
-    /// Connected systems (Settings > Integrations).
-    pub integrations: Vec<crate::plugins::ha::Integration>,
-    /// The thinkbroadband Broadband Quality Monitor integration, when added.
-    pub thinkbroadband: Option<crate::plugins::thinkbroadband::Integration>,
-    /// The OPNsense router integration, when added.
-    pub opnsense: Option<crate::plugins::opnsense::Integration>,
-    /// The ICMP ping monitor (Network > Ping).
-    pub ping: crate::plugins::ping::Config,
-    /// The Speedtest tab (Network > Speedtest).
-    pub speedtest: crate::plugins::speedtest::Config,
+    /// What the user decided about each `.wasm` plugin, by plugin id (Settings > Plugins).
+    pub plugins: std::collections::BTreeMap<String, PluginState>,
+}
+
+/// The user's decision on one `.wasm` plugin. Its own config and secrets live in a file of their own
+/// (`plugins::wasm::manager`), because a plugin's worker saves them and a worker can't write `Settings`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PluginState {
+    pub enabled: bool,
+    /// SHA-256 of the file the user approved; a different file must be approved again.
+    pub approved_hash: String,
+    /// The opt-in permissions the user allowed.
+    pub granted: Vec<String>,
 }
 
 impl Settings {
@@ -700,13 +680,6 @@ impl Default for Settings {
             alerts: AlertSwitches::default(),
             alert_opts: BTreeMap::new(),
             event_log: false,
-            discord_webhook: String::new(),
-            slack_webhook: String::new(),
-            pushbullet_token: String::new(),
-            generic_webhook: String::new(),
-            ntfy_url: String::new(),
-            gotify_url: String::new(),
-            gotify_token: String::new(),
             away_after_minutes: 10,
             device_return_days: 14,
             auto_scan: false,
@@ -734,8 +707,6 @@ impl Default for Settings {
             dns_leak_ignore: "VMware, VirtualBox, vEthernet".into(),
             public_ip_url: "https://api.ipify.org".into(),
             whois_internal: false,
-            virustotal_key: String::new(),
-            virustotal_auto: false,
             update_url: String::new(),
             update_channel: UpdateChannel::Release,
             app_mode: AppMode::Normal,
@@ -747,18 +718,12 @@ impl Default for Settings {
             allow_helper_tools: true,
             window: None,
             traffic_footer_collapsed: false,
-            virustotal_added: false,
-            notify_added: Vec::new(),
             threat_protect: false,
             threat_block: true,
             keep_blocking_closed: false,
             prompt_minutes: 0,
             api_in_snooze: true,
-            integrations: Vec::new(),
-            thinkbroadband: None,
-            opnsense: None,
-            ping: Default::default(),
-            speedtest: Default::default(),
+            plugins: Default::default(),
             threat_update_hours: 24,
             threat_feeds: "https://feodotracker.abuse.ch/downloads/ipblocklist.txt
 https://raw.githubusercontent.com/stamparm/ipsum/master/levels/3.txt"
@@ -824,10 +789,14 @@ pub mod secret {
     }
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<String, D::Error> {
-        let raw = String::deserialize(d)?;
-        let Some(hex) = raw.strip_prefix(PREFIX) else { return Ok(raw) };
+        Ok(open(&String::deserialize(d)?))
+    }
+
+    /// The text behind a stored value: decrypted when it is `dpapi:<hex>`, else as it is.
+    pub fn open(raw: &str) -> String {
+        let Some(hex) = raw.strip_prefix(PREFIX) else { return raw.to_owned() };
         let bytes: Option<Vec<u8>> = (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok()).collect();
-        Ok(bytes.and_then(|b| crate::sys::dpapi::unprotect(&b)).and_then(|b| String::from_utf8(b).ok()).unwrap_or(raw))
+        bytes.and_then(|b| crate::sys::dpapi::unprotect(&b)).and_then(|b| String::from_utf8(b).ok()).unwrap_or_else(|| raw.to_owned())
     }
 }
 
@@ -853,6 +822,10 @@ impl Settings {
     /// Reads the config (defaults when missing or broken), then applies `RUSTWARDEN_MODE`.
     pub fn load() -> Self {
         let mut s = Self::load_from(&config_path());
+        // The old integration fields are no longer in `Settings`; carry their values into plugins before a save drops them.
+        if let Some(raw) = std::fs::read_to_string(config_path()).ok().and_then(|t| toml::from_str::<toml::Table>(&t).ok()) {
+            crate::plugins::legacy::run(&mut s, &raw);
+        }
         if let Some(mode) = std::env::var("RUSTWARDEN_MODE").ok().and_then(|v| Mode::parse(&v)) {
             s.env_mode = Some((mode, s.mode));
             s.mode = mode;
@@ -1020,11 +993,6 @@ impl Settings {
         self.report_weekday = self.report_weekday.min(6);
         self.report_hour = self.report_hour.min(23);
         self.migrate_dns_feeds();
-        crate::plugins::ha::sanitize(self);
-        crate::plugins::thinkbroadband::sanitize(self);
-        crate::plugins::opnsense::sanitize(self);
-        crate::plugins::ping::sanitize(self);
-        crate::plugins::speedtest::sanitize(self);
     }
 
     /// A mode picked in the UI; it ends the `RUSTWARDEN_MODE` override, so it is saved even when it matches it.
@@ -1218,16 +1186,6 @@ mod tests {
     }
 
     #[test]
-    fn integrations_round_trip_and_are_tidied() {
-        let mut s = Settings::default();
-        s.integrations.push(crate::plugins::ha::Integration { url: " http://ha.local:8123/ ".into(), token: " t ".into(), ..Default::default() });
-        s.sanitize();
-        let back = Settings::from_toml(&toml::to_string_pretty(&s).unwrap()).unwrap();
-        assert_eq!((back.integrations[0].url.as_str(), back.integrations[0].token.as_str()), ("http://ha.local:8123", "t"));
-        assert!(crate::plugins::ha::active(&back).is_some());
-    }
-
-    #[test]
     fn partial_and_broken_files_fall_back() {
         assert_eq!(Settings::from_toml("mode = \"live\"").unwrap().retention_days, 30);
         assert!(Settings::from_toml("mode = [").is_none());
@@ -1257,8 +1215,6 @@ desktop = true"
     #[test]
     fn secrets_are_encrypted_in_the_file() {
         let s = Settings {
-            virustotal_key: "abc123".into(),
-            discord_webhook: "https://discord.com/api/webhooks/1/x".into(),
             // Feed and lookup URLs often carry a key in the query.
             threat_feeds: "https://feeds.example/ips.txt?key=feedkey".into(),
             dns_block_feeds: "https://feeds.example/hosts.txt?key=dnskey".into(),
@@ -1266,37 +1222,13 @@ desktop = true"
             ..Settings::default()
         };
         let text = toml::to_string_pretty(&s).unwrap();
-        assert!(!text.contains("abc123") && !text.contains("webhooks/1/x") && text.contains("dpapi:"));
+        assert!(text.contains("dpapi:"));
         assert!(!text.contains("feedkey") && !text.contains("dnskey") && !text.contains("infotoken"));
         let back = Settings::from_toml(&text).unwrap();
-        assert_eq!((back.virustotal_key.as_str(), back.discord_webhook.as_str()), ("abc123", "https://discord.com/api/webhooks/1/x"));
         assert_eq!((back.threat_feeds, back.dns_block_feeds, back.net_info_url), (s.threat_feeds, s.dns_block_feeds, s.net_info_url));
         // Older plain files still load; a value that can't be decrypted is kept as it was.
-        assert_eq!(Settings::from_toml("virustotal_key = \"plain\"").unwrap().virustotal_key, "plain");
-        assert_eq!(Settings::from_toml("virustotal_key = \"dpapi:00ff\"").unwrap().virustotal_key, "dpapi:00ff");
-    }
-
-    #[test]
-    fn opnsense_key_and_secret_are_encrypted_and_the_probe_survives_a_save() {
-        use crate::plugins::opnsense::{Caps, Integration};
-        let mut it = Integration { url: "https://fw".into(), key: "opnkey123".into(), secret: "opnsecret456".into(), ..Default::default() };
-        it.caps = Some(Caps { leases: true, write: Some(true), ..Default::default() });
-        it.caps_for = it.fingerprint();
-        it.pull_devices = true;
-        it.push_blocks = true;
-        let s = Settings { opnsense: Some(it), ..Settings::default() };
-        let text = toml::to_string_pretty(&s).unwrap();
-        assert!(!text.contains("opnkey123") && !text.contains("opnsecret456"));
-        let mut back = Settings::from_toml(&text).unwrap();
-        back.sanitize();
-        let b = back.opnsense.unwrap();
-        assert_eq!((b.key.as_str(), b.secret.as_str()), ("opnkey123", "opnsecret456"));
-        assert!(b.pull_devices && b.push_blocks, "the probe still matches, so the options stay on");
-        // A hand-edited file can't switch on what was never probed.
-        let forced = text.replace("caps_for = \"", "caps_for = \"x");
-        let mut forced = Settings::from_toml(&forced).unwrap();
-        forced.sanitize();
-        assert!(!forced.opnsense.unwrap().push_blocks);
+        assert_eq!(Settings::from_toml("threat_feeds = \"plain\"").unwrap().threat_feeds, "plain");
+        assert_eq!(Settings::from_toml("threat_feeds = \"dpapi:00ff\"").unwrap().threat_feeds, "dpapi:00ff");
     }
 
     #[test]

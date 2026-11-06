@@ -270,7 +270,7 @@ impl RustWarden {
         }
         if let (Some((id, app)), Some(anchor)) = (&self.popup_info, info_at) {
             let (id, app, ev) = (*id, app.clone(), self.banners.clone());
-            let can_scan = self.caps.live && !self.settings.virustotal_key.is_empty();
+            let can_scan = self.caps.live && !crate::live::vt::key().is_empty();
             let target = self.popups.iter().find(|(i, _, _)| *i == id).map(|(_, a, _)| a.target.clone()).unwrap_or_default();
             const INFO: egui::Vec2 = vec2(460.0, 290.0);
             let pos = toast::flyout_pos(anchor, work, INFO);

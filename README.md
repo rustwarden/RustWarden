@@ -78,7 +78,7 @@ Use **Settings > Other > Use demo data** to switch to Demo mode.
 | `src/live/` | Real data collection (ETW, firewall, hardware counters) |
 | `src/destrules.rs` | Destination rules: rule model, storage format and address-range arithmetic (shared by Live and Demo) |
 | `src/demo.rs` | Demo data backend |
-| `src/plugins/` | Integrations: Home Assistant, Ping Monitor, Speedtest, VirusTotal, External Notifications, settings page |
+| `src/plugins/` | Plugins: the registry, the `.wasm` plugin host and manager, and the built-in Home Assistant, Ping Monitor, Speedtest, VirusTotal and External Notifications plugins |
 | `assets/` | Logo, icons, flags, world map data, OUI vendor table |
 | `.github/` | Release workflow (nightly build and publish) |
 

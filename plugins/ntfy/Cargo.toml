@@ -1,0 +1,11 @@
+[package]
+name = "plugin-ntfy"
+version = "1.0.0"
+edition = "2024"
+
+[lib]
+name = "ntfy"
+crate-type = ["cdylib"]
+
+[dependencies]
+plugin-sdk = { path = "../../plugin-sdk" }

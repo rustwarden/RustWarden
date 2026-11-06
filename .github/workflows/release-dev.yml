@@ -28,6 +28,8 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         if: steps.plan.outputs.skip != 'true'
+        with:
+          targets: wasm32-wasip1
 
       - uses: Swatinem/rust-cache@v2
         if: steps.plan.outputs.skip != 'true'

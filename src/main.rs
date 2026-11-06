@@ -78,7 +78,7 @@ fn main() -> eframe::Result {
         // Checks the alert log's hash chain from a terminal (see verify_log.rs).
         Some("--verify-alert-log") => std::process::exit(verify_log::run()),
         // The thinkbroadband browser helper: a small window of its own, not the app.
-        Some("--tbb-browser") => std::process::exit(plugins::thinkbroadband::browser::run(&std::env::args().skip(2).collect::<Vec<_>>())),
+        Some("--tbb-browser") => std::process::exit(sys::webview::run(&std::env::args().skip(2).collect::<Vec<_>>())),
         // Started by the service (already elevated).
         Some("--elevated") => {}
         _ if shots.is_some() => {}

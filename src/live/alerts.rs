@@ -256,7 +256,7 @@ impl AlertKind {
             Self::Unlock => "Record an alert whenever this computer is unlocked.",
             Self::Threat => "Notify me when a program connects to a known malicious or botnet IP address.",
             Self::DnsThreat => "Notify me when a program looks up a domain on a malicious-domain list (turn the lists on in Settings > Malicious IP protection).",
-            Self::ThinkBroadband => "Notify me when thinkbroadband's Broadband Quality Monitor sees packet loss (set the level in Settings > Integrations).",
+            Self::ThinkBroadband => "Notify me when thinkbroadband's Broadband Quality Monitor sees packet loss (set the level in Settings > Plugins).",
             Self::UserAccounts => "Notify me if a Windows user account is created, activated, deactivated or deleted.",
             Self::ScheduledTasks => "Notify me if a new Windows Task Scheduler task is added (malware often uses one to survive a reboot).",
             Self::RootCerts => "Notify me if a trusted root certificate is added to Windows (malware and interception tools add them to read encrypted traffic).",

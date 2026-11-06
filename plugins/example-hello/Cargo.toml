@@ -1,0 +1,11 @@
+[package]
+name = "example-hello"
+version = "0.1.0"
+edition = "2024"
+description = "The smallest RustWarden plugin: one tab and a settings page"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+plugin-sdk = { path = "../../plugin-sdk" }

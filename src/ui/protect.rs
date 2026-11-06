@@ -213,7 +213,7 @@ impl RustWarden {
         // How far the held row moved in the content since last frame, where it is now, and the scroll offset used.
         let (mut shift, mut held_cy, mut offset_y) = (0.0_f32, None, 0.0_f32);
         let scroll_to = self.protect.scroll_to.take();
-        let can_scan = self.caps.live && !self.settings.virustotal_key.is_empty();
+        let can_scan = self.caps.live && !crate::live::vt::key().is_empty();
 
         ui.scope_builder(UiBuilder::new().max_rect(body), |ui| {
             let mut area = egui::ScrollArea::vertical().auto_shrink([false, false]);

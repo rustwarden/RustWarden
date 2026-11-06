@@ -751,7 +751,7 @@ impl FwController {
     /// Blocks (or lifts the block on) one remote address in both directions, for any program.
     pub fn block_ip(&self, ip: std::net::IpAddr, on: bool) -> Result<(), String> {
         self.need_admin()?;
-        if on && super::threat::is_protected(ip, &super::threat::protected_addrs(&self.shared.settings().integrations)) {
+        if on && super::threat::is_protected(ip, &super::threat::protected_addrs(&super::threat::home_assistant_urls())) {
             return Err(format!("{ip} is on your own network, or is a gateway, DNS server or Home Assistant host, so it can't be blocked."));
         }
         let _g = self.lock_op();

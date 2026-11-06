@@ -222,7 +222,7 @@ fn prompt(shared: &Shared, path: String, remote: IpAddr, country: Option<crate::
         ask.target = name;
     }
     ask.info = super::asn::lookup(remote, &shared.settings());
-    if !shared.settings().virustotal_key.trim().is_empty() {
+    if !super::vt::key().is_empty() {
         ask.hash = crate::sys::apps::hash_file(&ask.path);
     }
     ask.update = true;

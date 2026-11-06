@@ -781,6 +781,17 @@ impl DeviceKind {
     }
 }
 
+/// What a plugin knows about a scanned device: its name and area for it, the model, a kind such as "light" or
+/// "switch" (drives the icon) and a link to its page.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DeviceNote {
+    pub name: String,
+    pub area: String,
+    pub model: String,
+    pub kind: String,
+    pub url: String,
+}
+
 #[derive(Clone, Debug)]
 pub struct Device {
     /// User-given name; empty falls back to the type label.
@@ -798,8 +809,8 @@ pub struct Device {
     pub seen_count: i64,
     /// Open TCP ports found by the last port scan, ascending; empty when none or not scanned yet.
     pub ports: Vec<u16>,
-    /// What Home Assistant calls this device, when the integration matched its MAC.
-    pub ha: Option<crate::plugins::ha::HaInfo>,
+    /// What a device-annotating plugin (Home Assistant) calls this device, when it matched the MAC.
+    pub note: Option<DeviceNote>,
     /// Marked as a known device by the user.
     pub trusted: bool,
 }
@@ -1210,23 +1221,9 @@ pub trait Backend: Send + Sync {
         Vec::new()
     }
 
-    /// State of the Speedtest tab's runner (CLI present, test running, last error).
-    fn speedtest_status(&self) -> crate::plugins::speedtest::SpeedStatus {
-        Default::default()
-    }
-    /// Stored speed tests from `since` on, oldest first. Reads the database, so callers run it off the UI thread.
-    fn speedtest_results(&self, _since: i64) -> Vec<crate::plugins::speedtest::SpeedResult> {
-        Vec::new()
-    }
-    /// Map positions of a test's server and of this connection, from the GeoIP database. Off the UI thread.
-    fn speedtest_route(&self, _server_ip: &str, _client_ip: &str) -> Option<crate::plugins::speedtest::SpeedRoute> {
+    /// Where a speed test went: the test server and this connection on the map, when the GeoIP database knows both.
+    fn speedtest_route(&self, _server_ip: &str, _client_ip: &str) -> Option<crate::ui::speed::SpeedRoute> {
         None
-    }
-    /// Starts a speed test now (Live runs it on the speedtest worker).
-    fn speedtest_run(&self) {}
-    /// Downloads Ookla's speedtest-cli. Blocks, so callers run it on a worker.
-    fn speedtest_install(&self) -> Result<(), String> {
-        Ok(())
     }
 
     fn apply_settings(&self, settings: &crate::settings::Settings);

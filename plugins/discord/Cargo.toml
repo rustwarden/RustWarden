@@ -1,0 +1,11 @@
+[package]
+name = "plugin-discord"
+version = "1.0.0"
+edition = "2024"
+
+[lib]
+name = "discord"
+crate-type = ["cdylib"]
+
+[dependencies]
+plugin-sdk = { path = "../../plugin-sdk" }

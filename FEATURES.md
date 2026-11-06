@@ -63,7 +63,7 @@ The full feature list. For an overview, see the [README](README.md).
 - Monitors for new Windows user accounts, scheduled tasks, trusted root certificates, startup entries (Run keys and Startup folders) services or drivers, and apps starting to use the microphone or camera (read from the Windows privacy log). Like the hosts file, DNS-server and proxy monitors, each has its own switch.
 - The alert log is tamper-evident: each entry is hash-chained to the one before it. The **Verify log** button on the Alerts tab, or `rustwarden --verify-alert-log` from a terminal, reports the first entry that was edited or removed. Entries from before this version are counted but cannot be checked. Clearing history never touches alerts, and removing the newest entries is not detectable.
 - Export history: the **Export log** button on the Alerts tab saves every alert, and **History** on the Traffic tab saves the last 30 days of per-app traffic. Name the file `.json` for JSON; anything else gives CSV. Both are written locally and only when you click.
-- Weekly summary (off by default): the **Weekly report** button on the Alerts tab shows the last seven days as bar charts (traffic per day, busiest apps, alerts by kind, ping averages) plus counts: busiest apps, new hosts and countries, alerts by kind, blocked connections, quota events, and ping averages. Turn on "Send a weekly summary" in Settings > Integrations > External Notifications to send it to your notification services on a weekday and hour you pick. The first one goes at the next slot, not when you switch it on, and nothing is sent unless a service is set up there. Demo mode shows a sample report and sends nothing.
+- Weekly summary (off by default): the **Weekly report** button on the Alerts tab shows the last seven days as bar charts (traffic per day, busiest apps, alerts by kind, ping averages) plus counts: busiest apps, new hosts and countries, alerts by kind, blocked connections, quota events, and ping averages. Turn on "Send a weekly summary" in Settings > Plugins > Notification Plugins to send it to your notification services on a weekday and hour you pick. The first one goes at the next slot, not when you switch it on, and nothing is sent unless a service is set up there. Demo mode shows a sample report and sends nothing.
 - Forward alerts to the Windows event log and to Discord, Slack, Pushbullet, ntfy, Gotify and generic webhooks (External Notifications), with snooze support.
 
 <a id="quotas"></a>
@@ -160,11 +160,17 @@ The full feature list. For an overview, see the [README](README.md).
 
 <a id="integrations"></a>
 
-### 🔌 Integrations
-- **Home Assistant**: matches scanned devices by MAC and shows their HA name, area and a coloured device-type icon, with links to the HA device page.
+### 🔌 Plugins
+- **Settings > Plugins** replaces Integrations, with two sections: **System Plugins** (Home Assistant, thinkbroadband, VirusTotal, ping and similar) and **Notification Plugins** (Discord, Slack, Pushbullet, ntfy, Gotify, webhook).
+- Third-party and private plugins are `.wasm` files that run in a sandbox. By default a plugin can only add tabs and a settings page; anything more is an opt-in permission you tick when you approve it, like phone app permissions. A plugin has no file or network access of its own: it can reach only the websites its manifest lists, and only its own database tables.
+- Plugin files live in `Program Files\RustWarden\plugins`, which only administrators can write. Each file must be approved once; a changed file asks again. Unapproved or switched-off plugins never run. Remove deletes the file and, if you tick it, the plugin's settings, saved secrets and data.
+- A plugin's saved settings are stored per plugin under `%APPDATA%\RustWarden\plugins`, and its secrets are encrypted with Windows DPAPI for your account, like every other token.
+- **Built-in plugins** ship inside RustWarden.exe and start from the switch on the Plugins page: Discord, Slack / Mattermost / Rocket.Chat, Pushbullet, ntfy, Gotify and a generic webhook (Notification Plugins), and Ping Monitor, Home Assistant, VirusTotal, OPNsense, Speedtest and thinkbroadband (System Plugins). Settings from earlier versions are carried over automatically.
+- Writing your own plugin: see [PLUGINS.md](PLUGINS.md) and `plugins/example-hello`. The Discord, Slack, Pushbullet, ntfy, Gotify and webhook notifiers are also available as plugins; they need the "alerts.read" permission to receive alerts.
+- Every integration is a plugin: the built-in ones listed above, plus OPNsense (probe what an API key may do) and thinkbroadband (Broadband Quality Monitor, with its own sign-in browser window), and Speedtest (Ookla's CLI, downloaded only when you press the button).
+- **Home Assistant** (a built-in plugin): matches scanned devices by MAC and shows their HA name, area and a coloured device-type icon, with links to the HA device page.
 - Tokens, API keys and webhook addresses are stored encrypted with Windows DPAPI for your account.
-- **VirusTotal** and more, all added from Settings > Integrations.
-- **Prometheus metrics** (off by default): turn on "Serve Prometheus metrics" in Settings > Integrations and scrape `http://127.0.0.1:9877/metrics` (the port is configurable). It listens on this computer only, refuses requests whose Host is not localhost, and reports 24-hour internet traffic, blocked connections, alerts by kind and the busiest ten apps. It makes no outbound connections. Demo mode serves sample numbers.
+- **Prometheus metrics** (off by default, now in Settings > General): turn on "Serve metrics" and scrape `http://127.0.0.1:9877/metrics` (the port is configurable). It listens on this computer only, refuses requests whose Host is not localhost, and reports 24-hour internet traffic, blocked connections, alerts by kind and the busiest ten apps. It makes no outbound connections. Demo mode serves sample numbers.
 
 <a id="everything-else"></a>
 

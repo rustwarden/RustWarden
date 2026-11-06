@@ -9,21 +9,20 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Tab {
     Traffic,
     Protect,
     Log,
     Scanner,
     Hardware,
-    Broadband,
-    Ping,
-    Speedtest,
     Dns,
     Connections,
     DestRules,
     Bandwidth,
     AlertRules,
+    /// A tab of a running `.wasm` plugin: its position in `wasm::manager::tabs()`.
+    Plugin(usize),
 }
 
 impl Tab {
@@ -35,20 +34,18 @@ impl Tab {
             Tab::Log => "log",
             Tab::Scanner => "scanner",
             Tab::Hardware => "hardware",
-            Tab::Broadband => "broadband",
-            Tab::Ping => "ping",
-            Tab::Speedtest => "speedtest",
             Tab::Dns => "dns",
             Tab::Connections => "connections",
             Tab::DestRules => "dest_rules",
             Tab::Bandwidth => "bandwidth",
             Tab::AlertRules => "alert_rules",
+            // Not reopened at the next start: the plugin may not be running then.
+            Tab::Plugin(_) => "plugin",
         }
     }
 
     /// Every tab, including the sub-tabs.
-    const EVERY: [Tab; 13] =
-        [Tab::Traffic, Tab::Protect, Tab::Log, Tab::Scanner, Tab::Hardware, Tab::Broadband, Tab::Ping, Tab::Speedtest, Tab::Dns, Tab::Connections, Tab::DestRules, Tab::Bandwidth, Tab::AlertRules];
+    const EVERY: [Tab; 10] = [Tab::Traffic, Tab::Protect, Tab::Log, Tab::Scanner, Tab::Hardware, Tab::Dns, Tab::Connections, Tab::DestRules, Tab::Bandwidth, Tab::AlertRules];
 
     pub fn from_key(key: &str) -> Option<Tab> {
         Self::EVERY.into_iter().find(|t| t.key() == key)
@@ -64,14 +61,12 @@ impl Tab {
             Tab::Log => ("Alerts", ""),
             Tab::Scanner => ("Network", ""),
             Tab::Hardware => ("Hardware", ""),
-            Tab::Broadband => ("Broadband", "Quality"),
-            Tab::Ping => ("Ping", "Monitor"),
-            Tab::Speedtest => ("Speedtest", ""),
             Tab::Dns => ("DNS", "Log"),
             Tab::Connections => ("Live", "Connections"),
             Tab::DestRules => ("Destination", "Rules"),
             Tab::Bandwidth => ("Bandwidth", "Limits"),
             Tab::AlertRules => ("Alert", "Rules"),
+            Tab::Plugin(_) => ("Plugin", ""),
         }
     }
 
@@ -82,7 +77,7 @@ impl Tab {
             Tab::Log | Tab::AlertRules => Icon::Alerts,
             Tab::Scanner => Icon::Scanner,
             Tab::Hardware => Icon::Chip,
-            Tab::Broadband | Tab::Ping | Tab::Speedtest | Tab::Dns => Icon::Wave,
+            Tab::Dns | Tab::Plugin(_) => Icon::Wave,
         }
     }
 }
@@ -422,10 +417,6 @@ pub struct RustWarden {
     pub dns: DnsState,
     pub conns: ConnsState,
     pub scanner: ScannerState,
-    pub tbb: crate::plugins::core::latency::State,
-    pub ping_view: crate::plugins::core::latency::State,
-    pub ping_dlg: crate::plugins::ping::ui::Dlg,
-    pub speedtest: crate::plugins::speedtest::ui::SpeedState,
     pub toast: Option<(String, f64)>,
     /// Desktop popups on screen: (viewport number, alert, expiry in `started` seconds).
     pub popups: Vec<(u64, Alert, f64)>,
@@ -645,6 +636,7 @@ impl RustWarden {
         crate::sys::autostart::watch_show(cc.egui_ctx.clone());
         let backend = make_backend(&settings);
         backend.set_repaint(cc.egui_ctx.clone());
+        crate::plugins::wasm::manager::apply(&settings, &cc.egui_ctx);
         let range = settings.traffic_range;
         let start_tab = Tab::from_key(&settings.last_tab);
         let window = default_window(settings.mode);
@@ -716,10 +708,6 @@ impl RustWarden {
             settings,
             // Dev aid: RUSTWARDEN_TAB=0..4 picks the starting tab, RUSTWARDEN_VIEW=0..2 the traffic view.
             tab: std::env::var("RUSTWARDEN_TAB").ok().and_then(|v| v.parse::<usize>().ok()).and_then(|i| Tab::ALL.get(i).copied()).or(start_tab).unwrap_or(Tab::Traffic),
-            tbb: Default::default(),
-            ping_view: Default::default(),
-            speedtest: Default::default(),
-            ping_dlg: Default::default(),
             toast: None,
             popups: Vec::new(),
             popup_seq: 0,
@@ -1085,6 +1073,7 @@ Start RustWarden as administrator once: it undoes Block All automatically."
             self.notify(&format!("Couldn't save settings: {e}"));
         }
         self.backend.apply_settings(&self.settings);
+        crate::plugins::wasm::manager::apply(&self.settings, ctx);
         self.apply_metrics();
         self.scanner.auto_scan = self.settings.auto_scan;
         self.request_mode(ctx, wanted_mode);
@@ -1147,15 +1136,7 @@ Start RustWarden as administrator once: it undoes Block All automatically."
     /// The Network tab's sub-tabs, centred; only drawn while the Broadband tab is in use.
     fn network_tabs(&mut self, ui: &mut Ui) {
         let mut subs = vec![(Tab::Scanner, "Network Scanner")];
-        if crate::plugins::thinkbroadband::tab_visible(&self.settings) {
-            subs.push((Tab::Broadband, "Broadband Quality"));
-        }
-        if crate::plugins::ping::tab_visible(&self.settings) {
-            subs.push((Tab::Ping, "Ping Monitor"));
-        }
-        if crate::plugins::speedtest::tab_visible(&self.settings) {
-            subs.push((Tab::Speedtest, "Speedtest"));
-        }
+        subs.extend(crate::plugins::wasm::manager::tabs().into_iter().enumerate().map(|(i, t)| (Tab::Plugin(i), t.title)));
         subs.push((Tab::Dns, "DNS Log"));
         self.sub_tab_strip(ui, subs);
     }
@@ -1179,7 +1160,7 @@ Start RustWarden as administrator once: it undoes Block All automatically."
         for ((tab, label), w) in subs.into_iter().zip(widths) {
             let r = Rect::from_min_size(pos2(x, rect.top()), vec2(w, rect.height()));
             x += w;
-            let resp = ui.interact(r, Id::unique(("subtab", tab as u8)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+            let resp = ui.interact(r, Id::unique(("subtab", tab)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
             if resp.clicked() {
                 self.tab = tab;
             }
@@ -1199,9 +1180,6 @@ Start RustWarden as administrator once: it undoes Block All automatically."
                 Tab::Log => Icon::Alerts,
                 Tab::AlertRules => Icon::Sliders,
                 Tab::Scanner => Icon::Scanner,
-                Tab::Broadband => Icon::Wifi,
-                Tab::Ping => Icon::Wave,
-                Tab::Speedtest => Icon::Traffic,
                 _ => Icon::Search,
             };
             icons::outline(&p, icon, Rect::from_center_size(pos2(r.left() + 24.0, r.center().y), vec2(16.0, 16.0)), color);
@@ -1417,9 +1395,9 @@ Start RustWarden as administrator once: it undoes Block All automatically."
         for (tab, w) in tabs.into_iter().zip(widths) {
             let r = Rect::from_min_size(pos2(x, rect.top() + 6.0), vec2(w, rect.height() - 6.0));
             x += w;
-            let resp = ui.interact(r, Id::unique(("tab", tab as u8)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+            let resp = ui.interact(r, Id::unique(("tab", tab)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
             let active = self.tab == tab
-                || (tab == Tab::Scanner && matches!(self.tab, Tab::Broadband | Tab::Ping | Tab::Speedtest | Tab::Dns))
+                || (tab == Tab::Scanner && matches!(self.tab, Tab::Dns | Tab::Plugin(_)))
                 || (tab == Tab::Protect && matches!(self.tab, Tab::Connections | Tab::DestRules | Tab::Bandwidth))
                 || (tab == Tab::Log && self.tab == Tab::AlertRules);
             if resp.clicked() && !active {
@@ -1510,7 +1488,11 @@ Start RustWarden as administrator once: it undoes Block All automatically."
             ConfirmAction::ApplyRules(file) => {
                 if let Some(text) = &file.settings {
                     match self.settings.merged_from(text) {
-                        Ok((merged, skipped)) => {
+                        Ok((mut merged, skipped)) => {
+                            // A file exported by an older version still has the integrations as plain settings: carry them into plugins.
+                            if let Ok(raw) = toml::from_str::<toml::Table>(text) {
+                                crate::plugins::legacy::run(&mut merged, &raw);
+                            }
                             self.apply_settings(ctx, merged);
                             if skipped > 0 {
                                 self.notify(&format!("{skipped} setting(s) in the file weren't understood and were skipped"));
@@ -1543,10 +1525,6 @@ Start RustWarden as administrator once: it undoes Block All automatically."
             }),
             ConfirmAction::VirusTotalUpload { key } => self.backend.upload_virustotal(&key),
             ConfirmAction::CleanUp => {
-                if self.backend.speedtest_status().running {
-                    self.notify("A speed test is running; try again when it has finished.");
-                    return;
-                }
                 cleanup::disable(&mut self.settings);
                 if let Err(e) = self.settings.save() {
                     self.notify(&format!("Couldn't save settings: {e}"));
@@ -1856,10 +1834,11 @@ impl eframe::App for RustWarden {
 
         Panel::top("header").exact_size(snap(&ctx, 64.0)).frame(Frame::NONE.fill(theme::surface())).show(ui, |ui| self.header(ui));
 
-        let broadband = crate::plugins::thinkbroadband::tab_visible(&self.settings);
-        let ping = crate::plugins::ping::tab_visible(&self.settings);
-        if (self.tab == Tab::Broadband && !broadband) || (self.tab == Tab::Ping && !ping) || (self.tab == Tab::Speedtest && !crate::plugins::speedtest::tab_visible(&self.settings)) {
+        if matches!(self.tab, Tab::Plugin(i) if i >= crate::plugins::wasm::manager::tabs().len()) {
             self.tab = Tab::Scanner;
+        }
+        for (id, msg) in crate::plugins::wasm::manager::take_notes() {
+            self.notify(&format!("{id}: {msg}"));
         }
         if self.settings.mode == Mode::Live {
             self.status_strip(ui);
@@ -1881,7 +1860,7 @@ impl eframe::App for RustWarden {
             Panel::bottom("traffic_footer").exact_size(snap(&ctx, h)).frame(Frame::NONE.fill(theme::surface())).show(ui, |ui| self.traffic_footer(ui));
         }
 
-        if matches!(self.tab, Tab::Scanner | Tab::Broadband | Tab::Ping | Tab::Speedtest | Tab::Dns) {
+        if matches!(self.tab, Tab::Scanner | Tab::Dns | Tab::Plugin(_)) {
             Panel::top("network_tabs").exact_size(snap(&ctx, 42.0)).frame(Frame::NONE.fill(theme::surface())).show(ui, |ui| self.network_tabs(ui));
         }
         if matches!(self.tab, Tab::Log | Tab::AlertRules) {
@@ -1893,9 +1872,7 @@ impl eframe::App for RustWarden {
 
         let bg = match self.tab {
             Tab::Traffic if self.traffic.view == 0 => theme::teal_bg(),
-            Tab::Log | Tab::AlertRules | Tab::Protect | Tab::Scanner | Tab::Dns | Tab::Connections | Tab::DestRules | Tab::Bandwidth | Tab::Hardware | Tab::Broadband | Tab::Ping | Tab::Speedtest => {
-                theme::panel_bg()
-            }
+            Tab::Log | Tab::AlertRules | Tab::Protect | Tab::Scanner | Tab::Dns | Tab::Connections | Tab::DestRules | Tab::Bandwidth | Tab::Hardware | Tab::Plugin(_) => theme::panel_bg(),
             // Connections falls through to the surface colour, like the DNS log.
             _ => theme::surface(),
         };
@@ -1905,19 +1882,22 @@ impl eframe::App for RustWarden {
             Tab::Log => self.log_tab(ui),
             Tab::Scanner => self.scanner_tab(ui),
             Tab::Hardware => self.hardware_tab(ui),
-            Tab::Broadband => self.broadband_tab(ui),
-            Tab::Ping => self.ping_tab(ui),
-            Tab::Speedtest => self.speedtest_tab(ui),
             Tab::Dns => self.dns_tab(ui),
             Tab::Connections => self.connections_tab(ui),
             Tab::DestRules => self.dest_rules_tab(ui),
             Tab::Bandwidth => self.bandwidth_tab(ui),
             Tab::AlertRules => self.alert_rules_tab(ui),
+            Tab::Plugin(i) => {
+                if let Some(t) = crate::plugins::wasm::manager::tabs().into_iter().nth(i) {
+                    egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+                        ui.add_space(8.0);
+                        crate::plugins::wasm::manager::page(ui, &t.id, &t.tab, Some(self.backend.clone()));
+                    });
+                }
+            }
         });
 
         self.show_dialog(&ctx);
-        self.show_tbb_login(&ctx);
-        self.show_ping_dialogs(&ctx);
         self.show_ip_info(&ctx);
         self.show_tray_menu(&ctx);
         crate::sys::modal::release_unheld();

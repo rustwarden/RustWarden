@@ -34,8 +34,8 @@ const SCREENS: &[(&str, Setup, Window)] = &[
     ("hardware", |app| app.tab = Tab::Hardware, Window::Main),
     ("live-connections", |app| app.tab = Tab::Connections, Window::Main),
     ("dns-log", |app| app.tab = Tab::Dns, Window::Main),
-    ("speedtest", |app| app.tab = Tab::Speedtest, Window::Main),
-    ("ping", |app| app.tab = Tab::Ping, Window::Main),
+    ("speedtest", |app| app.tab = Tab::Plugin(1), Window::Main),
+    ("ping", |app| app.tab = Tab::Plugin(0), Window::Main),
     (
         "ask-to-connect",
         |app| {
@@ -72,13 +72,19 @@ pub fn settings() -> crate::settings::Settings {
     s.mode = crate::settings::Mode::Demo;
     s.follow_windows_theme = false;
     s.theme = crate::settings::Theme::Dark;
-    s.ping.show_tab = true;
     // Four charts in the grid layout and the 24 hour range; Demo mode draws made-up rounds for them, so the addresses are only labels.
-    for (name, host) in [("Cloudflare", "1.1.1.1"), ("Google DNS", "8.8.8.8"), ("Quad9", "9.9.9.9"), ("Home router", "192.168.1.1")] {
-        s.ping.add(name, host);
-    }
-    (s.ping.layout, s.ping.range) = (2, 1);
-    s.speedtest.show_tab = true;
+    s.plugins.insert("ping".into(), crate::settings::PluginState { enabled: true, ..Default::default() });
+    let hosts = [("Cloudflare", "1.1.1.1"), ("Google DNS", "8.8.8.8"), ("Quad9", "9.9.9.9"), ("Home router", "192.168.1.1")];
+    crate::plugins::wasm::manager::preset(
+        "ping",
+        [
+            ("hosts".to_owned(), hosts.iter().enumerate().map(|(i, (name, host))| format!("{}\t{host}\t{name}", i + 1)).collect::<Vec<_>>().join("\n")),
+            ("layout".to_owned(), "2".to_owned()),
+            ("range".to_owned(), "1".to_owned()),
+        ]
+        .into(),
+    );
+    s.plugins.insert("speedtest".into(), crate::settings::PluginState { enabled: true, ..Default::default() });
     s
 }
 

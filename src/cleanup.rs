@@ -8,13 +8,13 @@ use std::path::{Path, PathBuf};
 /// What RustWarden downloads, with where it lives.
 pub fn targets() -> Vec<(&'static str, PathBuf)> {
     vec![
-        ("speedtest-cli (Network > Speedtest)", crate::plugins::speedtest::cli::dir()),
+        ("speedtest-cli (Network > Speedtest)", crate::sys::helper::dir("speedtest")),
         ("GeoIP country database", crate::live::geo::default_db_path()),
         ("GeoIP city database", crate::live::geo::city_db_path()),
         ("ASN database", crate::live::geo::asn_db_path()),
         ("Malicious IP lists", crate::live::threat::cache_path()),
         ("Malicious domain list", crate::live::dns::cache_path()),
-        ("thinkbroadband sign-in", crate::plugins::thinkbroadband::browser::profile_dir()),
+        ("thinkbroadband sign-in", crate::sys::webview::profile_dir()),
     ]
 }
 
@@ -32,20 +32,17 @@ pub fn warning() -> String {
     let found: Vec<String> = targets().into_iter().filter(|(_, p)| p.exists()).map(|(name, p)| format!("  • {name} ({})", fmt_bytes(size(&p) as f64))).collect();
     let list = if found.is_empty() { "Nothing has been downloaded, so there is nothing to delete.".to_owned() } else { format!("This deletes:\n{}", found.join("\n")) };
     format!(
-        "{list}\n\nIt also switches off what used them: the Speedtest tab and its schedule, the city map and database updates, Malicious IP protection and the thinkbroadband integration. You can turn them on again in Settings (and download again where needed).\n\nYour history, alerts, firewall rules and settings are kept. This cannot be undone."
+        "{list}\n\nIt also switches off what used them: the Speedtest plugin and its schedule, the city map and database updates, Malicious IP protection and the thinkbroadband plugin. You can turn them on again in Settings (and download again where needed).\n\nYour history, alerts, firewall rules and settings are kept. This cannot be undone."
     )
 }
 
 /// Switches off the features that need the downloaded files.
 pub fn disable(s: &mut Settings) {
-    s.speedtest.show_tab = false;
-    s.speedtest.interval_mins = 0;
+    s.plugins.entry("speedtest".to_owned()).or_default().enabled = false;
     s.geoip_city = false;
     s.geo_auto_update = false;
     s.threat_protect = false;
-    if let Some(t) = &mut s.thinkbroadband {
-        t.enabled = false;
-    }
+    s.plugins.entry("thinkbroadband".to_owned()).or_default().enabled = false;
 }
 
 /// Deletes `paths` (missing ones are fine); returns the bytes freed and what could not be removed.
@@ -89,8 +86,8 @@ mod tests {
     fn disables_the_features_that_use_downloads() {
         let mut s = Settings::default();
         (s.threat_protect, s.geoip_city) = (true, true);
-        s.speedtest.show_tab = true;
+        s.plugins.insert("speedtest".into(), crate::settings::PluginState { enabled: true, ..Default::default() });
         disable(&mut s);
-        assert!(!s.threat_protect && !s.geoip_city && !s.speedtest.show_tab);
+        assert!(!s.threat_protect && !s.geoip_city && !s.plugins["speedtest"].enabled);
     }
 }

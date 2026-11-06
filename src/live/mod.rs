@@ -109,6 +109,7 @@ impl LiveBackend {
             threads: Mutex::new(Vec::new()),
         };
         lease::install(backend.shared.clone(), backend.fw.clone());
+        store::install_alert_sink(backend.shared.clone());
         backend.spawn("asn", move |_| asn.run(asn_rx));
         backend.spawn("virustotal", move |shared| vt.run(shared));
         backend.spawn("traffic", traffic::run);
@@ -138,10 +139,6 @@ impl LiveBackend {
         let asn = backend.asn.clone();
         backend.spawn("baseline", move |shared| baseline::run(shared, asn));
         backend.spawn("report", crate::report::run);
-        backend.spawn("homeassistant", crate::plugins::ha::worker::run);
-        backend.spawn("ping", crate::plugins::ping::worker::run);
-        backend.spawn("speedtest", crate::plugins::speedtest::worker::run);
-        backend.spawn("thinkbroadband", crate::plugins::thinkbroadband::worker::run);
         if elevated {
             let (qos, domains, guard, sniffer) = (backend.qos.clone(), backend.domains.clone(), backend.dnsguard.clone(), backend.sniffer.clone());
             backend.spawn("driver-move", move |shared| {
@@ -845,7 +842,7 @@ impl Backend for LiveBackend {
     }
 
     fn virustotal(&self, who: &str) -> Vt {
-        if self.shared.settings().virustotal_key.trim().is_empty() {
+        if vt::key().is_empty() {
             return Vt::None;
         }
         // shortcut: a name can match several programs, the first with a hash wins; pass the hash when it is known.
@@ -924,11 +921,12 @@ impl Backend for LiveBackend {
 
     fn devices(&self, network: &str) -> Vec<Device> {
         let Some(key) = self.network_key(network) else { return Vec::new() };
-        let ha = self.with_db(|db| db.ha_all());
+        let annotators = crate::plugins::wasm::manager::annotator_ids();
+        let notes = self.with_db(|db| db.device_notes(&annotators));
         self.with_db(|db| db.devices(&key))
             .into_iter()
             .map(|d| Device {
-                ha: ha.get(&d.mac).cloned(),
+                note: notes.get(&d.mac).cloned(),
                 name: d.name,
                 online: d.online,
                 kind: scanner::kind_from_i64(d.kind),
@@ -997,30 +995,14 @@ impl Backend for LiveBackend {
         }
     }
 
-    fn speedtest_status(&self) -> crate::plugins::speedtest::SpeedStatus {
-        crate::plugins::speedtest::worker::status()
-    }
-
-    fn speedtest_results(&self, since: i64) -> Vec<crate::plugins::speedtest::SpeedResult> {
-        self.with_db(|db| db.speedtest_since(since))
-    }
-
-    fn speedtest_route(&self, server_ip: &str, client_ip: &str) -> Option<crate::plugins::speedtest::SpeedRoute> {
+    fn speedtest_route(&self, server_ip: &str, client_ip: &str) -> Option<crate::ui::speed::SpeedRoute> {
         let geo = lock(&self.geo);
         let at = |s: &str| {
             let ip = s.parse::<IpAddr>().ok()?;
             geo.position(ip, geo.place(ip))
         };
         let home = at(client_ip).or_else(|| crate::sys::home_region().and_then(crate::countries::by_a2).map(|e| (e.lon, e.lat)))?;
-        Some(crate::plugins::speedtest::SpeedRoute { home, server: at(server_ip)? })
-    }
-
-    fn speedtest_run(&self) {
-        crate::plugins::speedtest::worker::RUN_NOW.store(true, std::sync::atomic::Ordering::Relaxed);
-    }
-
-    fn speedtest_install(&self) -> Result<(), String> {
-        crate::plugins::speedtest::worker::install()
+        Some(crate::ui::speed::SpeedRoute { home, server: at(server_ip)? })
     }
 
     fn hardware_apps(&self, window_secs: i64) -> Vec<String> {
@@ -1059,9 +1041,6 @@ impl Backend for LiveBackend {
         let path_changed = old.geo_path() != settings.geo_path();
         if (old.net_info, &old.net_info_url) != (settings.net_info, &settings.net_info_url) {
             self.asn.clear();
-        }
-        if old.virustotal_key != settings.virustotal_key {
-            self.vt.forget_failures();
         }
         *self.shared.settings.write().unwrap_or_else(|e| e.into_inner()) = settings.clone();
         // Switching between Normal and Driver mode moves the limits between QoS policies and the driver engine.

@@ -1,0 +1,11 @@
+[package]
+name = "plugin-thinkbroadband"
+version = "1.0.0"
+edition = "2024"
+
+[lib]
+name = "thinkbroadband"
+crate-type = ["cdylib"]
+
+[dependencies]
+plugin-sdk = { path = "../../plugin-sdk" }

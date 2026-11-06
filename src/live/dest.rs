@@ -204,7 +204,7 @@ impl Dest {
             return set.clone();
         }
         let mut set = destrules::local_ranges();
-        for ip in super::threat::protected_addrs(&self.shared.settings().integrations) {
+        for ip in super::threat::protected_addrs(&super::threat::home_assistant_urls()) {
             set.add_ip(ip);
         }
         set.tidy();

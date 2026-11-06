@@ -227,7 +227,7 @@ impl Shared {
             crate::sys::eventlog::write(important, &format!("{title}: {line}"));
         }
         if opts.api {
-            crate::plugins::external_notifications::send_all(s, important, title, line);
+            crate::plugins::wasm::manager::broadcast_alert(important, title, line);
         }
         let mut st = self.state();
         if st.popups_ok {
@@ -287,7 +287,7 @@ impl Shared {
             crate::sys::eventlog::write(important, &format!("{}: {} {} {}", kind.title(), app, text, target).replace("  ", " "));
         }
         if opts.api && (!snoozed || settings.api_in_snooze) {
-            crate::plugins::external_notifications::send_all(&settings, important, kind.title(), &format!("{app} {text} {target}").replace("  ", " "));
+            crate::plugins::wasm::manager::broadcast_alert(important, kind.title(), &format!("{app} {text} {target}").replace("  ", " "));
         }
         let alert = NewAlert { ts: now, kind: kind.key().into(), important, app: app.into(), text: text.into(), target: target.into(), country: country.into(), unread: important && !snoozed };
         let id = match db.insert_alert(&alert) {
@@ -323,6 +323,21 @@ impl Shared {
             self.repaint();
         }
         Some(id)
+    }
+}
+
+/// The live backend's shared state, so a plugin can raise an alert. Set once at start; Demo mode has none.
+static ALERT_SINK: std::sync::OnceLock<std::sync::Arc<Shared>> = std::sync::OnceLock::new();
+
+pub fn install_alert_sink(shared: std::sync::Arc<Shared>) {
+    let _ = ALERT_SINK.set(shared);
+}
+
+/// A packet-loss alert from the thinkbroadband plugin, with the user's settings for that alert kind applied.
+pub fn raise_plugin_alert(who: &str, text: &str) {
+    let Some(shared) = ALERT_SINK.get() else { return };
+    if let Ok(db) = shared.open_db() {
+        shared.alert(&db, super::alerts::AlertKind::ThinkBroadband, who, text, "", "");
     }
 }
 

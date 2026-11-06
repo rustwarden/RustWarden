@@ -27,6 +27,19 @@ const MAX_POLLS: u32 = 8;
 const HOLD_AFTER: u64 = 3;
 const HOLD: Duration = Duration::from_secs(6 * 3600);
 
+/// The API key and the auto-scan switch of the VirusTotal plugin, while it runs with the `programs.hash` permission.
+/// The key is empty while it doesn't run, which turns every lookup off.
+pub fn settings() -> (String, bool) {
+    match crate::plugins::wasm::manager::granted_settings("virustotal", "programs.hash") {
+        Some((config, secrets)) => (secrets.get("key").map(|k| k.trim().to_owned()).unwrap_or_default(), config.get("auto").is_some_and(|a| a == "1")),
+        None => (String::new(), false),
+    }
+}
+
+pub fn key() -> String {
+    settings().0
+}
+
 #[derive(Default)]
 pub struct Scanner {
     /// Results by file hash. `Pending` and `Failed` live here only; the rest is also in the kv table.
@@ -112,19 +125,24 @@ impl Scanner {
         };
         let mut last_retry = Instant::now();
         let mut failures = 0u64;
+        let mut last_key = String::new();
         while !shared.stopping() {
             // A network blip must not leave a program marked Failed until restart.
             if last_retry.elapsed() > RETRY_FAILED {
                 self.forget_failures();
                 last_retry = Instant::now();
             }
-            let s = shared.settings();
-            let key = s.virustotal_key.trim().to_owned();
+            let (key, auto) = settings();
+            // A new key deserves a retry of lookups that failed with the old one.
+            if key != last_key {
+                self.forget_failures();
+                last_key.clone_from(&key);
+            }
             if key.is_empty() || self.on_hold() {
                 nap(&shared, 5);
                 continue;
             }
-            if s.virustotal_auto {
+            if auto {
                 for a in db.apps().unwrap_or_default().iter().filter(|a| a.missing_since.is_none() && self.get(&db, &a.hash) == Vt::None) {
                     self.scan(&a.hash);
                 }
