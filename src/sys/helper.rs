@@ -42,6 +42,25 @@ pub fn dir(plugin: &str) -> PathBuf {
     if super::is_elevated() { crate::settings::admin_dir().join(plugin) } else { user_dir(plugin) }
 }
 
+/// Separates the `env:NAME=value` arguments from the real ones. Only USERPROFILE and HOME can be set, and only to a place
+/// inside the plugin's own folder.
+type Split = (Vec<(String, String)>, Vec<String>);
+
+fn split_env(args: Vec<String>) -> Result<Split, String> {
+    let (mut env, mut rest) = (Vec::new(), Vec::new());
+    for a in args {
+        let Some(spec) = a.strip_prefix("env:") else {
+            rest.push(a);
+            continue;
+        };
+        match spec.split_once('=') {
+            Some((name @ ("USERPROFILE" | "HOME"), value)) if !value.contains("..") => env.push((name.to_owned(), value.to_owned())),
+            _ => return Err("that environment variable can't be set".into()),
+        }
+    }
+    Ok((env, rest))
+}
+
 /// A plain file name ending in .exe: no folders, no tricks.
 pub fn valid_exe_name(name: &str) -> bool {
     name.len() <= 64 && name.to_ascii_lowercase().ends_with(".exe") && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
@@ -140,6 +159,12 @@ pub fn start(
     // "{dir}" in an argument is the plugin's own folder, so a program can keep its files there (removed with the plugin's data).
     let folder = dir(plugin).to_string_lossy().into_owned();
     let args: Vec<String> = args.into_iter().map(|a| a.replace("{dir}", &folder)).collect();
+    // "env:NAME=value" arguments set an environment variable for the program instead of being passed to it. Only the
+    // home folder may be set (a program that keeps its sign-in under it, such as cloudflared, then keeps it in the plugin's folder).
+    let (env, args) = split_env(args)?;
+    for (_, value) in &env {
+        let _ = std::fs::create_dir_all(value);
+    }
     let stop = Arc::new(AtomicBool::new(false));
     {
         let mut running = RUNNING.lock().unwrap_or_else(|e| e.into_inner());
@@ -148,7 +173,7 @@ pub fn start(
     }
     std::thread::spawn(move || {
         let mut cmd = Command::new(&path);
-        cmd.args(&args).stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null()).creation_flags(crate::sys::NO_WINDOW);
+        cmd.args(&args).envs(env.iter().map(|(k, v)| (k, v))).stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null()).creation_flags(crate::sys::NO_WINDOW);
         let mut child = match crate::sys::etw::spawn_own(&mut cmd) {
             Ok(c) => c,
             Err(e) => {
@@ -215,6 +240,15 @@ pub fn start(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_home_folder_can_be_set() {
+        let (env, rest) = split_env(vec![r"env:HOME=C:\p\home".into(), "tunnel".into()]).unwrap();
+        assert_eq!(env, [("HOME".to_owned(), r"C:\p\home".to_owned())]);
+        assert_eq!(rest, ["tunnel"]);
+        assert!(split_env(vec![r"env:PATH=C:\evil".into()]).is_err());
+        assert!(split_env(vec![r"env:HOME=C:\p\..\x".into()]).is_err());
+    }
 
     #[test]
     fn only_plain_exe_names_are_programs() {

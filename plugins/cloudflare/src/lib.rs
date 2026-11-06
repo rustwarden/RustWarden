@@ -57,27 +57,29 @@ fn url_in(line: &str) -> Option<String> {
 
 /// The arguments for each step. The token is a command-line argument (cloudflared has no other way in), so it is
 /// visible to administrators of this PC in the process list while the tunnel runs.
-/// The login certificate lives in the plugin's own folder (`{dir}`, filled in by RustWarden), so it goes when the plugin's data
-/// does, and a new login (a new file name) can choose another domain; cloudflared refuses to replace an existing certificate.
-fn args_for(step: Step, name: &str, host: &str, service: &str, token: &str, cert: &str) -> Vec<String> {
+/// Each login gets a folder of its own under the plugin's folder (`{dir}`, filled in by RustWarden): cloudflared writes
+/// `cert.pem` (and the tunnel's key) beside the certificate path it is given and refuses to replace an existing one, so a
+/// new folder is what lets a new login choose another domain. The home folder is pointed there too, so nothing lands
+/// outside the plugin's data.
+fn args_for(step: Step, name: &str, host: &str, service: &str, token: &str, login: &str) -> Vec<String> {
     let v = |a: &[&str]| a.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
-    let origin = format!("{{dir}}\\{cert}");
-    match step {
-        Step::Login => v(&["tunnel", "--origincert", &origin, "login"]),
-        Step::Create => v(&["tunnel", "--origincert", &origin, "create", name]),
-        Step::Route => v(&["tunnel", "--origincert", &origin, "route", "dns", name, host]),
+    let folder = format!(r"{{dir}}\{login}");
+    let cert = format!(r"{folder}\cert.pem");
+    let mut a = vec![format!("env:USERPROFILE={folder}"), format!("env:HOME={folder}")];
+    a.extend(match step {
+        Step::Login => v(&["tunnel", "--origincert", &cert, "login"]),
+        Step::Create => v(&["tunnel", "--origincert", &cert, "create", name]),
+        Step::Route => v(&["tunnel", "--origincert", &cert, "route", "dns", name, host]),
         Step::Run if !token.is_empty() => v(&["tunnel", "--no-autoupdate", "run", "--token", token]),
-        Step::Run => v(&["tunnel", "--no-autoupdate", "--origincert", &origin, "run", "--url", service, name]),
-        Step::Idle => Vec::new(),
-    }
+        Step::Run => v(&["tunnel", "--no-autoupdate", "--origincert", &cert, "run", "--url", service, name]),
+        Step::Idle => return Vec::new(),
+    });
+    a
 }
 
-/// The certificate file name for the current login.
-fn cert_name() -> String {
-    match guest::config_get("cert_n").parse::<u32>() {
-        Ok(n) if n > 0 => format!("cert-{n}.pem"),
-        _ => "cert.pem".to_owned(),
-    }
+/// The folder name of the current login.
+fn login_name() -> String {
+    format!("login-{}", guest::config_get("cert_n").parse::<u32>().unwrap_or(0))
 }
 
 /// Did a finished step do what it was for? cloudflared reports in text; its exit code isn't passed on.
@@ -130,7 +132,7 @@ fn say(msg: impl Into<String>) {
 /// Starts one step of the helper. `timeout` is 0 for the tunnel itself, which runs until stopped.
 fn begin(step: Step) {
     let token = if token_mode() { guest::secret_get("token") } else { String::new() };
-    let args = args_for(step, &cfg("name", "rustwarden"), &guest::config_get("host"), &cfg("service", "http://localhost:80"), &token, &cert_name());
+    let args = args_for(step, &cfg("name", "rustwarden"), &guest::config_get("host"), &cfg("service", "http://localhost:80"), &token, &login_name());
     // 0: the helper then streams cloudflared's output as it goes (it logs to stderr), so the sign-in address and any error
     // show at once. Every step ends by itself or by Stop.
     let timeout = 0;
@@ -201,6 +203,10 @@ fn finished(ok: bool, message: &str) {
     if !step_succeeded(step, &text) {
         with(|s| s.step = Step::Idle);
         let why = text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("it did not finish");
+        // A missing certificate means the login did not complete: show the login button again.
+        if text.to_lowercase().contains("origin cert") {
+            guest::config_set("logged_in", "");
+        }
         return say(format!("⚠ That step failed: {why}"));
     }
     match step {
@@ -302,6 +308,8 @@ fn event(e: Event) {
                 // A new certificate file, so cloudflared signs in afresh and asks which domain to use.
                 let n = guest::config_get("cert_n").parse::<u32>().unwrap_or(0) + 1;
                 guest::config_set("cert_n", &n.to_string());
+                // Not logged in until this login has finished.
+                guest::config_set("logged_in", "");
                 say("");
                 begin(Step::Login);
             }
@@ -388,12 +396,13 @@ mod tests {
 
     #[test]
     fn each_step_runs_the_right_command() {
-        let o = "{dir}\\cert-2.pem";
-        assert_eq!(args_for(Step::Login, "", "", "", "", "cert-2.pem"), ["tunnel", "--origincert", o, "login"]);
-        assert_eq!(args_for(Step::Create, "home", "", "", "", "cert-2.pem"), ["tunnel", "--origincert", o, "create", "home"]);
-        assert_eq!(args_for(Step::Route, "home", "a.example.com", "", "", "cert-2.pem"), ["tunnel", "--origincert", o, "route", "dns", "home", "a.example.com"]);
-        assert_eq!(args_for(Step::Run, "home", "", "http://localhost:80", "", "cert-2.pem"), ["tunnel", "--no-autoupdate", "--origincert", o, "run", "--url", "http://localhost:80", "home"]);
-        assert_eq!(args_for(Step::Run, "home", "", "", "TOKEN", "cert.pem"), ["tunnel", "--no-autoupdate", "run", "--token", "TOKEN"]);
+        let (f, c) = (r"{dir}\login-2", r"{dir}\login-2\cert.pem");
+        let a = |s, name: &str, host: &str, svc: &str, tok: &str| args_for(s, name, host, svc, tok, "login-2");
+        assert_eq!(a(Step::Login, "", "", "", ""), [&format!("env:USERPROFILE={f}"), &format!("env:HOME={f}"), "tunnel", "--origincert", c, "login"]);
+        assert_eq!(a(Step::Create, "home", "", "", "")[2..], ["tunnel", "--origincert", c, "create", "home"]);
+        assert_eq!(a(Step::Route, "home", "a.example.com", "", "")[2..], ["tunnel", "--origincert", c, "route", "dns", "home", "a.example.com"]);
+        assert_eq!(a(Step::Run, "home", "", "http://localhost:80", "")[2..], ["tunnel", "--no-autoupdate", "--origincert", c, "run", "--url", "http://localhost:80", "home"]);
+        assert_eq!(a(Step::Run, "home", "", "", "TOKEN")[2..], ["tunnel", "--no-autoupdate", "run", "--token", "TOKEN"]);
     }
 
     #[test]
