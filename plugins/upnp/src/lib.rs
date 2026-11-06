@@ -159,7 +159,15 @@ fn try_gateway(gateway: &guest::Gateway) -> Result<(Router, Option<String>), Str
         return Err(format!("its description answered HTTP {status}"));
     }
     let (service, control) = control_of(&desc, &gateway.location).ok_or("it has no UPnP internet connection service")?;
-    let ip = soap(&control, &service, "GetExternalIPAddress", &[]).ok().and_then(|b| tag(&b, "NewExternalIPAddress")).filter(|ip| !ip.is_empty() && ip != "0.0.0.0");
+    // Why the router gave no address is kept, so the page can say (some routers answer with an error or an empty value).
+    let (ip, why) = match soap(&control, &service, "GetExternalIPAddress", &[]) {
+        Ok(body) => match tag(&body, "NewExternalIPAddress").filter(|ip| !ip.is_empty() && ip != "0.0.0.0") {
+            Some(ip) => (Some(ip), String::new()),
+            None => (None, format!("it answered with no address: {}", body.chars().filter(|c| !c.is_control()).take(160).collect::<String>())),
+        },
+        Err(e) => (None, format!("it refused: {e}")),
+    };
+    guest::config_set("ip_why", &why);
     Ok((Router { control, service, local_ip: gateway.local_ip.clone() }, ip))
 }
 
@@ -238,16 +246,24 @@ fn setting(title: &str, sub: &str, control: UiTree) -> UiTree {
 }
 
 fn page() -> UiTree {
-    let ip = guest::config_get("ext_ip");
+    // What the router reported, else what was typed in (some routers don't report it).
+    let ip = Some(guest::config_get("ext_ip")).filter(|ip| !ip.is_empty()).unwrap_or_else(|| guest::config_get("manual_ip"));
     let router = saved_router();
     let status = match (&router, ip.is_empty()) {
         (None, _) => "No router found yet".to_owned(),
-        (Some(_), true) => "Router found, but it doesn't report its public address (see it on the router's status page); the copied address then has only the port".to_owned(),
+        (Some(_), true) => format!("Router found, but it doesn't report its public address ({}). Type it in below", guest::config_get("ip_why")),
         (Some(_), false) => format!("Router found. Public address: {ip}"),
     };
     let mut router_rows = vec![setting("Router", &format!("{status}. Needs UPnP switched on in the router."), UiTree::Button { id: "find".into(), text: "Find my router".into() })];
     if !ip.is_empty() && not_public(&ip) {
         router_rows.push(UiTree::Label("⚠ The router's address is not a public one (your provider shares one address between customers, or another router sits in front). A forwarded port will not be reachable from the internet.".into()));
+    }
+    if router.is_some() && guest::config_get("ext_ip").is_empty() {
+        router_rows.push(setting(
+            "Public address",
+            "Only needed because the router doesn't report it: copy it from the router's status page. With a VPN on, a website would show the VPN's address instead.",
+            UiTree::TextField { id: "manual_ip".into(), value: guest::config_get("manual_ip") },
+        ));
     }
     let msg = guest::config_get("msg");
     if !msg.is_empty() {
@@ -362,6 +378,11 @@ impl Guest for Upnp {
             }
             Call::Event(Event::Index { id, index }) if id == "proto" => {
                 guest::config_set("proto", PROTOS[index.min(1)]);
+                Reply::Done
+            }
+            Call::Event(Event::Text { id, value }) if id == "manual_ip" => {
+                let v = value.trim();
+                guest::config_set("manual_ip", if v.len() <= 45 && v.chars().all(|c| c.is_ascii_hexdigit() || c == '.' || c == ':') { v } else { "" });
                 Reply::Done
             }
             Call::Event(Event::Text { id, value }) if id == "desc" => {
