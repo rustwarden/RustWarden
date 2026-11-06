@@ -314,7 +314,8 @@ fn gauge(ui: &Ui, rect: Rect, name: &str, value: f32) {
     p.text(c + vec2(0.0, r * 0.62 + 24.0), Align2::CENTER_CENTER, format!("{name} · Mbps"), theme::font(13.0), theme::text_dim());
 }
 
-/// Speed over the running test: download across the left half, upload across the right.
+/// Speed over the running test, drawn like the traffic graph: one time axis (how far through the test), download and upload
+/// as two soft areas that grow from the left.
 fn live_chart(ui: &Ui, rect: Rect, live: &[SpeedLive]) {
     let p = ui.painter();
     p.rect_filled(rect, 8, theme::card());
@@ -326,13 +327,17 @@ fn live_chart(ui: &Ui, rect: Rect, live: &[SpeedLive]) {
         p.hline(plot.x_range(), y, Stroke::new(1.0, theme::border()));
         p.text(pos2(plot.left() - 8.0, y), Align2::RIGHT_CENTER, mbps(top * i as f32 / 4.0), theme::font(12.0), theme::text_dim());
     }
-    for (x, label) in [(0.25, "Download"), (0.75, "Upload")] {
-        p.text(pos2(plot.left() + plot.width() * x, plot.bottom() + 6.0), Align2::CENTER_TOP, label, theme::font(12.0), theme::text_dim());
+    for (i, label) in ["Start", "", "Halfway", "", "End"].into_iter().enumerate() {
+        p.text(pos2(plot.left() + plot.width() * i as f32 / 4.0, plot.bottom() + 6.0), Align2::CENTER_TOP, label, theme::font(12.0), theme::text_dim());
     }
-    for (phase, offset, color) in [(SpeedPhase::Download, 0.0, theme::accent_text()), (SpeedPhase::Upload, 0.5, theme::green())] {
-        let pts: Vec<_> = live.iter().filter(|s| s.phase == phase).map(|s| pos2(plot.left() + plot.width() * (offset + s.progress * 0.5), plot.bottom() - plot.height() * s.mbps / top)).collect();
-        p.add(Shape::line(pts, Stroke::new(2.0, color)));
+    for (phase, color) in [(SpeedPhase::Download, theme::accent_text()), (SpeedPhase::Upload, theme::green())] {
+        let mine: Vec<&SpeedLive> = live.iter().filter(|s| s.phase == phase).collect();
+        let (Some(last), true) = (mine.last(), mine.len() >= 2) else { continue };
+        let values: Vec<f32> = mine.iter().map(|s| s.mbps / top).collect();
+        widgets::area_soft_to(p, plot, &values, color, false, None, last.progress.clamp(0.05, 1.0));
     }
+    p.text(rect.right_top() + vec2(-14.0, 12.0), Align2::RIGHT_TOP, "Download", theme::font(12.0), theme::accent_text());
+    p.text(rect.right_top() + vec2(-90.0, 12.0), Align2::RIGHT_TOP, "Upload", theme::font(12.0), theme::green());
     p.text(rect.left_top() + vec2(14.0, 12.0), Align2::LEFT_TOP, "Live test", theme::font(12.0), theme::text_dim());
 }
 

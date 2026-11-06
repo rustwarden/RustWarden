@@ -59,7 +59,7 @@ impl Found {
 /// What the user's settings allow this plugin to do, if anything. A built-in plugin needs only its switch on;
 /// a file needs the approval of exactly this file (a changed file asks again).
 fn trusted(want: &BTreeMap<String, PluginState>, f: &Found) -> Option<PluginState> {
-    let w = want.get(&f.manifest.id).filter(|w| w.enabled)?;
+    let w = want.get(&f.manifest.id).filter(|w| w.enabled && !w.removed)?;
     if f.first_party() {
         return Some(PluginState { granted: f.manifest.permissions.clone(), ..w.clone() });
     }
@@ -698,6 +698,16 @@ pub fn remove(path: PathBuf, id: Option<String>, data: bool) {
     });
 }
 
+/// Stops a plugin and deletes its saved settings, secrets and tables (the plugin itself stays installed).
+pub fn erase(id: String) {
+    st().active.remove(&id);
+    std::thread::spawn(move || {
+        let _ = std::fs::remove_file(saved_path(&id));
+        drop_tables(&id);
+        repaint(&st().ctx);
+    });
+}
+
 /// Drops every table the plugin owned in the real database.
 fn drop_tables(id: &str) {
     let Ok(c) = Connection::open(crate::live::db_path()) else { return };
@@ -739,7 +749,7 @@ mod tests {
 
     #[test]
     fn a_changed_hash_is_not_approved() {
-        let state = PluginState { enabled: true, approved_hash: "abc".into(), granted: vec![] };
+        let state = PluginState { enabled: true, approved_hash: "abc".into(), ..PluginState::default() };
         let want = BTreeMap::from([("p".to_owned(), state)]);
         let found = |id: &str, hash: &str, source: Source| Found { source, hash: hash.into(), manifest: Manifest { id: id.into(), permissions: vec!["alerts.read".into()], ..Manifest::default() } };
         let file = Source::File(PathBuf::from("p.wasm"));
@@ -751,5 +761,7 @@ mod tests {
         assert_eq!(granted, vec!["alerts.read".to_owned()]);
         let off = BTreeMap::from([("p".to_owned(), PluginState { enabled: false, ..PluginState::default() })]);
         assert!(trusted(&off, &found("p", "x", Source::Bundled(b""))).is_none());
+        let gone = BTreeMap::from([("p".to_owned(), PluginState { enabled: true, removed: true, ..PluginState::default() })]);
+        assert!(trusted(&gone, &found("p", "x", Source::Bundled(b""))).is_none());
     }
 }

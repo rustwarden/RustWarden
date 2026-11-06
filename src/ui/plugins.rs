@@ -14,7 +14,8 @@ use std::path::PathBuf;
 enum Modal {
     Approve { id: String, grant: Vec<bool> },
     Settings(String),
-    Remove { path: PathBuf, id: Option<String>, name: String, data: bool },
+    Permissions(String),
+    Remove { path: Option<PathBuf>, id: Option<String>, name: String, data: bool },
     Install(String),
 }
 
@@ -61,8 +62,19 @@ fn perm_text(p: &str) -> &'static str {
 /// The `.wasm` plugins of one kind: the built-in ones, then files from the plugin folder.
 fn files(ui: &mut Ui, s: &mut Settings, kind: Kind) {
     let view = manager::view();
-    let mine: Vec<&Found> = view.found.iter().filter(|f| f.manifest.kind == kind).collect();
+    let query_id = ui.scope_id().with("plugin_search");
+    let mut query: String = ui.data_mut(|d| d.get_temp(query_id).unwrap_or_default());
+    let q = query.trim().to_lowercase();
+    let gone = |f: &Found| s.plugins.get(&f.manifest.id).is_some_and(|x| x.removed);
+    let mut mine: Vec<&Found> = view.found.iter().filter(|f| f.manifest.kind == kind && !gone(f)).collect();
+    mine.sort_by_cached_key(|f| f.manifest.name.to_lowercase());
+    let removed: Vec<&Found> = view.found.iter().filter(|f| f.manifest.kind == kind && gone(f)).collect();
+    let total = mine.len();
+    mine.retain(|f| q.is_empty() || f.manifest.name.to_lowercase().contains(&q) || f.manifest.id.contains(&q));
     let mut open: Option<Modal> = None;
+    ui.add(egui::TextEdit::singleline(&mut query).hint_text("Search plugins").desired_width(260.0));
+    ui.data_mut(|d| d.insert_temp(query_id, query));
+    ui.add_space(6.0);
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(if kind == Kind::System { "System plugins" } else { "Notification plugins" }).strong());
         if view.scanning {
@@ -79,7 +91,13 @@ fn files(ui: &mut Ui, s: &mut Settings, kind: Kind) {
         ui.label(&view.message);
     }
     if mine.is_empty() {
-        ui.weak(if view.scanning { "Looking for plugins…" } else { "No plugins of this kind are installed." });
+        ui.weak(if view.scanning {
+            "Looking for plugins…"
+        } else if total > 0 {
+            "No plugin matches your search."
+        } else {
+            "No plugins of this kind are installed."
+        });
     }
     for f in &mine {
         let m = &f.manifest;
@@ -100,7 +118,6 @@ fn files(ui: &mut Ui, s: &mut Settings, kind: Kind) {
                 ui.set_width(250.0);
                 ui.label(egui::RichText::new(&m.name).strong());
                 ui.weak(if first_party { format!("v{} · built in", m.version) } else { format!("v{} by {}", m.version, m.author) });
-                ui.weak(if m.permissions.is_empty() { "No extra permissions".to_owned() } else { m.permissions.join(", ") });
                 if changed {
                     ui.colored_label(crate::theme::orange(), "⚠ The file changed: approve it again");
                 } else if !approved {
@@ -119,10 +136,12 @@ fn files(ui: &mut Ui, s: &mut Settings, kind: Kind) {
                 });
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if let Some(path) = f.path()
-                    && ui.button("Remove").clicked()
-                {
-                    open = Some(Modal::Remove { path: path.to_owned(), id: Some(m.id.clone()), name: m.name.clone(), data: false });
+                if let Some(path) = f.path() {
+                    if ui.button("Remove").clicked() {
+                        open = Some(Modal::Remove { path: Some(path.to_owned()), id: Some(m.id.clone()), name: m.name.clone(), data: false });
+                    }
+                } else if ui.button("Uninstall").on_hover_text("Hides it and switches it off. It can be restored from the list at the bottom.").clicked() {
+                    open = Some(Modal::Remove { path: None, id: Some(m.id.clone()), name: m.name.clone(), data: false });
                 }
                 if !approved && ui.button("Review…").clicked() {
                     open = Some(Modal::Approve { id: m.id.clone(), grant: vec![false; m.permissions.len()] });
@@ -130,9 +149,25 @@ fn files(ui: &mut Ui, s: &mut Settings, kind: Kind) {
                 if approved && m.settings_page && ui.add_enabled(manager::running(&m.id), egui::Button::new("Settings")).clicked() {
                     open = Some(Modal::Settings(m.id.clone()));
                 }
+                if ui.button("Permissions").clicked() {
+                    open = Some(Modal::Permissions(m.id.clone()));
+                }
             });
         });
         ui.separator();
+    }
+    if !removed.is_empty() {
+        ui.add_space(8.0);
+        ui.label(egui::RichText::new("Uninstalled").strong());
+        for f in removed {
+            ui.horizontal(|ui| {
+                ui.label(&f.manifest.name);
+                if ui.button("Restore").clicked() {
+                    s.plugins.entry(f.manifest.id.clone()).or_default().removed = false;
+                    manager::preview(&s.plugins);
+                }
+            });
+        }
     }
     // Files that didn't load: shown once, under the System page only.
     if kind == Kind::System {
@@ -140,7 +175,7 @@ fn files(ui: &mut Ui, s: &mut Settings, kind: Kind) {
             ui.horizontal(|ui| {
                 ui.colored_label(crate::theme::red(), format!("⚠ {}: {err}", path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()));
                 if ui.button("Remove").clicked() {
-                    open = Some(Modal::Remove { path: path.clone(), id: None, name: path.display().to_string(), data: false });
+                    open = Some(Modal::Remove { path: Some(path.clone()), id: None, name: path.display().to_string(), data: false });
                 }
             });
         }
@@ -172,6 +207,14 @@ fn notification_options(ui: &mut Ui, s: &mut Settings) {
         manager::broadcast_alert(false, "RustWarden test", "This is a test alert from RustWarden.");
     }
     ui.add_space(12.0);
+}
+
+/// The dialog windows are see-through (like the main window), so their content sits on a card.
+fn card(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
+    egui::Frame::NONE.fill(crate::theme::card()).stroke(egui::Stroke::new(1.0, crate::theme::card_edge())).corner_radius(8).inner_margin(egui::Margin::same(14)).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        add(ui);
+    });
 }
 
 fn modal(ctx: &egui::Context, s: &mut Settings) {
@@ -226,7 +269,7 @@ fn modal(ctx: &egui::Context, s: &mut Settings) {
                 }
                 if approve {
                     let granted = man.permissions.iter().zip(grant.iter()).filter(|(_, g)| **g).map(|(p, _)| p.clone()).collect();
-                    s.plugins.insert(man.id.clone(), PluginState { enabled: true, approved_hash: f.hash.clone(), granted });
+                    s.plugins.insert(man.id.clone(), PluginState { enabled: true, approved_hash: f.hash.clone(), granted, removed: false });
                     close = true;
                 }
             }
@@ -235,7 +278,8 @@ fn modal(ctx: &egui::Context, s: &mut Settings) {
             let name = view.found.iter().find(|f| f.manifest.id == *id).map(|f| f.manifest.name.clone()).unwrap_or_default();
             if !widgets::dialog(&format!("{name} settings")).show(ctx, |ui| {
                 ui.set_width(460.0);
-                manager::page(ui, id, manager::SETTINGS_KEY, None);
+                card(ui, |ui| manager::page(ui, id, manager::SETTINGS_KEY, None));
+                ui.add_space(6.0);
                 if ui.button("Close").clicked() {
                     close = true;
                 }
@@ -243,18 +287,56 @@ fn modal(ctx: &egui::Context, s: &mut Settings) {
                 close = true;
             }
         }
+        Modal::Permissions(id) => match view.found.iter().find(|f| f.manifest.id == *id) {
+            None => close = true,
+            Some(f) => {
+                let man = &f.manifest;
+                let granted: Vec<String> = if f.first_party() { man.permissions.clone() } else { s.plugins.get(&man.id).map(|x| x.granted.clone()).unwrap_or_default() };
+                if !widgets::dialog(&format!("{} permissions", man.name)).show(ctx, |ui| {
+                    ui.set_width(460.0);
+                    card(ui, |ui| {
+                        ui.spacing_mut().item_spacing.y = 6.0;
+                        ui.label(if man.http_hosts.is_empty() {
+                            "It can't contact any website.".to_owned()
+                        } else if man.http_hosts.iter().any(|h| h == "*") {
+                            "It can contact any website whose address you give it.".to_owned()
+                        } else {
+                            format!("It can contact: {}", man.http_hosts.join(", "))
+                        });
+                        if man.allow_insecure_tls {
+                            ui.colored_label(crate::theme::orange(), "⚠ It can accept a server's own (self-signed) certificate.");
+                        }
+                        if man.permissions.is_empty() {
+                            ui.label("It uses no extra permissions.");
+                        }
+                        for p in &man.permissions {
+                            let on = granted.contains(p);
+                            ui.label(format!("{} {p}: {}", if on { "✔" } else { "✖" }, perm_text(p)));
+                        }
+                    });
+                    ui.add_space(6.0);
+                    if ui.button("Close").clicked() {
+                        close = true;
+                    }
+                }) {
+                    close = true;
+                }
+            }
+        },
         Modal::Remove { path, id, name, data } => {
             let mut remove = false;
             if !widgets::dialog("Remove plugin").show(ctx, |ui| {
                 ui.set_width(440.0);
                 ui.spacing_mut().item_spacing.y = 6.0;
-                ui.label(format!("Remove {name}? Its file is deleted."));
+                ui.label(if path.is_some() { format!("Remove {name}? Its file is deleted.") } else { format!("Uninstall {name}? It is switched off and hidden; you can restore it later.") });
                 if id.is_some() {
-                    ui.checkbox(data, "Also delete its settings, saved secrets and stored data");
+                    ui.checkbox(data, "Remove Plugin Data (its settings, saved secrets and stored data)");
                 }
-                ui.weak("Removing needs administrator rights.");
+                if path.is_some() {
+                    ui.weak("Removing needs administrator rights.");
+                }
                 ui.horizontal(|ui| {
-                    if ui.button("Remove").clicked() {
+                    if ui.button(if path.is_some() { "Remove" } else { "Uninstall" }).clicked() {
                         remove = true;
                     }
                     if ui.button("Cancel").clicked() {
@@ -265,9 +347,23 @@ fn modal(ctx: &egui::Context, s: &mut Settings) {
                 close = true;
             }
             if remove {
-                manager::remove(path.clone(), id.clone(), *data);
-                if let Some(id) = id {
-                    s.plugins.remove(id);
+                match (path, id) {
+                    (Some(path), id) => {
+                        manager::remove(path.clone(), id.clone(), *data);
+                        if let Some(id) = id {
+                            s.plugins.remove(id);
+                        }
+                    }
+                    // A built-in plugin has no file: hide it, and clear its data if asked.
+                    (None, Some(id)) => {
+                        let e = s.plugins.entry(id.clone()).or_default();
+                        (e.removed, e.enabled) = (true, false);
+                        manager::preview(&s.plugins);
+                        if *data {
+                            manager::erase(id.clone());
+                        }
+                    }
+                    (None, None) => {}
                 }
                 close = true;
             }

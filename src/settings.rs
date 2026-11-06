@@ -583,6 +583,8 @@ pub struct PluginState {
     pub approved_hash: String,
     /// The opt-in permissions the user allowed.
     pub granted: Vec<String>,
+    /// A built-in plugin the user uninstalled: hidden from the list and not run until restored.
+    pub removed: bool,
 }
 
 impl Settings {
