@@ -149,6 +149,7 @@ fn draw(ui: &mut Ui, tree: &mut UiTree, env: &Env, ev: &mut Vec<Event>) {
                 ui.ctx().copy_text(value.chars().take(500).collect());
             }
         }
+        UiTree::FileButton { id, text, accept } => file_button(ui, id, text, accept, ev),
         UiTree::Separator => {
             ui.separator();
         }
@@ -165,6 +166,28 @@ fn draw(ui: &mut Ui, tree: &mut UiTree, env: &Env, ev: &mut Vec<Event>) {
         }
         UiTree::Speedtest(p) => crate::ui::speed::show(ui, p, env, ev),
         UiTree::LatencyChart(c) => chart(ui, c, env, ev),
+    }
+}
+
+/// What a file dialog left behind: the file's name and text, or why it couldn't be read.
+type Picked = std::sync::Arc<std::sync::Mutex<Option<Result<(String, String), String>>>>;
+
+/// A button that opens the file dialog on its own thread. The chosen file is read there (the plugin never sees a path)
+/// and arrives as `Event::File` on a later frame.
+fn file_button(ui: &mut Ui, id: &str, text: &str, accept: &str, ev: &mut Vec<Event>) {
+    let slot: Picked = ui.data_mut(|d| d.get_temp_mut_or_insert_with::<Picked>(egui::Id::NULL.with(("plugin_file", id)), Default::default).clone());
+    if let Some(r) = slot.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        ev.push(match r {
+            Ok((name, content)) => Event::File { id: id.to_owned(), name, content, error: String::new() },
+            Err(error) => Event::File { id: id.to_owned(), name: String::new(), content: String::new(), error },
+        });
+    }
+    if ui.button(text).clicked() {
+        let patterns = crate::sys::filedialog::patterns(accept);
+        let filters = if patterns.is_empty() { Vec::new() } else { vec![("Supported files".to_owned(), patterns)] };
+        crate::sys::filedialog::open_async(ui.ctx(), "Choose a file", filters, move |p| {
+            *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(crate::sys::filedialog::read_text(&p));
+        });
     }
 }
 

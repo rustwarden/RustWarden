@@ -132,6 +132,13 @@ pub enum UiTree {
         label: String,
         value: String,
     },
+    /// A button that opens the Windows file dialog. The plugin never sees the path: RustWarden reads the chosen file
+    /// (text only, at most 256 KiB) and sends [`Event::File`]. `accept` is the extensions to offer, like `".conf,.ovpn"`.
+    FileButton {
+        id: String,
+        text: String,
+        accept: String,
+    },
 }
 
 /// One chart on a [`LatencyChart`] page.
@@ -263,6 +270,14 @@ pub enum Event {
     },
     TabOpened {
         tab: String,
+    },
+    /// The user chose a file with a [`UiTree::FileButton`]: its name and text, or why it couldn't be read in `error`
+    /// (too big, or not text). Choosing nothing sends nothing.
+    File {
+        id: String,
+        name: String,
+        content: String,
+        error: String,
     },
     /// A chart page found charts with nothing stored for a day (`from` to `to`, unix seconds); see `LatencyChart::wants_missing`.
     ChartMissing {

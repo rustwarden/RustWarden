@@ -471,7 +471,21 @@ fn modal(ctx: &egui::Context, s: &mut Settings) {
                 ui.set_width(460.0);
                 ui.spacing_mut().item_spacing.y = 6.0;
                 ui.label("Path of the plugin (.wasm file) to install:");
-                ui.add(egui::TextEdit::singleline(path).desired_width(440.0).hint_text(r"C:\Users\you\Downloads\plugin.wasm"));
+                // The file dialog runs on its own thread and leaves the choice here for the next frame.
+                let chosen: std::sync::Arc<std::sync::Mutex<Option<String>>> =
+                    ui.data_mut(|d| d.get_temp_mut_or_insert_with::<std::sync::Arc<std::sync::Mutex<Option<String>>>>(egui::Id::NULL.with("plugin_install_pick"), Default::default).clone());
+                if let Some(p) = chosen.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                    *path = p;
+                }
+                ui.horizontal(|ui| {
+                    ui.add(egui::TextEdit::singleline(path).desired_width(350.0).hint_text(r"C:\Users\you\Downloads\plugin.wasm"));
+                    if ui.button("Browse…").clicked() {
+                        let slot = chosen.clone();
+                        crate::sys::filedialog::open_async(ui.ctx(), "Choose a plugin", vec![("Plugins".into(), "*.wasm".into())], move |p| {
+                            *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(p.to_string_lossy().into_owned());
+                        });
+                    }
+                });
                 ui.weak("It is copied into the plugin folder (administrator rights needed) and then waits for your approval. Nothing runs until you approve it.");
                 ui.horizontal(|ui| {
                     if ui.add_enabled(!path.trim().is_empty(), egui::Button::new("Install")).clicked() {
