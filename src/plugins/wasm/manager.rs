@@ -535,6 +535,11 @@ pub fn view() -> View {
     View { found: g.found.clone(), bad: g.bad.clone(), scanning: g.scanning, message: g.message.clone() }
 }
 
+/// Whether any notification plugin is switched on (and running), so "send to notification plugins" has somewhere to go.
+pub fn any_notification_plugin() -> bool {
+    st().active.values().any(|a| a.manifest.kind == plugin_sdk::Kind::Notification)
+}
+
 pub fn running(id: &str) -> bool {
     st().active.contains_key(id)
 }

@@ -241,7 +241,7 @@ fn files(ui: &mut Ui, s: &mut Settings, kind: Kind) {
 
 /// What every notification plugin shares: when alerts are sent, the weekly summary and a test alert.
 fn notification_options(ui: &mut Ui, s: &mut Settings) {
-    ui.label("Alerts are sent to every notification plugin that is switched on, for each alert type that has \"Send External Notifications\" ticked. Keys and webhook addresses are stored encrypted for your Windows account.");
+    ui.label("Alerts are sent to every notification plugin that is switched on, for each alert type that has \"Send to Notification Plugins\" ticked. Keys and webhook addresses are stored encrypted for your Windows account.");
     ui.add_space(8.0);
     widgets::switch(ui, &mut s.api_in_snooze, "Keep sending to these services while alerts are snoozed");
     widgets::switch(ui, &mut s.report, "Send a weekly summary to these services");

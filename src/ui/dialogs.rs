@@ -1304,7 +1304,12 @@ fn alert_settings(ui: &mut Ui, s: &mut Settings) {
                         crate::widgets::switch(ui, &mut opts.desktop, "Show desktop notification.");
                         let log_label = if s.event_log { "Send to the Windows event log." } else { "Send to the Windows event log (switched off at the top of this page)." };
                         crate::widgets::switch(ui, &mut opts.event_log, log_label);
-                        crate::widgets::switch(ui, &mut opts.api, "Send External Notifications.");
+                        let has_plugin = crate::plugins::wasm::manager::any_notification_plugin();
+                        ui.add_enabled_ui(has_plugin, |ui| {
+                            crate::widgets::switch(ui, &mut opts.api, "Send to Notification Plugins.");
+                        })
+                        .response
+                        .on_disabled_hover_text("Switch on a notification plugin in Settings > Plugins first.");
                         ui.label(egui::RichText::new("Alerts level:").color(theme::text_dim()));
                         egui::ComboBox::from_id_salt("alert_level").width(300.0).selected_text(opts.level.label()).icon(crate::widgets::combo_icon).show_ui(ui, |ui| {
                             for l in AlertLevel::ALL {
