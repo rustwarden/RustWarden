@@ -186,9 +186,9 @@ fn files(ui: &mut Ui, s: &mut Settings, kind: Kind) {
                 ui.label(egui::RichText::new(&m.name).strong());
                 ui.weak(if first_party { format!("v{} · built in", m.version) } else { format!("v{} by {}", m.version, m.author) });
                 if changed {
-                    ui.colored_label(crate::theme::orange(), "⚠ The file changed: approve it again");
+                    crate::plugins::wasm::ui_tree::flag(ui, crate::theme::orange(), "The file changed: approve it again");
                 } else if !approved {
-                    ui.colored_label(crate::theme::orange(), "⚠ Third-party plugin: needs your approval");
+                    crate::plugins::wasm::ui_tree::flag(ui, crate::theme::orange(), "Third-party plugin: needs your approval");
                 }
             });
             if approved {
@@ -235,7 +235,7 @@ fn files(ui: &mut Ui, s: &mut Settings, kind: Kind) {
     if kind == Kind::System {
         for (path, err) in &view.bad {
             ui.horizontal(|ui| {
-                ui.colored_label(crate::theme::red(), format!("⚠ {}: {err}", path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()));
+                crate::plugins::wasm::ui_tree::flag(ui, crate::theme::red(), &format!("{}: {err}", path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()));
                 if ui.button("Remove").clicked() {
                     open = Some(Modal::Remove { path: Some(path.clone()), id: None, name: path.display().to_string(), data: false });
                 }
@@ -294,7 +294,7 @@ fn modal(ctx: &egui::Context, s: &mut Settings) {
                     ui.spacing_mut().item_spacing.y = 6.0;
                     ui.heading(&man.name);
                     ui.weak(format!("Version {} by {}", man.version, man.author));
-                    ui.colored_label(crate::theme::orange(), "⚠ This plugin isn't from RustWarden. It runs in a sandbox and can only do what is listed here.");
+                    crate::plugins::wasm::ui_tree::flag(ui, crate::theme::orange(), "This plugin isn't from RustWarden. It runs in a sandbox and can only do what is listed here.");
                     ui.label(if man.http_hosts.is_empty() {
                         "It can't contact any website.".to_owned()
                     } else if man.http_hosts.iter().any(|h| h == "*") {
@@ -303,9 +303,10 @@ fn modal(ctx: &egui::Context, s: &mut Settings) {
                         format!("It can contact: {}", man.http_hosts.join(", "))
                     });
                     if man.allow_insecure_tls {
-                        ui.colored_label(
+                        crate::plugins::wasm::ui_tree::flag(
+                            ui,
                             crate::theme::orange(),
-                            "⚠ It can accept a server's own (self-signed) certificate, which anyone on that network could imitate. Only for a router or server you run yourself.",
+                            "It can accept a server's own (self-signed) certificate, which anyone on that network could imitate. Only for a router or server you run yourself.",
                         );
                     }
                     if man.permissions.is_empty() {
@@ -366,7 +367,7 @@ fn modal(ctx: &egui::Context, s: &mut Settings) {
                             format!("It can contact: {}", man.http_hosts.join(", "))
                         });
                         if man.allow_insecure_tls {
-                            ui.colored_label(crate::theme::orange(), "⚠ It can accept a server's own (self-signed) certificate.");
+                            crate::plugins::wasm::ui_tree::flag(ui, crate::theme::orange(), "It can accept a server's own (self-signed) certificate.");
                         }
                         if man.permissions.is_empty() {
                             ui.label("It uses no extra permissions.");
