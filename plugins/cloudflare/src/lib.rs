@@ -58,13 +58,13 @@ fn url_in(line: &str) -> Option<String> {
 /// The arguments for each step. The token is a command-line argument (cloudflared has no other way in), so it is
 /// visible to administrators of this PC in the process list while the tunnel runs.
 /// Each login gets a folder of its own under the plugin's folder (`{dir}`, filled in by RustWarden): cloudflared writes
-/// `cert.pem` (and the tunnel's key) beside the certificate path it is given and refuses to replace an existing one, so a
-/// new folder is what lets a new login choose another domain. The home folder is pointed there too, so nothing lands
-/// outside the plugin's data.
+/// `cert.pem` (and the tunnel's key) under `.cloudflared` in its home folder, whatever certificate path it is given, and
+/// refuses to replace an existing one, so a new folder is what lets a new login choose another domain. The home folder is
+/// pointed there, so nothing lands outside the plugin's data.
 fn args_for(step: Step, name: &str, host: &str, service: &str, token: &str, login: &str) -> Vec<String> {
     let v = |a: &[&str]| a.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
     let folder = format!(r"{{dir}}\{login}");
-    let cert = format!(r"{folder}\cert.pem");
+    let cert = format!(r"{folder}\.cloudflared\cert.pem");
     let mut a = vec![format!("env:USERPROFILE={folder}"), format!("env:HOME={folder}")];
     a.extend(match step {
         Step::Login => v(&["tunnel", "--origincert", &cert, "login"]),
@@ -396,7 +396,7 @@ mod tests {
 
     #[test]
     fn each_step_runs_the_right_command() {
-        let (f, c) = (r"{dir}\login-2", r"{dir}\login-2\cert.pem");
+        let (f, c) = (r"{dir}\login-2", r"{dir}\login-2\.cloudflared\cert.pem");
         let a = |s, name: &str, host: &str, svc: &str, tok: &str| args_for(s, name, host, svc, tok, "login-2");
         assert_eq!(a(Step::Login, "", "", "", ""), [&format!("env:USERPROFILE={f}"), &format!("env:HOME={f}"), "tunnel", "--origincert", c, "login"]);
         assert_eq!(a(Step::Create, "home", "", "", "")[2..], ["tunnel", "--origincert", c, "create", "home"]);
