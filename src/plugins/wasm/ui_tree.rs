@@ -30,6 +30,15 @@ pub fn flash_chart(key: &str, name: &str) {
     CHARTS.lock().unwrap_or_else(|e| e.into_inner()).entry(key.to_owned()).or_default().show(name.to_owned());
 }
 
+/// A warning line: the app's own warning icon (the font has no ⚠ glyph) and the text in `color`, wrapping beside it.
+pub fn flag(ui: &mut Ui, color: egui::Color32, text: &str) {
+    ui.horizontal_top(|ui| {
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(16.0, 18.0), egui::Sense::hover());
+        crate::icons::paint(ui.painter(), crate::icons::Icon::Warning, egui::Rect::from_center_size(rect.center(), egui::vec2(15.0, 15.0)), color);
+        ui.add(egui::Label::new(egui::RichText::new(text).color(color)).wrap());
+    });
+}
+
 pub fn show(ui: &mut Ui, tree: &mut UiTree, env: &Env) -> Vec<Event> {
     let mut events = Vec::new();
     draw(ui, tree, env, &mut events);
@@ -38,9 +47,12 @@ pub fn show(ui: &mut Ui, tree: &mut UiTree, env: &Env) -> Vec<Event> {
 
 fn draw(ui: &mut Ui, tree: &mut UiTree, env: &Env, ev: &mut Vec<Event>) {
     match tree {
-        UiTree::Label(t) => {
-            ui.label(t.as_str());
-        }
+        UiTree::Label(t) => match t.strip_prefix('⚠') {
+            Some(rest) => flag(ui, crate::theme::orange(), rest.trim_start()),
+            None => {
+                ui.label(t.as_str());
+            }
+        },
         UiTree::Heading(t) => {
             ui.heading(t.as_str());
         }

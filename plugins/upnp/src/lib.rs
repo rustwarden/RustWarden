@@ -128,28 +128,38 @@ fn find_router() -> Result<Router, String> {
         guest::config_set("ext_ip", "203.0.113.7");
         return Ok(save_router(r));
     }
-    let mut problems = Vec::new();
+    // A device with an internet connection service is a router (a Philips Hue bridge answers too, without one); the
+    // first that also reports a public address wins, else the first router, since some only report it when online.
+    let (mut problems, mut fallback) = (Vec::new(), None);
     for gateway in guest::upnp_discover()? {
         match try_gateway(&gateway) {
-            Ok((r, ip)) => {
+            Ok((r, Some(ip))) => {
                 guest::config_set("ext_ip", &ip);
                 return Ok(save_router(r));
+            }
+            Ok((r, None)) => {
+                fallback.get_or_insert(r);
             }
             Err(e) => problems.push(format!("{}: {e}", gateway.location)),
         }
     }
-    Err(format!("Found UPnP devices but none gave out an internet connection. {}", problems.join("; ")))
+    match fallback {
+        Some(r) => {
+            guest::config_set("ext_ip", "");
+            Ok(save_router(r))
+        }
+        None => Err(format!("Found UPnP devices but none is a router. {}", problems.join("; "))),
+    }
 }
 
-/// Reads one gateway's description and asks it for its public address, which proves it is the internet router.
-fn try_gateway(gateway: &guest::Gateway) -> Result<(Router, String), String> {
+/// Reads one gateway's description. The public address is None when the router doesn't say it.
+fn try_gateway(gateway: &guest::Gateway) -> Result<(Router, Option<String>), String> {
     let (status, desc) = guest::http_raw(&gateway.location, &[], None, false)?;
     if status != 200 {
         return Err(format!("its description answered HTTP {status}"));
     }
     let (service, control) = control_of(&desc, &gateway.location).ok_or("it has no UPnP internet connection service")?;
-    let body = soap(&control, &service, "GetExternalIPAddress", &[]).map_err(|e| format!("asking for the public address failed ({e})"))?;
-    let ip = tag(&body, "NewExternalIPAddress").filter(|ip| !ip.is_empty()).ok_or("it gave no public address (is the router online?)")?;
+    let ip = soap(&control, &service, "GetExternalIPAddress", &[]).ok().and_then(|b| tag(&b, "NewExternalIPAddress")).filter(|ip| !ip.is_empty() && ip != "0.0.0.0");
     Ok((Router { control, service, local_ip: gateway.local_ip.clone() }, ip))
 }
 
@@ -232,7 +242,7 @@ fn page() -> UiTree {
     let router = saved_router();
     let status = match (&router, ip.is_empty()) {
         (None, _) => "No router found yet".to_owned(),
-        (Some(_), true) => "Router found; its public address is unknown".to_owned(),
+        (Some(_), true) => "Router found, but it doesn't report its public address (see it on the router's status page); the copied address then has only the port".to_owned(),
         (Some(_), false) => format!("Router found. Public address: {ip}"),
     };
     let mut router_rows = vec![setting("Router", &format!("{status}. Needs UPnP switched on in the router."), UiTree::Button { id: "find".into(), text: "Find my router".into() })];

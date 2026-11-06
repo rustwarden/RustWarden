@@ -716,17 +716,27 @@ pub fn page(ui: &mut egui::Ui, id: &str, key: &str, backend: Option<Arc<dyn crat
         return;
     };
     let mut g = lock(&pages);
-    if !g.error.is_empty() {
-        ui.colored_label(crate::theme::red(), g.error.clone());
-    }
-    if g.busy > 0 {
-        ui.weak("Working…");
-    }
+    let (error, busy) = (g.error.clone(), g.busy > 0);
+    // A tab page sits in from the window's edge like the built-in tabs, with its status lines; the chart pages draw to the edge themselves.
+    let chart = matches!(g.trees.get(key), Some(UiTree::Speedtest(_) | UiTree::LatencyChart(_)));
+    let margin = if key == SETTINGS_KEY || chart { egui::Margin::ZERO } else { egui::Margin::symmetric(12, 0) };
+    let status = |ui: &mut egui::Ui| {
+        if !error.is_empty() {
+            ui.colored_label(crate::theme::red(), error.clone());
+        }
+        if busy {
+            ui.weak("Working…");
+        }
+    };
     if let Some(tree) = g.trees.get_mut(key) {
         let env = ui_tree::Env { plugin: id, demo, key: format!("{id}/{key}"), backend };
-        // A tab page sits in from the window's edge like the built-in tabs; the chart pages draw to the edge themselves.
-        let inset = key != SETTINGS_KEY && !matches!(tree, UiTree::Speedtest(_) | UiTree::LatencyChart(_));
-        let events = if inset { egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 0)).show(ui, |ui| ui_tree::show(ui, tree, &env)).inner } else { ui_tree::show(ui, tree, &env) };
+        let events = egui::Frame::NONE
+            .inner_margin(margin)
+            .show(ui, |ui| {
+                status(ui);
+                ui_tree::show(ui, tree, &env)
+            })
+            .inner;
         drop(g);
         lock(&pages).busy += events.len();
         for e in events {
@@ -737,7 +747,10 @@ pub fn page(ui: &mut egui::Ui, id: &str, key: &str, backend: Option<Arc<dyn crat
             g.busy += 1;
             let _ = tx.send(Job::Render(key.to_owned()));
         }
-        ui.weak("Loading…");
+        egui::Frame::NONE.inner_margin(margin).show(ui, |ui| {
+            status(ui);
+            ui.weak("Loading…");
+        });
     }
 }
 
