@@ -25,3 +25,9 @@ $RECYCLE.BIN/
 *.tmp
 *.bak
 
+
+# graphify local state (graph.json, GRAPH_REPORT.md and graph.html are committed)
+graphify-out/cache/
+graphify-out/.graphify_*
+graphify-out/*.sig
+graphify-out/graph.html
