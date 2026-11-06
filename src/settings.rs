@@ -27,6 +27,9 @@ impl AppMode {
     }
 }
 
+/// Bump to show the first-run wizard again to everyone on the next start (after it gains steps).
+pub const WIZARD_VERSION: u32 = 1;
+
 /// Which builds the updater follows.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -34,8 +37,9 @@ pub enum UpdateChannel {
     /// Full releases.
     #[default]
     Release,
-    /// Alpha builds (pre-releases from the playground branch).
-    Playground,
+    /// Alpha builds (pre-releases from the dev branch). Called "playground" before the wizard release.
+    #[serde(alias = "playground")]
+    Dev,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
@@ -526,7 +530,7 @@ pub struct Settings {
     pub whois_internal: bool,
     /// Address of the update server script; no automatic checks without it.
     pub update_url: String,
-    /// Release (stable) or Playground (alpha) builds.
+    /// Release (stable) or Dev (alpha) builds.
     pub update_channel: UpdateChannel,
     /// Normal, or Driver (needs the WinDivert driver downloaded in Settings).
     pub app_mode: AppMode,
@@ -543,6 +547,8 @@ pub struct Settings {
     pub allow_helper_tools: bool,
     /// The tab (and sub-tab) the app was on, as `Tab::key`, reopened at the next start.
     pub last_tab: String,
+    /// The first-run wizard version the user has seen (0 = never); the wizard opens when this is below `WIZARD_VERSION`.
+    pub wizard_seen: u32,
     /// The Traffic tab's view (0 graph, 1 usage, 2 map) when it was last used.
     pub traffic_view: usize,
     /// The main window's last position and size (x, y, width, height in pixels), restored at the next start.
@@ -649,6 +655,7 @@ impl Default for Settings {
             text_scale: 1.0,
             theme: Theme::Light,
             last_tab: "traffic".into(),
+            wizard_seen: 0,
             traffic_view: 0,
             follow_windows_theme: true,
             acrylic: 0.4,
@@ -842,7 +849,14 @@ impl Settings {
         let read = std::fs::read_to_string(path);
         match read.as_ref().map(|t| Self::from_toml(t)) {
             Ok(Some(s)) => s,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Self::default(),
+            // A new install starts with every alert off, so a new user isn't flooded; the wizard offers them.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let mut s = Self::default();
+                for kind in crate::live::alerts::AlertKind::ALL {
+                    *kind.switch_mut(&mut s.alerts) = false;
+                }
+                s
+            }
             bad => {
                 let why = match bad {
                     Err(e) => e.to_string(),
@@ -1028,6 +1042,16 @@ impl Settings {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn new_install_has_alerts_off_and_playground_reads_as_dev() {
+        let dir = std::env::temp_dir().join("rustwarden-test-missing-config");
+        let s = super::Settings::load_from(&dir.join("config.toml"));
+        assert!(crate::live::alerts::AlertKind::ALL.iter().all(|k| !k.enabled(&s.alerts)));
+        assert_eq!(s.wizard_seen, 0);
+        let old = super::Settings::from_toml("update_channel = \"playground\"").unwrap();
+        assert_eq!(old.update_channel, super::UpdateChannel::Dev);
+    }
+
     use super::*;
 
     #[test]

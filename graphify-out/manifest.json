@@ -6,9 +6,9 @@
     "semantic_hash": ""
   },
   ".github/workflows/release-dev.yml": {
-    "mtime": 1793967786.29677,
-    "seen": 1793969235.5745149,
-    "ast_hash": "c7b7c49f1699ed44dec6469167312680",
+    "mtime": 1793981941.4068434,
+    "seen": 1793981954.5411494,
+    "ast_hash": "eb71b46825744e35ac73e03e140d7e23",
     "semantic_hash": ""
   },
   ".github/workflows/release.yml": {
@@ -24,9 +24,9 @@
     "semantic_hash": ""
   },
   "Cargo.toml": {
-    "mtime": 1793971212.8051922,
-    "seen": 1793971490.080263,
-    "ast_hash": "5fe6f82e367155566d2b9cc2e84488f1",
+    "mtime": 1793980153.3511434,
+    "seen": 1793981954.5411625,
+    "ast_hash": "a1a3e241507679014f0be901485e4e5b",
     "semantic_hash": ""
   },
   "assets/about_graph.json": {
@@ -48,15 +48,15 @@
     "semantic_hash": ""
   },
   "src/alertrules.rs": {
-    "mtime": 1793884060.8415098,
-    "seen": 1793964015.0273561,
-    "ast_hash": "6c9716ee8bfe44f4defcb5bd565b6244",
+    "mtime": 1793980038.6414034,
+    "seen": 1793981954.5412533,
+    "ast_hash": "61f59d183e486b9f3cf19f840a52173d",
     "semantic_hash": ""
   },
   "src/app.rs": {
-    "mtime": 1793971213.4654324,
-    "seen": 1793971490.0803595,
-    "ast_hash": "75299814a3e0ccb5358e56199b172982",
+    "mtime": 1793981941.4113946,
+    "seen": 1793981954.5412552,
+    "ast_hash": "aa92ed5f2ad68b1e6811045fe4609f9e",
     "semantic_hash": ""
   },
   "src/applog.rs": {
@@ -222,9 +222,9 @@
     "semantic_hash": ""
   },
   "src/live/geo.rs": {
-    "mtime": 1793884060.8539596,
-    "seen": 1793964015.02739,
-    "ast_hash": "f39b1b501cdff14a4520b4118068105c",
+    "mtime": 1793981941.4124641,
+    "seen": 1793981954.5413094,
+    "ast_hash": "4816a29cc632748f3aa8c3464d4492d9",
     "semantic_hash": ""
   },
   "src/live/hardware.rs": {
@@ -408,9 +408,9 @@
     "semantic_hash": ""
   },
   "src/settings.rs": {
-    "mtime": 1793971212.7201033,
-    "seen": 1793971490.0806391,
-    "ast_hash": "e0abc3a63ef03e8168cb2219d2291cac",
+    "mtime": 1793981941.413976,
+    "seen": 1793981954.54141,
+    "ast_hash": "7809e0ffd34db40ed4ba10e466d7c932",
     "semantic_hash": ""
   },
   "src/shots.rs": {
@@ -612,9 +612,9 @@
     "semantic_hash": ""
   },
   "src/ui/dialogs.rs": {
-    "mtime": 1793971212.7717102,
-    "seen": 1793971490.0808864,
-    "ast_hash": "a6960bfbe93df7f7eef1396ab831205f",
+    "mtime": 1793981941.4155605,
+    "seen": 1793981954.5415242,
+    "ast_hash": "271d2e12db46e038dabf48093f48618d",
     "semantic_hash": ""
   },
   "src/ui/dns.rs": {
@@ -648,9 +648,9 @@
     "semantic_hash": ""
   },
   "src/ui/mod.rs": {
-    "mtime": 1793970784.4945612,
-    "seen": 1793971490.080899,
-    "ast_hash": "7aa2926bd1df952ee73f0dac8e7a7673",
+    "mtime": 1793981941.4166114,
+    "seen": 1793981954.5415401,
+    "ast_hash": "7f3a9628c00b43caa5529146cc908dce",
     "semantic_hash": ""
   },
   "src/ui/popup.rs": {
@@ -690,9 +690,9 @@
     "semantic_hash": ""
   },
   "src/update.rs": {
-    "mtime": 1793887376.2150064,
-    "seen": 1793964015.0275083,
-    "ast_hash": "94808a7e6cb32c29b1065d3778541a1b",
+    "mtime": 1793981941.4182036,
+    "seen": 1793981954.541571,
+    "ast_hash": "31e89e2b37d15441fe034d96dd2344c6",
     "semantic_hash": ""
   },
   "src/util.rs": {
@@ -720,9 +720,9 @@
     "semantic_hash": ""
   },
   "FEATURES.md": {
-    "mtime": 1793971463.0495248,
-    "seen": 1793971490.0809317,
-    "ast_hash": "a9581cae0b0065d130af73b04e8d798c",
+    "mtime": 1793981941.4086246,
+    "seen": 1793981954.5415838,
+    "ast_hash": "18c02de07053228c9065394aab35b95a",
     "semantic_hash": ""
   },
   "LICENCE.md": {
@@ -750,9 +750,9 @@
     "semantic_hash": ""
   },
   "changes.md": {
-    "mtime": 1793971463.0516257,
-    "seen": 1793971490.0809999,
-    "ast_hash": "f7d491138fa2eb6526b1d9831f3f5d19",
+    "mtime": 1793981941.410352,
+    "seen": 1793981954.5416,
+    "ast_hash": "2bd8db0dc21d56f784894b304faeb854",
     "semantic_hash": ""
   },
   "assets/flags/ad.png": {
@@ -2532,15 +2532,15 @@
     "semantic_hash": ""
   },
   "src/plugins/wasm/loader.rs": {
-    "mtime": 1793970095.4287243,
-    "seen": 1793971490.0804842,
-    "ast_hash": "ae9db03a38880c343c19d2afe459b8b3",
+    "mtime": 1793973486.6828494,
+    "seen": 1793981954.5413804,
+    "ast_hash": "f649694fa569b15eeb79abc0324765e9",
     "semantic_hash": ""
   },
   "src/plugins/wasm/manager.rs": {
-    "mtime": 1793971299.9092174,
-    "seen": 1793971490.0806148,
-    "ast_hash": "ad52f0452fbb58b11d07ec5a4459ee52",
+    "mtime": 1793980038.4802477,
+    "seen": 1793981954.5413837,
+    "ast_hash": "a0e035d4cd58b466e7eb2921777238dc",
     "semantic_hash": ""
   },
   "src/plugins/wasm/mod.rs": {
@@ -2574,9 +2574,9 @@
     "semantic_hash": ""
   },
   "src/ui/plugins.rs": {
-    "mtime": 1793971212.782354,
-    "seen": 1793971490.080903,
-    "ast_hash": "8d652b5d1cece7d817d72cc9fddbdc87",
+    "mtime": 1793980038.6051526,
+    "seen": 1793981954.5415454,
+    "ast_hash": "3cfa966e68ae60c7da593bfe50a101a4",
     "semantic_hash": ""
   },
   "PLUGINS.md": {
@@ -2622,9 +2622,9 @@
     "semantic_hash": ""
   },
   "plugins/thinkbroadband/src/lib.rs": {
-    "mtime": 1793971213.043759,
-    "seen": 1793971490.0803444,
-    "ast_hash": "78c178ac109a5e24f1391d6755f39626",
+    "mtime": 1793973396.4920058,
+    "seen": 1793981954.5412414,
+    "ast_hash": "5391a5c20c08d44ef4810d030316c8fa",
     "semantic_hash": ""
   },
   "src/sys/helper.rs": {
@@ -2640,15 +2640,21 @@
     "semantic_hash": ""
   },
   "src/ui/speed.rs": {
-    "mtime": 1793970660.8322384,
-    "seen": 1793971490.0809119,
-    "ast_hash": "32d87ccfde2fa05abd31ff152928f6f6",
+    "mtime": 1793977745.0415094,
+    "seen": 1793981954.5415568,
+    "ast_hash": "23bd0d49797ac0dedf7b4b0a2ab8cc3a",
     "semantic_hash": ""
   },
   "plugins/thinkbroadband/assets/thinkbroadband.png": {
     "mtime": 1793884060.8754935,
     "seen": 1793971490.0816379,
     "ast_hash": "bc1a3fefeee10d880c509e954b677575",
+    "semantic_hash": ""
+  },
+  "src/ui/wizard.rs": {
+    "mtime": 1793981707.4265323,
+    "seen": 1793981954.5415678,
+    "ast_hash": "ebfb9e1041de180591ef493d8a026225",
     "semantic_hash": ""
   }
 }

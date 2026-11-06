@@ -18,6 +18,7 @@ pub(crate) mod speed;
 pub(crate) mod toast;
 mod traffic;
 mod tray_menu;
+pub(crate) mod wizard;
 
 pub(crate) use tray_menu::{TrayAct, TrayMenu};
 

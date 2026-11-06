@@ -94,7 +94,7 @@ impl ApiAsset {
 }
 
 impl Api {
-    /// A playground build: flagged as a pre-release, or tagged `-dev` (an older server script doesn't send the flag).
+    /// A dev build: flagged as a pre-release, or tagged `-dev` (an older server script doesn't send the flag).
     fn is_dev(&self) -> bool {
         self.prerelease || self.tag_name.ends_with("-dev")
     }
@@ -112,11 +112,11 @@ pub fn check(server: &str, channel: UpdateChannel) -> Result<Checked, String> {
     let (status, body) = get(&url, "application/json", None)?;
     expect_ok(status)?;
     let all: Vec<Api> = serde_json::from_slice(&body).map_err(|e| format!("Unexpected answer from the update server ({e})"))?;
-    let mut all: Vec<Api> = all.into_iter().filter(|r| !r.draft && r.is_dev() == (channel == UpdateChannel::Playground)).collect();
+    let mut all: Vec<Api> = all.into_iter().filter(|r| !r.draft && r.is_dev() == (channel == UpdateChannel::Dev)).collect();
     all.sort_by_key(|a| std::cmp::Reverse(version_parts(&a.tag_name)));
     let Some(api) = all.first() else { return Ok(Checked::Latest(Vec::new())) };
     let version = api.tag_name.trim_start_matches('v').to_owned();
-    // Leaving the playground for Release offers the latest release even though its number is lower than the dev build's.
+    // Leaving dev for Release offers the latest release even though its number is lower than the dev build's.
     let leaving_dev = channel == UpdateChannel::Release && env!("CARGO_PKG_VERSION").ends_with("-dev");
     let missed = if leaving_dev { 1 } else { all.iter().filter(|r| is_newer(&r.tag_name, env!("CARGO_PKG_VERSION"))).count() };
     let history: Vec<Note> = all

@@ -1,6 +1,6 @@
 name: Release (dev)
 
-# Playground builds: every push to dev publishes a pre-release tagged vX.Y.Z-dev (bump Cargo.toml's -dev version to release again).
+# Dev builds: every push to dev publishes a pre-release tagged vX.Y.Z-dev (bump Cargo.toml's -dev version to release again).
 on:
   push:
     branches: [dev]

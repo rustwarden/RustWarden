@@ -23,6 +23,34 @@ pub fn asn_db_path() -> PathBuf {
     crate::settings::data_dir().join("dbip-asn-lite.mmdb")
 }
 
+/// A database RustWarden can download, as the download confirmation describes it.
+pub struct DbInfo {
+    pub name: &'static str,
+    /// The DB-IP edition: "country", "city" or "asn".
+    pub edition: &'static str,
+    pub used_for: &'static str,
+    pub size: &'static str,
+}
+
+pub const DATABASES: [DbInfo; 3] = [
+    DbInfo { name: "Country database", edition: "country", used_for: "flags and countries everywhere in the app", size: "about 5 MB" },
+    DbInfo { name: "City database", edition: "city", used_for: "placing connections at their city on the map", size: "about 120 MB" },
+    DbInfo { name: "ASN database", edition: "asn", used_for: "destination rules on an AS number", size: "about 8 MB" },
+];
+
+pub fn db_path(edition: &str) -> PathBuf {
+    match edition {
+        "city" => city_db_path(),
+        "asn" => asn_db_path(),
+        _ => default_db_path(),
+    }
+}
+
+/// The address a database comes from; the month is the newest of the last three that exists.
+pub fn download_url(edition: &str) -> String {
+    format!("https://download.db-ip.com/free/dbip-{edition}-lite-YYYY-MM.mmdb.gz")
+}
+
 /// Every network the ASN database at `path` assigns to `asn`, as (address, prefix length).
 pub fn asn_networks(path: &std::path::Path, asn: u32) -> Result<Vec<(IpAddr, u8)>, String> {
     let reader = Reader::open_readfile(path).map_err(|e| format!("can't read {}: {e}", path.display()))?;
@@ -39,6 +67,33 @@ pub fn asn_networks(path: &std::path::Path, asn: u32) -> Result<Vec<(IpAddr, u8)
 /// Uses PowerShell so the app needs no HTTP client of its own.
 /// `progress` is kept at 0..=100 for a progress bar.
 pub fn download_dbip(dest: &std::path::Path, edition: &str, progress: &std::sync::atomic::AtomicU32) -> Result<(), String> {
+    // Downloaded beside the real file and only swapped in once `verify` passes, so a bad file never replaces a good one.
+    let part = dest.with_extension("mmdb.part");
+    let r = download_script(&part, edition, progress).and_then(|()| verify(&part, edition));
+    match r {
+        Ok(()) => std::fs::rename(&part, dest).map_err(|e| format!("can't save {}: {e}", dest.display())),
+        Err(e) => {
+            let _ = std::fs::remove_file(&part);
+            Err(e)
+        }
+    }
+}
+
+/// Checks that `path` is the DB-IP database `edition` ("country", "city" or "asn"): it must open as a MaxMind DB
+/// whose type names that edition and that holds data. A wrong, truncated or HTML-error file fails here.
+pub fn verify(path: &std::path::Path, edition: &str) -> Result<(), String> {
+    let reader = Reader::open_readfile(path).map_err(|e| format!("the downloaded file is not a valid database ({e})"))?;
+    let kind = reader.metadata().database_type.to_ascii_lowercase();
+    if !kind.contains("dbip") || !kind.contains(edition) {
+        return Err(format!("the downloaded file is a \"{}\" database, not the {edition} one", reader.metadata().database_type));
+    }
+    if reader.metadata().node_count == 0 {
+        return Err("the downloaded database is empty".into());
+    }
+    Ok(())
+}
+
+fn download_script(dest: &std::path::Path, edition: &str, progress: &std::sync::atomic::AtomicU32) -> Result<(), String> {
     use std::io::BufRead;
     use std::os::windows::process::CommandExt;
     const SCRIPT: &str = r#"
@@ -247,6 +302,14 @@ impl Geo {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn verify_refuses_a_file_that_is_not_a_database() {
+        let path = std::env::temp_dir().join("rustwarden-not-a-db.mmdb");
+        std::fs::write(&path, "<html>rate limited</html>").unwrap();
+        assert!(super::verify(&path, "country").is_err());
+        let _ = std::fs::remove_file(&path);
+    }
+
     #[test]
     fn country_networks_cover_addresses_the_database_places_there() {
         // Needs the user's country database; passes without one.

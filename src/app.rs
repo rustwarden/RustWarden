@@ -221,6 +221,8 @@ pub enum Dialog {
     },
     /// Software update: the result of a check, or an install in progress.
     Update(UpdateView),
+    /// The first-run wizard.
+    Wizard(Box<crate::ui::wizard::Wizard>),
     /// Tamper protection: the password to enter before `then` happens.
     Password {
         then: Gated,
@@ -640,6 +642,8 @@ impl RustWarden {
         let range = settings.traffic_range;
         let start_tab = Tab::from_key(&settings.last_tab);
         let window = default_window(settings.mode);
+        let show_wizard = shots.is_none() && settings.wizard_seen < crate::settings::WIZARD_VERSION;
+        let wizard = show_wizard.then(|| Dialog::Wizard(Box::new(crate::ui::wizard::Wizard::new(settings.clone()))));
         let mut app = Self {
             traffic: TrafficState {
                 view: std::env::var("RUSTWARDEN_VIEW").ok().and_then(|v| v.parse().ok()).unwrap_or(settings.traffic_view.min(2)),
@@ -723,7 +727,7 @@ impl RustWarden {
             dns: DnsState::default(),
             conns: ConnsState::default(),
             threats: Vec::new(),
-            dialog: None,
+            dialog: wizard,
             settings_back: None,
             settings_section: None,
             started: Instant::now(),

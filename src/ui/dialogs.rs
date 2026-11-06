@@ -68,6 +68,12 @@ enum Outcome {
     /// Add or replace a destination rule; the window stays open.
     /// The right password was entered: do what it was guarding.
     Unlocked(Gated),
+    /// The wizard was finished: apply its choices.
+    WizardDone,
+    /// The wizard was skipped or closed.
+    WizardSkip,
+    /// Dev channel: apply these settings, then run the wizard again.
+    RunWizard(Box<Settings>),
 }
 
 /// The monitor the app is on, for sizing dialogs (which aren't confined to the app window).
@@ -983,6 +989,11 @@ impl RustWarden {
                 }
                 out
             }
+            Dialog::Wizard(w) => match super::wizard::show(ctx, w) {
+                super::wizard::Step::Keep => Outcome::Keep,
+                super::wizard::Step::Skip => Outcome::WizardSkip,
+                super::wizard::Step::Finish => Outcome::WizardDone,
+            },
             Dialog::Settings(draft) => {
                 let mut out = Outcome::Keep;
                 let jump = self.settings_section.take();
@@ -1121,6 +1132,22 @@ impl RustWarden {
                     self.settings_back = Some(draft);
                 }
                 self.dialog = Some(Dialog::Confirm(c));
+            }
+            Outcome::WizardSkip => {
+                self.settings.wizard_seen = crate::settings::WIZARD_VERSION;
+                let _ = self.settings.save();
+            }
+            Outcome::WizardDone => {
+                let Dialog::Wizard(w) = dialog else { return };
+                let w = *w;
+                let mut s = w.draft;
+                s.wizard_seen = crate::settings::WIZARD_VERSION;
+                self.apply_settings(ctx, s);
+                self.dialog = super::dialogs::mode_confirm(w.firewall).map(Dialog::Confirm);
+            }
+            Outcome::RunWizard(draft) => {
+                self.apply_settings(ctx, *draft);
+                self.dialog = Some(Dialog::Wizard(Box::new(crate::ui::wizard::Wizard::new(self.settings.clone()))));
             }
             Outcome::StartUpdate(rel) => self.start_update(ctx, rel),
             Outcome::TestAlert(kind, s) => {
@@ -1451,15 +1478,22 @@ fn other_section(ui: &mut Ui, s: &mut Settings, out: &mut Outcome) {
         );
         }
         c.row("Update channel", "", |ui| {
-            crate::widgets::radio(ui, &mut s.update_channel, crate::settings::UpdateChannel::Playground, "Playground");
+            crate::widgets::radio(ui, &mut s.update_channel, crate::settings::UpdateChannel::Dev, "Dev");
             crate::widgets::radio(ui, &mut s.update_channel, crate::settings::UpdateChannel::Release, "Release");
         });
-        if s.update_channel == crate::settings::UpdateChannel::Playground {
+        if s.update_channel == crate::settings::UpdateChannel::Dev {
             c.block(|ui| {
                 ui.colored_label(
                     ui.visuals().warn_fg_color,
-                    "Playground builds are alpha-level software and may break. Switch back to Release at any time; the next update check installs the latest release.",
+                    "Dev builds are alpha-level software and may break. Switch back to Release at any time; the next update check installs the latest release.",
                 );
+            });
+        }
+        if s.update_channel == crate::settings::UpdateChannel::Dev {
+            c.row("First-run wizard", "Dev channel only: runs the setup wizard again. Pending changes here are saved first.", |ui| {
+                if ui.button("Run wizard").clicked() {
+                    *out = Outcome::RunWizard(Box::new(s.clone()));
+                }
             });
         }
         c.row("App mode", "Driver mode adds features that need a small signed network driver (WinDivert), such as download limits. Normal mode needs no driver and hides those features.", |ui| {
@@ -2448,54 +2482,119 @@ fn db_row(ui: &mut Ui, name: &str, path: &std::path::Path, edition: &'static str
     ok
 }
 
-fn countries_section(ui: &mut Ui, s: &mut Settings) {
-    ui.label("Databases used to show flags, map locations and AS numbers. Any MaxMind GeoLite2/GeoIP2 or DB-IP country or city file works.");
-    let dest = crate::live::geo::default_db_path();
-    group(ui, "Country database", |c| {
-        c.row("Custom country database (.mmdb)", "Leave empty to use the downloaded one.", |ui| {
-            let mut path = s.geo_db_path.clone().unwrap_or_default();
-            if ui.add(egui::TextEdit::singleline(&mut path).desired_width(240.0)).changed() {
-                s.geo_db_path = (!path.trim().is_empty()).then(|| path.trim().to_owned());
-            }
-        });
-        c.block(|ui| {
-            let slot_id = ui.scope_id().with("geo_download");
-            if db_row(ui, "Country database", &dest, "country", slot_id, "Downloaded. Flags appear within a few seconds.") {
-                let path = dest.to_string_lossy().into_owned();
-                s.geo_db_path = Some(path.clone());
-                // Also remembered outside the draft, so Cancel doesn't leave the file downloaded but unused.
-                ui.data_mut(|d| d.insert_temp(egui::Id::unique("geo_downloaded"), path));
-            }
-            link(ui, "IP geolocation by DB-IP (CC BY 4.0)", "https://db-ip.com");
-        });
-    });
+fn dl_id(edition: &str) -> egui::Id {
+    egui::Id::unique(("db_download", edition))
+}
 
-    group(ui, "City database", |c| {
-        c.row("Use the city database on the map", "Places connections at their city instead of the middle of the country; nearby ones still merge when zoomed out (about 130 MB in memory).", |ui| {
-            crate::widgets::small_toggle(ui, &mut s.geoip_city);
-        });
-        c.block(|ui| {
-            db_row(
-                ui,
-                "City database",
-                &crate::live::geo::city_db_path(),
-                "city",
-                ui.scope_id().with("geo_city_download"),
-                "Downloaded. If it was already in use, restart RustWarden to load the update.",
+/// Downloads every database in `editions` after showing where each comes from and how it is checked,
+/// then lists them with their progress. Shared by Settings > Countries & Network and the first-run wizard.
+/// Downloading the country database also points the draft at it, as its own Download button does.
+pub(super) fn databases_panel(ui: &mut Ui, s: &mut Settings, editions: &[&'static str]) {
+    use crate::live::geo;
+    let want: Vec<&geo::DbInfo> = geo::DATABASES.iter().filter(|d| editions.contains(&d.edition)).collect();
+    let running = |ui: &Ui, id| ui.data(|d| d.get_temp::<Option<std::sync::Arc<DlJob>>>(id)).flatten().is_some();
+    let busy = want.iter().any(|d| running(ui, dl_id(d.edition)));
+    let confirm_id = ui.scope_id().with("dl_all_confirm");
+    let confirming = ui.data(|d| d.get_temp::<bool>(confirm_id)).unwrap_or(false);
+    if !confirming {
+        if ui.add_enabled(!busy && !want.is_empty(), egui::Button::new("Download all…")).clicked() {
+            ui.data_mut(|d| d.insert_temp(confirm_id, true));
+        }
+    } else {
+        egui::Frame::NONE.fill(theme::card()).stroke(egui::Stroke::new(1.0, theme::card_edge())).corner_radius(8).inner_margin(12.0).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(egui::RichText::new("RustWarden will download:").strong());
+            for d in &want {
+                tight(ui, |ui| {
+                    ui.label(format!("• {} ({}), for {}", d.name, d.size, d.used_for));
+                    ui.weak(format!("From {}", geo::download_url(d.edition)));
+                    ui.weak(format!("Saved to {}", geo::db_path(d.edition).display()));
+                });
+            }
+            if s.threat_protect || s.dns_block_alerts {
+                ui.label("The malicious IP and domain lists you switched on are fetched by RustWarden itself from the addresses under Malicious IPs, then kept up to date; nothing more is needed here.");
+            }
+            ui.label(
+                "How they are checked: they come over HTTPS from DB-IP's own download server (db-ip.com, free \"Lite\" editions, CC BY 4.0), which publishes no checksums. \
+                 Each file is unpacked beside the old one and only used if it opens as a database of the right kind (country, city or ASN) and holds data; otherwise it is deleted and the old one stays. \
+                 Nothing about you is sent: a plain request, no account, no identifier.",
             );
+            ui.horizontal(|ui| {
+                if ui.button("Download").clicked() {
+                    for d in &want {
+                        let id = dl_id(d.edition);
+                        if !running(ui, id) {
+                            ui.data_mut(|data| data.remove_temp::<String>(id.with("msg")));
+                            download_job(ui, id, Some((geo::db_path(d.edition), d.edition)));
+                        }
+                    }
+                    ui.data_mut(|d| d.insert_temp(confirm_id, false));
+                }
+                if ui.button("Cancel").clicked() {
+                    ui.data_mut(|d| d.insert_temp(confirm_id, false));
+                }
+            });
         });
-    });
+    }
+    for d in want {
+        let msg = if d.edition == "country" { "Downloaded. Flags appear within a few seconds." } else { "Downloaded. If it was already in use, restart RustWarden to load the update." };
+        if db_row(ui, d.name, &geo::db_path(d.edition), d.edition, dl_id(d.edition), msg) && d.edition == "country" {
+            let path = geo::db_path("country").to_string_lossy().into_owned();
+            s.geo_db_path = Some(path.clone());
+            // Also remembered outside the draft, so Cancel doesn't leave the file downloaded but unused.
+            ui.data_mut(|d| d.insert_temp(egui::Id::unique("geo_downloaded"), path));
+        }
+    }
+}
 
-    group(ui, "ASN database", |c| {
-        c.block(|ui| {
-            ui.label("Only needed for destination rules on an AS number.");
-            db_row(ui, "ASN database", &crate::live::geo::asn_db_path(), "asn", ui.scope_id().with("geo_asn_download"), "Downloaded.");
-        });
-        c.row("Keep downloaded databases up to date", "Checked every few hours; replaced when over a month old.", |ui| {
-            crate::widgets::small_toggle(ui, &mut s.geo_auto_update);
-        });
+fn countries_section(ui: &mut Ui, s: &mut Settings) {
+    const TABS: [&str; 3] = ["Downloads", "Geolocation", "Lookups"];
+    let tab_id = ui.scope_id().with("countries_tab");
+    let mut tab: usize = ui.data(|d| d.get_temp(tab_id)).unwrap_or(0);
+    ui.horizontal(|ui| {
+        for (i, name) in TABS.iter().enumerate() {
+            ui.selectable_value(&mut tab, i, *name);
+        }
     });
+    ui.data_mut(|d| d.insert_temp(tab_id, tab));
+    match tab {
+        0 => {
+            ui.label("The databases that show flags, map locations and AS numbers. Any MaxMind GeoLite2/GeoIP2 or DB-IP country or city file also works (see Geolocation).");
+            group(ui, "Databases", |c| {
+                c.block(|ui| databases_panel(ui, s, &["country", "city", "asn"]));
+            });
+            group(ui, "", |c| {
+                c.row("Keep downloaded databases up to date", "Checked every few hours; replaced when over a month old.", |ui| {
+                    crate::widgets::small_toggle(ui, &mut s.geo_auto_update);
+                });
+            });
+            ui.add_space(4.0);
+            link(ui, "IP geolocation by DB-IP (CC BY 4.0)", "https://db-ip.com");
+        }
+        1 => {
+            group(ui, "Country database", |c| {
+                c.row("Custom country database (.mmdb)", "Leave empty to use the downloaded one.", |ui| {
+                    let mut path = s.geo_db_path.clone().unwrap_or_default();
+                    if ui.add(egui::TextEdit::singleline(&mut path).desired_width(240.0)).changed() {
+                        s.geo_db_path = (!path.trim().is_empty()).then(|| path.trim().to_owned());
+                    }
+                });
+            });
+            group(ui, "City database", |c| {
+                c.row(
+                    "Use the city database on the map",
+                    "Places connections at their city instead of the middle of the country; nearby ones still merge when zoomed out (about 130 MB in memory).",
+                    |ui| {
+                        crate::widgets::small_toggle(ui, &mut s.geoip_city);
+                    },
+                );
+            });
+        }
+        _ => lookups_section(ui, s),
+    }
+}
 
+fn lookups_section(ui: &mut Ui, s: &mut Settings) {
     group(ui, "AS number and company", |c| {
         c.row("Lookup service", "Shows e.g. \"AS15169 · Google LLC\" for remote addresses. The address is sent to the service you pick; Off sends nothing.", |ui| {
             egui::ComboBox::from_id_salt("net_info_source").selected_text(s.net_info.label()).icon(crate::widgets::combo_icon).show_ui(ui, |ui| {
