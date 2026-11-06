@@ -1,6 +1,6 @@
 [package]
 name = "rustwarden"
-version = "1.2.2-dev"
+version = "1.2.3-dev"
 edition = "2024"
 
 [workspace]

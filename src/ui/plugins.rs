@@ -45,6 +45,60 @@ pub fn section(ui: &mut Ui, s: &mut Settings) {
     modal(ui.ctx(), s);
 }
 
+/// Logo for a built-in plugin that ships no image: the old painted marks (the app carries no image assets for them).
+/// Third-party plugins with no icon get a plug.
+fn mark(ui: &mut Ui, id: &str) {
+    use crate::icons::{self, Icon};
+    use egui::{Color32, Rect, Shape, Stroke};
+    let (rect, _) = ui.allocate_exact_size(vec2(20.0, 20.0), egui::Sense::hover());
+    let p = ui.painter();
+    let (s, c) = (rect.width(), rect.center());
+    let u = |x: f32, y: f32| rect.min + vec2(x * s, y * s);
+    let rgb = Color32::from_rgb;
+    let white = Color32::WHITE;
+    let stroke = Stroke::new(s * 0.1, white);
+    match id {
+        "discord" => {
+            let blurple = rgb(0x58, 0x65, 0xF2);
+            p.rect_filled(rect, 5.0, blurple);
+            p.rect_filled(Rect::from_min_max(u(0.15, 0.28), u(0.85, 0.72)), s * 0.2, white);
+            for x in [0.36, 0.64] {
+                p.circle_filled(u(x, 0.5), s * 0.08, blurple);
+            }
+        }
+        "slack" => {
+            for (x, y, col) in [(0.3, 0.2, rgb(0x36, 0xC5, 0xF0)), (0.8, 0.3, rgb(0x2E, 0xB6, 0x7D)), (0.7, 0.8, rgb(0xEC, 0xB2, 0x2E)), (0.2, 0.7, rgb(0xE0, 0x1E, 0x5A))] {
+                p.rect_filled(Rect::from_center_size(u(x, y), vec2(s * 0.22, s * 0.22)), s * 0.11, col);
+            }
+            for (x, y, w, h, col) in
+                [(0.5, 0.35, 0.4, 0.2, rgb(0x36, 0xC5, 0xF0)), (0.65, 0.5, 0.2, 0.4, rgb(0x2E, 0xB6, 0x7D)), (0.5, 0.65, 0.4, 0.2, rgb(0xEC, 0xB2, 0x2E)), (0.35, 0.5, 0.2, 0.4, rgb(0xE0, 0x1E, 0x5A))]
+            {
+                p.rect_filled(Rect::from_center_size(u(x, y), vec2(s * w, s * h)), s * 0.1, col);
+            }
+        }
+        "pushbullet" => {
+            p.circle_filled(c, s * 0.5, rgb(0x4A, 0xB3, 0x67));
+            p.rect_filled(Rect::from_min_max(u(0.3, 0.25), u(0.42, 0.75)), 1.0, white);
+            p.rect_filled(Rect::from_min_max(u(0.5, 0.25), u(0.7, 0.75)), s * 0.1, white);
+        }
+        "ntfy" => {
+            p.rect_filled(rect, 5.0, rgb(0x33, 0x85, 0x74));
+            p.add(Shape::line(vec![u(0.24, 0.3), u(0.46, 0.5), u(0.24, 0.7)], stroke));
+            p.line_segment([u(0.52, 0.72), u(0.78, 0.72)], stroke);
+        }
+        "gotify" => {
+            p.circle_filled(c, s * 0.5, rgb(0x3F, 0x8C, 0xBF));
+            icons::paint(p, Icon::Bell, Rect::from_center_size(c, vec2(s * 0.6, s * 0.6)), white);
+        }
+        "webhook" => icons::paint(p, Icon::Globe, rect, crate::theme::accent()),
+        "ping" => icons::paint(p, Icon::Wave, rect, crate::theme::accent()),
+        "speedtest" => icons::paint(p, Icon::Traffic, rect, crate::theme::accent()),
+        "virustotal" => icons::paint(p, Icon::Shield, rect, crate::theme::red()),
+        "opnsense" => icons::paint(p, Icon::Shield, rect, crate::theme::brand_orange()),
+        _ => icons::paint(p, Icon::Plug, rect, crate::theme::accent()),
+    }
+}
+
 /// What an opt-in permission lets the plugin do, in the words of the approval dialog.
 fn perm_text(p: &str) -> &'static str {
     match p {
@@ -111,7 +165,7 @@ fn files(ui: &mut Ui, s: &mut Settings, kind: Kind) {
                     ui.add(egui::Image::new((t.id(), vec2(20.0, 20.0))));
                 }
                 None => {
-                    ui.allocate_space(vec2(20.0, 20.0));
+                    mark(ui, &m.id);
                 }
             }
             ui.vertical(|ui| {
