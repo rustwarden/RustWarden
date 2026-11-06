@@ -30,3 +30,6 @@
 - [Norman] fix: Cloudflare Tunnel login: cloudflared ignored the certificate file name, so the next step could not find it. Each login now has its own folder in the plugin folder (certificate and tunnel key inside), the home folder is pointed there, and the page returns to the login button when the certificate is missing.
 - [Norman] fix: UPnP Port Forwarding: a router that answers the public-address request with an empty value (TP-Link Archer BE3600) now shows why, and a "Public address" box lets you type it in so the copied address is complete.
 - [Norman] fix: Cloudflare Tunnel: the login certificate is under the login folder's .cloudflared folder, which is where the later steps now look.
+- [Norman] fix: Cloudflare Tunnel: when a tunnel of that name exists but this PC has no key for it ("credentials file not found"), the page says what to do.
+- [Norman] fix: Cloudflare Tunnel: the DNS step now overwrites a hostname that points at an older tunnel (Cloudflare error 1033 after changing the tunnel name).
+- [Norman] fix: Cloudflare Tunnel connects over http2 (TCP) instead of QUIC (UDP), which is blocked on many networks and left the tunnel disconnected (Cloudflare error 1033).

@@ -69,9 +69,11 @@ fn args_for(step: Step, name: &str, host: &str, service: &str, token: &str, logi
     a.extend(match step {
         Step::Login => v(&["tunnel", "--origincert", &cert, "login"]),
         Step::Create => v(&["tunnel", "--origincert", &cert, "create", name]),
-        Step::Route => v(&["tunnel", "--origincert", &cert, "route", "dns", name, host]),
-        Step::Run if !token.is_empty() => v(&["tunnel", "--no-autoupdate", "run", "--token", token]),
-        Step::Run => v(&["tunnel", "--no-autoupdate", "--origincert", &cert, "run", "--url", service, name]),
+        // --overwrite-dns: a name that already points at an older tunnel (Cloudflare error 1033) is pointed at this one.
+        Step::Route => v(&["tunnel", "--origincert", &cert, "route", "dns", "--overwrite-dns", name, host]),
+        // http2 (TCP): the default QUIC (UDP) is blocked on many networks and the tunnel then never connects (Cloudflare error 1033).
+        Step::Run if !token.is_empty() => v(&["tunnel", "--no-autoupdate", "--protocol", "http2", "run", "--token", token]),
+        Step::Run => v(&["tunnel", "--no-autoupdate", "--protocol", "http2", "--origincert", &cert, "run", "--url", service, name]),
         Step::Idle => return Vec::new(),
     });
     a
@@ -198,6 +200,12 @@ fn finished(ok: bool, message: &str) {
     if step == Step::Run {
         with(|s| s.step = Step::Idle);
         let why = text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("");
+        if text.to_lowercase().contains("credentials file") {
+            return say(format!(
+                "⚠ A tunnel called \"{}\" already exists on your Cloudflare account, but this PC doesn't have its key (it was made by an earlier login or on another PC). Change the tunnel name and press Start, or delete that tunnel in the Cloudflare dashboard (Zero Trust > Networks > Tunnels).",
+                cfg("name", "rustwarden")
+            ));
+        }
         return say(format!("The tunnel stopped. {why}"));
     }
     if !step_succeeded(step, &text) {
@@ -400,9 +408,9 @@ mod tests {
         let a = |s, name: &str, host: &str, svc: &str, tok: &str| args_for(s, name, host, svc, tok, "login-2");
         assert_eq!(a(Step::Login, "", "", "", ""), [&format!("env:USERPROFILE={f}"), &format!("env:HOME={f}"), "tunnel", "--origincert", c, "login"]);
         assert_eq!(a(Step::Create, "home", "", "", "")[2..], ["tunnel", "--origincert", c, "create", "home"]);
-        assert_eq!(a(Step::Route, "home", "a.example.com", "", "")[2..], ["tunnel", "--origincert", c, "route", "dns", "home", "a.example.com"]);
-        assert_eq!(a(Step::Run, "home", "", "http://localhost:80", "")[2..], ["tunnel", "--no-autoupdate", "--origincert", c, "run", "--url", "http://localhost:80", "home"]);
-        assert_eq!(a(Step::Run, "home", "", "", "TOKEN")[2..], ["tunnel", "--no-autoupdate", "run", "--token", "TOKEN"]);
+        assert_eq!(a(Step::Route, "home", "a.example.com", "", "")[2..], ["tunnel", "--origincert", c, "route", "dns", "--overwrite-dns", "home", "a.example.com"]);
+        assert_eq!(a(Step::Run, "home", "", "http://localhost:80", "")[2..], ["tunnel", "--no-autoupdate", "--protocol", "http2", "--origincert", c, "run", "--url", "http://localhost:80", "home"]);
+        assert_eq!(a(Step::Run, "home", "", "", "TOKEN")[2..], ["tunnel", "--no-autoupdate", "--protocol", "http2", "run", "--token", "TOKEN"]);
     }
 
     #[test]
