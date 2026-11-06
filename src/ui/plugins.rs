@@ -127,8 +127,7 @@ fn files(ui: &mut Ui, s: &mut Settings, kind: Kind) {
             if approved {
                 let mut on = s.plugins.get(&m.id).is_some_and(|x| x.enabled);
                 ui.scope(|ui| {
-                    ui.set_min_width(110.0);
-                    if widgets::switch(ui, &mut on, if manager::running(&m.id) { "Running" } else { "Off" }).changed() {
+                    if widgets::switch(ui, &mut on, "").changed() {
                         s.plugins.entry(m.id.clone()).or_default().enabled = on;
                         // Starts (or stops) it now, so its settings can be opened before Save.
                         manager::preview(&s.plugins);
@@ -311,7 +310,7 @@ fn modal(ctx: &egui::Context, s: &mut Settings) {
                         }
                         for p in &man.permissions {
                             let on = granted.contains(p);
-                            ui.label(format!("{} {p}: {}", if on { "✔" } else { "✖" }, perm_text(p)));
+                            ui.label(format!("{p}: {} ({})", perm_text(p), if on { "allowed" } else { "not allowed" }));
                         }
                     });
                     ui.add_space(6.0);
