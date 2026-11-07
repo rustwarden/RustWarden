@@ -99,14 +99,29 @@ impl Host {
                     crate::sys::icmp::round(&addrs, count).into_iter().map(|r| serde_json::json!({"min": r.min, "avg": r.avg, "max": r.max, "loss": r.loss})).collect();
                 Ok(serde_json::Value::from(results).to_string())
             }
-            HostCall::HttpRaw { url, headers, body, insecure } => {
+            HostCall::HttpRaw { url, headers, body, insecure, ca_pem, connect_to } => {
                 if !host_allowed(&url, &self.http_hosts) {
                     return Err("that address is not in the plugin's http_hosts".into());
                 }
                 if insecure && !self.allow_insecure {
                     return Err("the plugin did not declare allow_insecure_tls".into());
                 }
-                let (status, body, cookie) = http_raw(&url, &headers, body.as_deref(), insecure)?;
+                if insecure && ca_pem.is_some() {
+                    return Err("a request can't both skip the certificate check and pin a CA".into());
+                }
+                // The connection may go to another address than the URL names, but only one the plugin could have reached anyway.
+                let connect = match connect_to.as_deref() {
+                    Some(c) => {
+                        let ip = connect_address(c).ok_or("connect_to must look like name:port:address:port")?;
+                        if !host_allowed(&format!("https://{ip}/"), &self.http_hosts) {
+                            return Err("that connect_to address is not in the plugin's http_hosts".into());
+                        }
+                        Some(c)
+                    }
+                    None => None,
+                };
+                let ca = ca_pem.as_deref().map(CaFile::write).transpose()?;
+                let (status, body, cookie) = http_raw(&url, &headers, body.as_deref(), insecure, ca.as_ref().map(CaFile::path), connect)?;
                 Ok(serde_json::json!({"status": status, "body": body, "cookie": cookie}).to_string())
             }
             HostCall::HelperReady { exe, exe_sha256 } => Ok(if crate::sys::helper::ready(&self.id, &exe, &exe_sha256) { "1" } else { "0" }.to_owned()),
@@ -154,6 +169,7 @@ impl Host {
                 let list: Vec<_> = crate::sys::upnp::discover()?.into_iter().map(|g| serde_json::json!({"location": g.location, "local_ip": g.local_ip})).collect();
                 Ok(serde_json::Value::Array(list).to_string())
             }
+            HostCall::WgKeypair => Ok(wg_keypair().to_string()),
             HostCall::SetTick { millis } => {
                 self.tick_ms = (millis != 0).then(|| millis.clamp(50, 3_600_000));
                 Ok(String::new())
@@ -265,7 +281,7 @@ pub fn host_allowed(url: &str, hosts: &[String]) -> bool {
 }
 
 fn http(url: &str, headers: &[String], body: Option<&str>) -> Result<String, String> {
-    let (status, body, _) = http_raw(url, headers, body, false)?;
+    let (status, body, _) = http_raw(url, headers, body, false, None, None)?;
     answer(&status.to_string(), &body)
 }
 
@@ -304,6 +320,63 @@ url = {}
     cfg
 }
 
+/// The address of a `name:port:address:port` connect-to value (curl's `--connect-to`), or `None` if it isn't one of those:
+/// plain names, digits and an IPv4 address only, so nothing odd reaches the curl config.
+fn connect_address(c: &str) -> Option<&str> {
+    let parts: Vec<&str> = c.split(':').collect();
+    let [name, p1, ip, p2] = parts[..] else { return None };
+    let ok_name = !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-'));
+    let ok_ip = ip.split('.').count() == 4 && ip.split('.').all(|o| !o.is_empty() && o.len() <= 3 && o.chars().all(|c| c.is_ascii_digit()));
+    (ok_name && ok_ip && p1.chars().all(|c| c.is_ascii_digit()) && p2.chars().all(|c| c.is_ascii_digit())).then_some(ip)
+}
+
+/// A CA certificate a plugin pinned, written to a private file for curl and removed again when dropped.
+struct CaFile(std::path::PathBuf);
+
+impl CaFile {
+    fn write(pem: &str) -> Result<Self, String> {
+        let body_ok = pem.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '=' | '-' | ' ' | '\r' | '\n'));
+        if !pem.trim_start().starts_with("-----BEGIN CERTIFICATE-----") || pem.len() > 16 * 1024 || !body_ok {
+            return Err("ca_pem must be a PEM certificate".into());
+        }
+        static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let dir = crate::settings::data_dir().join("plugin-tmp");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let path = dir.join(format!("ca-{}-{}.pem", std::process::id(), N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+        std::fs::write(&path, pem).map_err(|e| e.to_string())?;
+        Ok(Self(path))
+    }
+
+    fn path(&self) -> &str {
+        self.0.to_str().unwrap_or("")
+    }
+}
+
+impl Drop for CaFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+fn b64(bytes: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for c in bytes.chunks(3) {
+        let n = (u32::from(c[0]) << 16) | (u32::from(*c.get(1).unwrap_or(&0)) << 8) | u32::from(*c.get(2).unwrap_or(&0));
+        for i in 0..4 {
+            out.push(if i <= c.len() { T[(n >> (18 - 6 * i) & 63) as usize] as char } else { '=' });
+        }
+    }
+    out
+}
+
+/// A WireGuard keypair as `wg genkey` and `wg pubkey` print them (base64), from the operating system's random numbers.
+fn wg_keypair() -> serde_json::Value {
+    let secret = x25519_dalek::StaticSecret::random_from_rng(rand_core::OsRng);
+    let public = x25519_dalek::PublicKey::from(&secret);
+    serde_json::json!({"private": b64(&secret.to_bytes()), "public": b64(public.as_bytes())})
+}
+
 /// Splits curl's output (the body, then the first `Set-Cookie` header, then the status, one per line) into (status, body, cookie).
 fn split_reply(text: &str) -> (u16, String, String) {
     let (rest, code) = text.rsplit_once('\n').unwrap_or(("", text));
@@ -312,8 +385,14 @@ fn split_reply(text: &str) -> (u16, String, String) {
 }
 
 /// One request through curl: (status, body, first Set-Cookie header), or why the server couldn't be reached.
-fn http_raw(url: &str, headers: &[String], body: Option<&str>, insecure: bool) -> Result<(u16, String, String), String> {
-    let cfg = curl_config(url, headers, body, insecure);
+fn http_raw(url: &str, headers: &[String], body: Option<&str>, insecure: bool, ca_path: Option<&str>, connect_to: Option<&str>) -> Result<(u16, String, String), String> {
+    let mut cfg = curl_config(url, headers, body, insecure);
+    if let Some(p) = ca_path {
+        cfg += &format!("cacert = {}\n", crate::sys::curl::quote(p));
+    }
+    if let Some(c) = connect_to {
+        cfg += &format!("connect-to = {}\n", crate::sys::curl::quote(c));
+    }
     let out = crate::sys::curl::run(&cfg, None)?;
     if !out.status.success() {
         return Err(if out.status.code() == Some(60) {
@@ -409,6 +488,53 @@ mod tests {
         assert!(!c.contains("insecure"), "certificates are checked unless the plugin was allowed not to");
         assert!(curl_config("https://h", &[], None, true).contains("\ninsecure\n"));
         assert!(curl_config("https://h", &[], None, false).contains(r#"write-out = "\n%header{set-cookie}\n%{http_code}""#), "the cookie and status markers must stay on their own lines");
+    }
+
+    #[test]
+    fn connect_to_is_a_name_and_an_ipv4_address_only() {
+        assert_eq!(connect_address("newyork438:1337:191.96.227.10:1337"), Some("191.96.227.10"));
+        assert_eq!(connect_address("host.example::10.0.0.1:"), Some("10.0.0.1"));
+        assert_eq!(connect_address("a:1:b:2"), None);
+        assert_eq!(connect_address("x\nurl = evil:1:1.2.3.4:1"), None);
+        assert_eq!(connect_address("h:1:1.2.3.4"), None);
+        assert_eq!(connect_address("h:1:1.2.3:4:5"), None);
+    }
+
+    #[test]
+    fn a_pinned_ca_is_checked_and_its_file_removed() {
+        assert!(CaFile::write("not a certificate").is_err());
+        assert!(CaFile::write("-----BEGIN CERTIFICATE-----\nAA\"; rm\n-----END CERTIFICATE-----").is_err());
+        let path = {
+            let f = CaFile::write("-----BEGIN CERTIFICATE-----\nMIIFqDCC\n-----END CERTIFICATE-----\n").unwrap();
+            assert!(std::path::Path::new(f.path()).exists());
+            f.path().to_owned()
+        };
+        assert!(!std::path::Path::new(&path).exists(), "the file goes with the request");
+    }
+
+    #[test]
+    fn base64_matches_the_standard_with_padding() {
+        assert_eq!(b64(b""), "");
+        assert_eq!(b64(b"f"), "Zg==");
+        assert_eq!(b64(b"fo"), "Zm8=");
+        assert_eq!(b64(b"foo"), "Zm9v");
+        assert_eq!(b64(b"foobar"), "Zm9vYmFy");
+    }
+
+    #[test]
+    fn a_keypair_is_32_bytes_each_and_the_public_key_follows_from_the_private() {
+        let k = wg_keypair();
+        let (private, public) = (k["private"].as_str().unwrap(), k["public"].as_str().unwrap());
+        assert_eq!((private.len(), public.len()), (44, 44));
+        assert!(private.ends_with('=') && public.ends_with('='));
+        assert_ne!(private, wg_keypair()["private"].as_str().unwrap(), "every key is new");
+        // RFC 7748 section 6.1: Alice's private key gives this public key.
+        let alice: [u8; 32] = [
+            0x77, 0x07, 0x6d, 0x0a, 0x73, 0x18, 0xa5, 0x7d, 0x3c, 0x16, 0xc1, 0x72, 0x51, 0xb2, 0x66, 0x45, 0xdf, 0x4c, 0x2f, 0x87, 0xeb, 0xc0, 0x99, 0x2a, 0xb1, 0x77, 0xfb, 0xa5, 0x1d, 0xb9, 0x2c,
+            0x2a,
+        ];
+        let public = x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from(alice));
+        assert_eq!(b64(public.as_bytes()), "hSDwCYkwp1R0i33ctD73Wg2/Og0mOBr066SpjqqbTmo=");
     }
 
     #[test]

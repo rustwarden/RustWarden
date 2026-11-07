@@ -125,9 +125,29 @@ pub fn http_raw(url: &str, headers: &[String], body: Option<&str>, insecure: boo
 /// Like [`http_raw`], and also the answer's first `Set-Cookie` header (`name=value; attributes`, empty when there is none),
 /// for a server that keeps its session in a cookie; send it back as a `Cookie: name=value` header.
 pub fn http_raw_cookie(url: &str, headers: &[String], body: Option<&str>, insecure: bool) -> Result<(u16, String, String), String> {
-    let json = text(host(&HostCall::HttpRaw { url: url.into(), headers: headers.to_vec(), body: body.map(str::to_owned), insecure }))?;
+    http_raw_full(url, headers, body, insecure, None, None)
+}
+
+/// Like [`http_raw_cookie`], and optionally trusting only `ca_pem` for the server's certificate and connecting to another
+/// address than the name in the URL (`"name:port:address:port"`, curl's `--connect-to`).
+pub fn http_raw_full(url: &str, headers: &[String], body: Option<&str>, insecure: bool, ca_pem: Option<&str>, connect_to: Option<&str>) -> Result<(u16, String, String), String> {
+    let json = text(host(&HostCall::HttpRaw {
+        url: url.into(),
+        headers: headers.to_vec(),
+        body: body.map(str::to_owned),
+        insecure,
+        ca_pem: ca_pem.map(str::to_owned),
+        connect_to: connect_to.map(str::to_owned),
+    }))?;
     let v: serde_json::Value = serde_json::from_str(&json).map_err(|e| e.to_string())?;
     Ok((v["status"].as_u64().unwrap_or(0) as u16, v["body"].as_str().unwrap_or("").to_owned(), v["cookie"].as_str().unwrap_or("").to_owned()))
+}
+
+/// A new WireGuard keypair `(private, public)`, base64, made by RustWarden from the operating system's random numbers.
+pub fn wg_keypair() -> Result<(String, String), String> {
+    let json = text(host(&HostCall::WgKeypair))?;
+    let v: serde_json::Value = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+    Ok((v["private"].as_str().unwrap_or("").to_owned(), v["public"].as_str().unwrap_or("").to_owned()))
 }
 
 /// Needs "alerts.write".

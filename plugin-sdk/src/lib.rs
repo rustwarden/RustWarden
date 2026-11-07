@@ -378,6 +378,14 @@ pub enum HostCall {
         headers: Vec<String>,
         body: Option<String>,
         insecure: bool,
+        /// Trust only this CA (PEM text, at most 16 KB) for the server's certificate, instead of the system's. For a service
+        /// that signs its own servers' certificates (PIA's WireGuard registration). Can't be combined with `insecure`.
+        #[serde(default)]
+        ca_pem: Option<String>,
+        /// `"name:port:address:port"`: connect to `address` while the request (and the certificate check) still use `name`, like
+        /// curl's `--connect-to`. The address must be one the plugin's `http_hosts` allow.
+        #[serde(default)]
+        connect_to: Option<String>,
     },
     /// Raises an alert of the given kind (only "packet-loss" so far) naming `who`, as RustWarden's own monitors do: it
     /// is shown, logged and sent on like any other, under the user's settings for that kind. Needs "alerts.write".
@@ -435,6 +443,9 @@ pub enum HostCall {
     /// A plugin with this permission also fills its `p_<id>__devices` table (mac, found, name, area, kind, model, url),
     /// which RustWarden reads to name and mark those devices on the Scanner tab. Needs "devices.annotate".
     Devices,
+    /// A new WireGuard keypair from the operating system's random numbers: replies `{"private": "...", "public": "..."}`
+    /// (base64, as `wg genkey` and `wg pubkey` print them). A plugin's own random numbers aren't good enough for a key.
+    WgKeypair,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -275,7 +275,7 @@ mod tests {
         let mut hello = Plugin::load(include_bytes!(concat!(env!("OUT_DIR"), "/plugins/ntfy.wasm"))).unwrap();
         hello.bind(Connection::open_in_memory().unwrap(), BTreeSet::new(), false).unwrap();
         hello.host().http_hosts = vec!["*".into()];
-        let r = hello.host().handle(HostCall::HttpRaw { url: "https://192.168.1.1/".into(), headers: vec![], body: None, insecure: true });
+        let r = hello.host().handle(HostCall::HttpRaw { url: "https://192.168.1.1/".into(), headers: vec![], body: None, insecure: true, ca_pem: None, connect_to: None });
         assert!(matches!(r, HostReply::Err(e) if e.contains("allow_insecure_tls")));
     }
 
