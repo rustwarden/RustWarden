@@ -224,14 +224,21 @@ impl Qos {
             status.insert(l.id, state);
         }
         // Policies of deleted limits, or of a program that was swapped for another.
-        for name in present.keys().filter(|n| !keep.contains(*n) && !gone.contains(*n)) {
-            let _ = os::remove(name);
+        let failed = remove_orphans(present.keys(), &keep, &gone, os::remove);
+        for f in &failed {
+            crate::applog::line("engine.log", &format!("couldn't remove the orphaned QoS policy {f}"));
         }
-        if limits.is_empty() {
+        // Stay "dirty" while an orphan survives, so the next pass retries it.
+        if limits.is_empty() && failed.is_empty() {
             self.applied.store(false, Ordering::Relaxed);
         }
         *lock(&self.status) = status;
     }
+}
+
+/// Removes the listed policies that no limit wants; returns the names (with the error) that couldn't be removed.
+fn remove_orphans<'a>(present: impl Iterator<Item = &'a String>, keep: &HashSet<String>, gone: &HashSet<String>, remove: impl Fn(&str) -> Result<(), String>) -> Vec<String> {
+    present.filter(|n| !keep.contains(*n) && !gone.contains(*n)).filter_map(|name| remove(name).err().map(|e| format!("{name}: {e}"))).collect()
 }
 
 /// Re-checks once a minute: a policy removed by hand in PowerShell comes back, and the first pass cleans up after a crash.
@@ -252,6 +259,20 @@ mod tests {
         let l = QosLimit::upload(3, true, r"C:\Apps\game.exe", 2000);
         store(&db, std::slice::from_ref(&l)).unwrap();
         assert_eq!(load(&db), vec![l]);
+    }
+
+    #[test]
+    fn orphans_are_removed_with_no_limits_and_failures_are_counted() {
+        let present: Vec<String> = ["RustWarden QoS 1 a.exe", "RustWarden QoS 2 b.exe"].map(String::from).into();
+        let removed = Mutex::new(Vec::new());
+        let ok = |n: &str| {
+            removed.lock().unwrap().push(n.to_owned());
+            Ok(())
+        };
+        assert_eq!(remove_orphans(present.iter(), &HashSet::new(), &HashSet::new(), ok).len(), 0);
+        assert_eq!(*removed.lock().unwrap(), present);
+        let keep: HashSet<String> = [present[0].clone()].into();
+        assert_eq!(remove_orphans(present.iter(), &keep, &HashSet::new(), |_| Err("denied".into())).len(), 1);
     }
 
     #[test]
