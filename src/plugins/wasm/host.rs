@@ -384,11 +384,18 @@ fn split_reply(text: &str) -> (u16, String, String) {
     (code.trim().parse().unwrap_or(0), body.to_owned(), cookie.trim().to_owned())
 }
 
+/// The curl lines for a pinned CA. Schannel (curl on Windows) also asks for revocation data, which a private CA's certificates
+/// don't carry, so the check would fail with "untrusted"; best-effort skips it, while the pinned CA still has to vouch for the
+/// server.
+fn pinned_ca_config(path: &str) -> String {
+    format!("cacert = {}\nssl-revoke-best-effort\n", crate::sys::curl::quote(path))
+}
+
 /// One request through curl: (status, body, first Set-Cookie header), or why the server couldn't be reached.
 fn http_raw(url: &str, headers: &[String], body: Option<&str>, insecure: bool, ca_path: Option<&str>, connect_to: Option<&str>) -> Result<(u16, String, String), String> {
     let mut cfg = curl_config(url, headers, body, insecure);
     if let Some(p) = ca_path {
-        cfg += &format!("cacert = {}\n", crate::sys::curl::quote(p));
+        cfg += &pinned_ca_config(p);
     }
     if let Some(c) = connect_to {
         cfg += &format!("connect-to = {}\n", crate::sys::curl::quote(c));
@@ -510,6 +517,12 @@ mod tests {
             f.path().to_owned()
         };
         assert!(!std::path::Path::new(&path).exists(), "the file goes with the request");
+    }
+
+    #[test]
+    fn a_pinned_ca_skips_the_revocation_lookup_a_private_ca_cannot_answer() {
+        let cfg = pinned_ca_config("C:\\x\\ca.pem");
+        assert!(cfg.contains("cacert = ") && cfg.lines().any(|l| l == "ssl-revoke-best-effort"));
     }
 
     #[test]
