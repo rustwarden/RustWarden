@@ -86,6 +86,47 @@ impl Aggregator {
     }
 }
 
+/// Hostnames from DNS answers. A shared (CDN / anycast) address serves many names, so besides the
+/// per-address list each lookup is remembered per (process, address) and traffic is matched to that first.
+#[derive(Default)]
+struct Names {
+    by_ip: HashMap<IpAddr, Vec<String>>,
+    by_pid: HashMap<(u32, IpAddr), String>,
+}
+
+impl Names {
+    /// Records an answer; returns the name to show for the address.
+    fn dns(&mut self, pid: u32, ip: IpAddr, name: &str) -> String {
+        if pid != 0 {
+            if self.by_pid.len() > 50_000 {
+                self.by_pid.clear();
+            }
+            self.by_pid.insert((pid, ip), name.to_owned());
+        }
+        let v = self.by_ip.entry(ip).or_default();
+        v.retain(|n| n != name);
+        v.push(name.to_owned());
+        if v.len() > 16 {
+            v.remove(0);
+        }
+        shared_label(v)
+    }
+
+    /// The name this process looked up for the address, if it did.
+    fn for_flow(&self, pid: u32, ip: IpAddr) -> Option<&str> {
+        self.by_pid.get(&(pid, ip)).map(String::as_str)
+    }
+}
+
+/// Latest name, with a count when other names share the address.
+fn shared_label(names: &[String]) -> String {
+    match names {
+        [] => String::new(),
+        [only] => only.clone(),
+        [.., last] => format!("{last} (+{} shared)", names.len() - 1),
+    }
+}
+
 struct Collector {
     shared: Arc<Shared>,
     db: Db,
@@ -96,6 +137,9 @@ struct Collector {
     /// Addresses on VPN / tunnel adapters; empty while no VPN is connected.
     vpn_locals: HashSet<IpAddr>,
     names: HashMap<IpAddr, String>,
+    dns_names: Names,
+    /// What was last stored per (program, address), so the database is only written on a change.
+    app_names: HashMap<(i64, IpAddr), String>,
     /// Names learned since the last publish; only these are copied into the shared state.
     new_names: Vec<(IpAddr, String)>,
     /// Recent remote addresses per app with bytes, for the Firewall tab's host column.
@@ -164,8 +208,9 @@ impl Collector {
             match &ev {
                 NetEvent::Dns { pid, name, qtype, status, ips, log } => {
                     for ip in ips {
-                        self.names.insert(*ip, name.clone());
-                        self.new_names.push((*ip, name.clone()));
+                        let shown = self.dns_names.dns(*pid, *ip, name);
+                        self.names.insert(*ip, shown.clone());
+                        self.new_names.push((*ip, shown));
                         let _ = self.db.set_hostname(&ip.to_string(), name, now);
                     }
                     if *log && dns_log {
@@ -204,6 +249,12 @@ impl Collector {
                     {
                         self.p2p.note(app.id, flow.remote, flow.remote_port, now, need);
                         p2p_names.push((app.id, app.key.clone(), app.name.clone()));
+                    }
+                    if let Some(n) = self.dns_names.for_flow(pid, flow.remote)
+                        && self.app_names.get(&(app.id, flow.remote)).map(String::as_str) != Some(n)
+                    {
+                        let _ = self.db.set_app_hostname(app.id, &flow.remote.to_string(), n, now);
+                        self.app_names.insert((app.id, flow.remote), n.to_owned());
                     }
                     seen.insert((app.key.clone(), flow.remote));
                     agg.add(app.id, &flow, bytes);
@@ -347,6 +398,8 @@ pub fn run(shared: Arc<Shared>) {
         vpn_locals: HashSet::new(),
         names: db.hostnames().unwrap_or_default().into_iter().filter_map(|(ip, n)| Some((ip.parse().ok()?, n))).collect(),
         new_names: Vec::new(),
+        dns_names: Names::default(),
+        app_names: HashMap::new(),
         app_remote: HashMap::new(),
         recent_totals: VecDeque::new(),
         recent_apps: HashMap::new(),
@@ -460,6 +513,25 @@ mod tests {
 
     fn ip(s: &str) -> IpAddr {
         s.parse().unwrap()
+    }
+
+    #[test]
+    fn names_are_attributed_per_process() {
+        let mut n = Names::default();
+        let shared = ip("104.16.0.1");
+        n.dns(10, shared, "a.example.com");
+        let shown = n.dns(20, shared, "b.example.com");
+        assert_eq!(n.for_flow(10, shared), Some("a.example.com"));
+        assert_eq!(n.for_flow(20, shared), Some("b.example.com"));
+        assert_eq!(n.for_flow(30, shared), None);
+        assert_eq!(shown, "b.example.com (+1 shared)");
+    }
+
+    #[test]
+    fn server_answers_without_pid_only_feed_the_address() {
+        let mut n = Names::default();
+        n.dns(0, ip("1.1.1.1"), "x.test");
+        assert_eq!(n.for_flow(0, ip("1.1.1.1")), None);
     }
 
     fn ev(send: bool, udp: bool, src: (&str, u16), dst: (&str, u16)) -> NetEvent {

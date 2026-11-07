@@ -213,6 +213,27 @@ impl LiveBackend {
     }
 }
 
+/// Folds `(label, remote, down, up)` rows into one entry per label, biggest first. `key` is the
+/// remote that carried the most, so a merged row still opens a detail view.
+fn merge_hosts(rows: Vec<(String, String, f64, f64)>) -> Vec<(String, db::UsageEntry)> {
+    let mut out: Vec<(String, db::UsageEntry, f64)> = Vec::new();
+    for (label, key, down, up) in rows {
+        match out.iter_mut().find(|(l, ..)| *l == label) {
+            Some((_, e, best)) => {
+                e.down += down;
+                e.up += up;
+                if down + up > *best {
+                    *best = down + up;
+                    e.key = key;
+                }
+            }
+            None => out.push((label, db::UsageEntry { key, down, up }, down + up)),
+        }
+    }
+    out.sort_by(|a, b| (b.1.down + b.1.up).total_cmp(&(a.1.down + a.1.up)));
+    out.into_iter().map(|(l, e, _)| (l, e)).collect()
+}
+
 /// Fraction of `part` in `whole`, 0 when `whole` is 0.
 fn share(part: f64, whole: f64) -> f32 {
     if whole > 0.0 { (part / whole) as f32 } else { 0.0 }
@@ -328,8 +349,18 @@ impl Backend for LiveBackend {
     fn breakdown(&self, range: TimeRange, window: (f32, f32)) -> UsageBreakdown {
         let (scale, first, n) = range_buckets(crate::clock::now_unix(), range);
         let (t0, t1) = selection_interval(first, n, scale, window);
-        let (by_app, by_remote, by_proto, apps, top_hosts) =
-            self.with_db(|db| Ok((db.usage_by_app(scale, t0, t1)?, db.usage_by_remote(scale, t0, t1)?, db.usage_by_proto(scale, t0, t1)?, db.apps()?, db.hosts_by_app(scale, t0, t1)?)));
+        let (by_app, by_remote, by_proto, apps, top_hosts, app_remote, app_names) = self.with_db(|db| {
+            Ok((
+                db.usage_by_app(scale, t0, t1)?,
+                db.usage_by_remote(scale, t0, t1)?,
+                db.usage_by_proto(scale, t0, t1)?,
+                db.apps()?,
+                db.hosts_by_app(scale, t0, t1)?,
+                db.usage_by_app_remote(scale, t0, t1)?,
+                db.app_hostnames()?,
+            ))
+        });
+        let app_names: HashMap<(i64, String), String> = app_names.into_iter().map(|(id, ip, n)| ((id, ip), n)).collect();
         let apps_by_id: HashMap<String, &AppRecord> = apps.iter().map(|a| (a.id.to_string(), a)).collect();
         let mut main_host: HashMap<i64, String> = HashMap::new();
         for (id, ip, _) in &top_hosts {
@@ -349,10 +380,13 @@ impl Backend for LiveBackend {
             })
             .collect();
 
-        let mut host_rows: Vec<UsageRow> = by_remote.iter().take(MAX_HOSTS).map(|e| row(self.host_label(&e.key), e, Glyph::Flag(self.place_of(&e.key).country()), Some(Glyph::Window))).collect();
-        if by_remote.len() > MAX_HOSTS {
-            let rest = &by_remote[MAX_HOSTS..];
-            let (down, up) = rest.iter().fold((0.0, 0.0), |a, e| (a.0 + e.down, a.1 + e.up));
+        // Named per program where known, so a shared CDN address isn't one arbitrary name for everyone.
+        let merged =
+            merge_hosts(app_remote.into_iter().map(|(id, remote, down, up)| (app_names.get(&(id, remote.clone())).cloned().unwrap_or_else(|| self.host_label(&remote)), remote, down, up)).collect());
+        let mut host_rows: Vec<UsageRow> = merged.iter().take(MAX_HOSTS).map(|(label, e)| row(label.clone(), e, Glyph::Flag(self.place_of(&e.key).country()), Some(Glyph::Window))).collect();
+        if merged.len() > MAX_HOSTS {
+            let rest = &merged[MAX_HOSTS..];
+            let (down, up) = rest.iter().fold((0.0, 0.0), |a, (_, e)| (a.0 + e.down, a.1 + e.up));
             host_rows.push(row(format!("+{} more", rest.len()), &db::UsageEntry { key: String::new(), down, up }, Glyph::More, Some(Glyph::Window)));
         }
 
@@ -1170,6 +1204,16 @@ fn verdict_shown(blocked: bool) -> Verdict {
 #[cfg(test)]
 mod verdict_tests {
     use super::*;
+
+    #[test]
+    fn hosts_with_the_same_label_merge_into_one_row() {
+        let r = |l: &str, k: &str, d: f64| (l.to_owned(), k.to_owned(), d, 1.0);
+        let m = merge_hosts(vec![r("cf", "1.1.1.1", 5.0), r("other", "9.9.9.9", 3.0), r("cf", "2.2.2.2", 20.0)]);
+        assert_eq!(m.len(), 2);
+        assert_eq!(m[0].0, "cf");
+        assert_eq!((m[0].1.down, m[0].1.up), (25.0, 2.0));
+        assert_eq!(m[0].1.key, "2.2.2.2");
+    }
 
     #[test]
     fn a_chip_is_blocked_only_when_something_blocks_it() {

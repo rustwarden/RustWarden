@@ -151,6 +151,7 @@ CREATE TABLE IF NOT EXISTS traffic (
     proto TEXT NOT NULL, kind INTEGER NOT NULL, down INTEGER NOT NULL, up INTEGER NOT NULL,
     PRIMARY KEY (scale, ts, app_id, remote, proto, kind)) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS hostnames (ip TEXT PRIMARY KEY, name TEXT NOT NULL, seen INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS app_hostnames (app_id INTEGER NOT NULL, ip TEXT NOT NULL, name TEXT NOT NULL, seen INTEGER NOT NULL, PRIMARY KEY (app_id, ip)) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS alerts (
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, kind TEXT NOT NULL, important INTEGER NOT NULL,
     app TEXT NOT NULL, text TEXT NOT NULL, target TEXT NOT NULL, country TEXT NOT NULL, unread INTEGER NOT NULL,
@@ -300,6 +301,7 @@ impl Db {
         }
         // Names not seen in the retention period are only kept for traffic that is gone by now.
         self.conn.execute("DELETE FROM hostnames WHERE seen < ?1", params![now - i64::from(retention_days) * 86_400])?;
+        self.conn.execute("DELETE FROM app_hostnames WHERE seen < ?1", params![now - i64::from(retention_days) * 86_400])?;
         self.conn.execute("DELETE FROM blocked WHERE ts < ?1", params![now - i64::from(retention_days) * 86_400])?;
         Ok(())
     }
@@ -560,6 +562,26 @@ impl Db {
     pub fn set_hostname(&self, ip: &str, name: &str, now: i64) -> rusqlite::Result<()> {
         self.conn.execute("INSERT INTO hostnames (ip, name, seen) VALUES (?1,?2,?3) ON CONFLICT(ip) DO UPDATE SET name=excluded.name, seen=excluded.seen", params![ip, name, now])?;
         Ok(())
+    }
+
+    /// The name one program used for an address (shared CDN addresses serve different names to different programs).
+    pub fn set_app_hostname(&self, app_id: i64, ip: &str, name: &str, now: i64) -> rusqlite::Result<()> {
+        self.conn.execute(
+            "INSERT INTO app_hostnames (app_id, ip, name, seen) VALUES (?1,?2,?3,?4) ON CONFLICT(app_id, ip) DO UPDATE SET name=excluded.name, seen=excluded.seen",
+            params![app_id, ip, name, now],
+        )?;
+        Ok(())
+    }
+
+    pub fn app_hostnames(&self) -> rusqlite::Result<Vec<(i64, String, String)>> {
+        let mut stmt = self.conn.prepare("SELECT app_id, ip, name FROM app_hostnames")?;
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect()
+    }
+
+    /// Usage per (program, remote address): `(app_id, remote, down, up)`.
+    pub fn usage_by_app_remote(&self, scale: Scale, t0: i64, t1: i64) -> rusqlite::Result<Vec<(i64, String, f64, f64)>> {
+        let mut stmt = self.conn.prepare_cached("SELECT app_id, remote, SUM(down), SUM(up) FROM t WHERE scale=?1 AND ts>=?2 AND ts<?3 AND remote <> '' GROUP BY app_id, remote")?;
+        stmt.query_map(params![scale.secs(), t0, t1], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?.collect()
     }
 
     pub fn hostnames(&self) -> rusqlite::Result<Vec<(String, String)>> {
