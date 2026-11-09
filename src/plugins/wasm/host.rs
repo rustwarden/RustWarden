@@ -359,7 +359,10 @@ impl CaFile {
             return Err("ca_pem must be a PEM certificate".into());
         }
         static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-        let dir = crate::settings::data_dir().join("plugin-tmp");
+        // Elevated, the file goes where only administrators can write: its name is predictable, so in the user's own
+        // folder a planted link could aim this write elsewhere.
+        let base = if crate::sys::is_elevated() { crate::settings::admin_dir() } else { crate::settings::data_dir() };
+        let dir = base.join("plugin-tmp");
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let path = dir.join(format!("ca-{}-{}.pem", std::process::id(), N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
         std::fs::write(&path, pem).map_err(|e| e.to_string())?;

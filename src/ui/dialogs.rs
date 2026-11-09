@@ -16,6 +16,8 @@ use std::time::{Duration, Instant};
 /// Times of recent clicks on the About box; 7 within 5 seconds trigger the easter egg.
 static ABOUT_CLICKS: Mutex<Vec<Instant>> = Mutex::new(Vec::new());
 const ABOUT_PNG: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/about_graph.png"));
+/// Width of an Info dialog's text; it never changes with the text, which wraps and scrolls instead.
+const INFO_WIDTH: f32 = 460.0;
 
 /// (blocked, whitelisted) malicious addresses, each with "program · signature".
 use crate::app::ThreatLists;
@@ -228,7 +230,7 @@ impl RustWarden {
         let mut d = std::mem::take(&mut self.dest_draft);
         let mut dest_cols = std::mem::take(&mut self.dest_cols);
         let (mut save, mut remove, mut download) = (None, None, false);
-        let driver = self.settings.app_mode == crate::settings::AppMode::Driver;
+        let driver = crate::driver::in_use(&self.settings);
         let dom = if driver { self.backend.domain_blocks() } else { Default::default() };
         let mut dd = std::mem::take(&mut self.domain_draft);
         let (mut dom_save, mut dom_remove, mut dom_import, mut dom_clear) = (None, None, None, false);
@@ -499,7 +501,7 @@ impl RustWarden {
         let mut cols = std::mem::take(&mut self.qos_cols);
         let (mut save, mut remove) = (None, None);
         let limits = self.backend.qos_limits();
-        let driver = self.settings.app_mode == crate::settings::AppMode::Driver;
+        let driver = crate::driver::in_use(&self.settings);
         let apps: Vec<(String, String, crate::data::AppIcon)> = self.protect.apps.iter().filter(|a| !a.path.is_empty() && !a.locked).map(|a| (a.name.clone(), a.path.clone(), a.icon)).collect();
         let program_name = |path: &str| if path.is_empty() { "Pick a program".to_owned() } else { crate::live::apps::file_name(path).to_owned() };
         egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
@@ -674,7 +676,12 @@ impl RustWarden {
             Dialog::Info { title, body } => {
                 let mut out = Outcome::Keep;
                 if !crate::widgets::dialog(title).show(ctx, |ui| {
-                    ui.label(body.as_str());
+                    // A fixed width, and a scroll bar past a fixed height: the body can be replaced while the dialog is
+                    // open (whois "Looking up…" then the answer), and a longer one must not stretch the window.
+                    ui.set_width(INFO_WIDTH);
+                    egui::ScrollArea::vertical().max_height(screen_size(ctx).y * 0.6).auto_shrink([false, true]).show(ui, |ui| {
+                        ui.add(egui::Label::new(body.as_str()).wrap());
+                    });
                     ui.add_space(8.0);
                     if ui.button("Close").clicked() {
                         out = Outcome::Close;
@@ -1295,7 +1302,7 @@ fn alert_settings(ui: &mut Ui, s: &mut Settings) {
                         ui.spacing_mut().item_spacing.y = 2.0;
                         for (i, kind) in AlertKind::ALL.iter().enumerate() {
                             // Needs the driver, so it only appears in Driver mode with the driver installed.
-                            if matches!(*kind, AlertKind::InboundScan | AlertKind::RogueDhcp | AlertKind::TlsMismatch) && (s.app_mode != crate::settings::AppMode::Driver || !crate::driver::ready()) {
+                            if matches!(*kind, AlertKind::InboundScan | AlertKind::RogueDhcp | AlertKind::TlsMismatch) && !crate::driver::in_use(s) {
                                 continue;
                             }
                             let (name, on) = (kind.title(), kind.enabled(&s.alerts));
@@ -1319,7 +1326,9 @@ fn alert_settings(ui: &mut Ui, s: &mut Settings) {
                     });
                 });
                 ui.vertical(|ui| {
-                    ui.set_width(300.0);
+                    ui.set_width(316.0);
+                    // Fixed height like the list beside it, so a kind with many options scrolls instead of stretching the dialog.
+                    egui::ScrollArea::vertical().id_salt("alert_detail").min_scrolled_height(410.0).max_height(410.0).auto_shrink([false, false]).show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 18.0;
                     let kind = AlertKind::ALL[sel.min(AlertKind::ALL.len() - 1)];
                     ui.label(egui::RichText::new(kind.title()).font(theme::bold(18.0)));
@@ -1393,6 +1402,7 @@ fn alert_settings(ui: &mut Ui, s: &mut Settings) {
                     if opts != kind.default_opts() || s.alert_opts.contains_key(kind.key()) {
                         s.alert_opts.insert(kind.key().to_owned(), opts);
                     }
+                    });
                 });
             });
         });
@@ -1524,19 +1534,20 @@ fn other_section(ui: &mut Ui, s: &mut Settings, out: &mut Outcome) {
         });
         if s.app_mode == crate::settings::AppMode::Driver {
             driver_rows(c, out);
-            c.row("Force DNS through my resolver", "Sends every program's DNS lookups (port 53) to the resolver below, whatever server they were aimed at, and makes the answers look as if the original server gave them. This closes DNS leaks. IPv4 and plain DNS only: encrypted DNS is not touched. The resolver must be reachable on your normal connection.", |ui| {
-                crate::widgets::small_toggle(ui, &mut s.dns_enforce);
-                ui.add_enabled(s.dns_enforce, egui::TextEdit::singleline(&mut s.dns_resolver).hint_text("1.1.1.1").desired_width(130.0));
-                if s.dns_enforce && crate::live::dnsguard::parse_resolver(&s.dns_resolver).is_err() {
-                    ui.colored_label(ui.visuals().warn_fg_color, "Enter an IPv4 address");
-                }
-            });
-            c.row("Line speed (up / down, Mbps)", "Your connection's speed, for the priorities in Limits / QoS. Programs with a priority share it: High is never held back and is served first, Normal gets the rest, Low what is left after that. Only programs listed in Limits / QoS are shared this way. 0 = not set (no sharing).", |ui| {
-                ui.add(egui::DragValue::new(&mut s.line_up_mbps).range(0..=100_000).suffix(" up"));
-                ui.add(egui::DragValue::new(&mut s.line_down_mbps).range(0..=100_000).suffix(" down"));
-            });
-            c.row("Learn host names from the driver", "Reads the server name of new HTTPS connections and DNS answers on this PC (nothing leaves it), so the Connections tab shows names such as youtube.com, and the DNS Log also lists lookups made by programs with their own resolver, such as some browsers.", |ui| crate::widgets::small_toggle(ui, &mut s.driver_names));
+            // Everything below needs the driver itself, not just Driver mode: without it these rows would do nothing, so they stay hidden.
             if crate::driver::ready() {
+                c.row("Force DNS through my resolver", "Sends every program's DNS lookups (port 53) to the resolver below, whatever server they were aimed at, and makes the answers look as if the original server gave them. This closes DNS leaks. IPv4 and plain DNS only: encrypted DNS is not touched. The resolver must be reachable on your normal connection.", |ui| {
+                    crate::widgets::small_toggle(ui, &mut s.dns_enforce);
+                    ui.add_enabled(s.dns_enforce, egui::TextEdit::singleline(&mut s.dns_resolver).hint_text("1.1.1.1").desired_width(130.0));
+                    if s.dns_enforce && crate::live::dnsguard::parse_resolver(&s.dns_resolver).is_err() {
+                        ui.colored_label(ui.visuals().warn_fg_color, "Enter an IPv4 address");
+                    }
+                });
+                c.row("Line speed (up / down, Mbps)", "Your connection's speed, for the priorities in Limits / QoS. Programs with a priority share it: High is never held back and is served first, Normal gets the rest, Low what is left after that. Only programs listed in Limits / QoS are shared this way. 0 = not set (no sharing).", |ui| {
+                    ui.add(egui::DragValue::new(&mut s.line_up_mbps).range(0..=100_000).suffix(" up"));
+                    ui.add(egui::DragValue::new(&mut s.line_down_mbps).range(0..=100_000).suffix(" down"));
+                });
+                c.row("Learn host names from the driver", "Reads the server name of new HTTPS connections and DNS answers on this PC (nothing leaves it), so the Connections tab shows names such as youtube.com, and the DNS Log also lists lookups made by programs with their own resolver, such as some browsers.", |ui| crate::widgets::small_toggle(ui, &mut s.driver_names));
                 c.row(
                     "QUIC fallback (programs)",
                     "Blocks QUIC (HTTP/3, UDP port 443) for these programs, separated by commas (for example chrome.exe, msedge.exe), so they use HTTPS over TCP. There the server name is in the open, which is what Block by domain and the host names read. Needs administrator rights.",
@@ -2707,7 +2718,7 @@ pub fn virustotal_upload_confirm(key: &str, name: &str, path: &str) -> Confirm {
     Confirm {
         title: format!("Upload {name} to VirusTotal?"),
         body: format!(
-            "{path}\n\nVirusTotal has never seen this file. Uploading sends the file itself, not just its hash, to VirusTotal. It is shared with security vendors and may be kept and visible to others who search for it. Do not upload private, confidential or licensed software.\n\nOnly this file is uploaded (up to 32 MB). RustWarden never uploads files on its own."
+            "{path}\n\nVirusTotal has never seen this file. Uploading sends the file itself, not just its hash, to VirusTotal. It is shared with security vendors and may be kept and visible to others who search for it. Do not upload private, confidential or licensed software.\n\nOnly this file is uploaded (up to 650 MB). RustWarden never uploads files on its own."
         ),
         yes: "Upload this file".into(),
         action: ConfirmAction::VirusTotalUpload { key: key.to_owned() },

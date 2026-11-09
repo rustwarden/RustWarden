@@ -13,7 +13,7 @@ use crate::clock;
 use crate::data::StatusNote;
 use crate::settings::{NetInfoSource, Settings};
 use crate::util::fmt_bytes;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::net::IpAddr;
 use std::sync::Arc;
 
@@ -134,6 +134,8 @@ struct Worker {
     db: Db,
     geo: Geo,
     asn: Arc<asn::Resolver>,
+    /// Scans each unanswered address has held the network cursor back for.
+    asn_waits: HashMap<String, u32>,
 }
 
 impl Worker {
@@ -176,9 +178,9 @@ impl Worker {
         let _ = self.db.kv_set(KV_CURSOR, &newest.to_string());
     }
 
-    /// Networks (AS numbers) from the net-info lookup. The lookup answers later, so addresses it
-    /// hasn't resolved yet hold the cursor back until a later scan.
-    /// shortcut: an address the lookup never answers holds the cursor back, so this scan grows until that traffic expires; skip such addresses after a few tries.
+    /// Networks (AS numbers) from the net-info lookup. The lookup answers later, so addresses it hasn't resolved yet hold
+    /// the cursor back until a later scan, but only for a few scans: one it never answers would otherwise make every scan
+    /// re-read everything since, until that traffic expired.
     fn learn_networks(&mut self, now: i64, s: &Settings, apps: &[AppRecord]) {
         let from = self.db.kv_get(KV_ASN_CURSOR).and_then(|v| v.parse().ok()).unwrap_or(0);
         let Ok(groups) = self.db.wan_remotes_since(from) else {
@@ -191,9 +193,12 @@ impl Worker {
             };
             let info = self.asn.get(&remote);
             let Some(network) = network_of(&info) else {
-                next = next.min(first);
+                if wait_for_answer(&mut self.asn_waits, &remote) {
+                    next = next.min(first);
+                }
                 continue;
             };
+            self.asn_waits.remove(&remote);
             self.observe(app, DIM_ASN, network, &format!("{remote} ({info})"), network_why, now, s);
         }
         let _ = self.db.kv_set(KV_ASN_CURSOR, &next.to_string());
@@ -300,6 +305,20 @@ impl Worker {
     }
 }
 
+/// Scans an address the net-info lookup hasn't answered may hold the network cursor back.
+const ASN_WAIT_SCANS: u32 = 5;
+
+/// True while `remote` may still hold the cursor back for its answer; counts this scan against it. Past the limit it
+/// is skipped (its network is not learned from that traffic).
+fn wait_for_answer(waits: &mut HashMap<String, u32>, remote: &str) -> bool {
+    if waits.len() > 10_000 {
+        waits.clear();
+    }
+    let n = waits.entry(remote.to_owned()).or_default();
+    *n += 1;
+    *n <= ASN_WAIT_SCANS
+}
+
 fn new_item(dim: &str, val: &str, now: i64) -> BaselineItem {
     BaselineItem { dim: dim.into(), val: val.into(), first_seen: now, last_seen: now, state: BASE_LEARNED, alerted: 0, alert_id: None }
 }
@@ -310,7 +329,7 @@ pub fn run(shared: Arc<Shared>, asn: Arc<asn::Resolver>) {
         return;
     };
     let geo = Geo::open(shared.settings().geo_path().as_deref());
-    let mut w = Worker { shared: shared.clone(), db, geo, asn };
+    let mut w = Worker { shared: shared.clone(), db, geo, asn, asn_waits: HashMap::new() };
     while shared.sleep(TICK_SECS) {
         let s = shared.settings();
         if s.baseline {
@@ -324,6 +343,16 @@ pub fn run(shared: Arc<Shared>, asn: Arc<asn::Resolver>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_address_the_lookup_never_answers_stops_holding_the_cursor() {
+        let mut waits = HashMap::new();
+        for _ in 0..ASN_WAIT_SCANS {
+            assert!(wait_for_answer(&mut waits, "203.0.113.9"));
+        }
+        assert!(!wait_for_answer(&mut waits, "203.0.113.9"));
+        assert!(wait_for_answer(&mut waits, "198.51.100.1"), "each address has its own count");
+    }
 
     #[test]
     fn median_and_mad_ignore_one_huge_day() {

@@ -456,7 +456,9 @@ pub enum DeviceEvent {
 
 /// Compares one scan (`found` = (ip, mac) pairs) with the devices stored before it. An empty
 /// `prev` is the first scan of a network: it only learns, so nothing is reported.
-/// shortcut: a recycled DHCP address reports MacChanged too, tell it apart from spoofing by the old device still being online.
+/// A new MAC on a known address is only `MacChanged` when it looks like spoofing: the address is a gateway, the old
+/// device still answers in this scan (at another address), or the new MAC also answers for another address. Otherwise
+/// the router simply handed the address to another device (DHCP), which is reported as that device being new.
 pub fn device_events(prev: &[DeviceRow], found: &[(String, String)], gateways: &HashSet<String>, now: i64, return_days: u32) -> Vec<DeviceEvent> {
     let mut out = Vec::new();
     if prev.is_empty() {
@@ -475,7 +477,12 @@ pub fn device_events(prev: &[DeviceRow], found: &[(String, String)], gateways: &
             _ => {}
         }
         if let Some(old) = prev.iter().find(|d| d.ip == ip && d.mac != mac) {
-            out.push(DeviceEvent::MacChanged { gateway: gateways.contains(&ip), old_mac: old.mac.clone(), ip, mac });
+            let gateway = gateways.contains(&ip);
+            let old_still_here = found.iter().any(|(_, m)| *m == old.mac);
+            let new_answers_twice = found.iter().filter(|(_, m)| *m == mac).count() > 1;
+            if gateway || old_still_here || new_answers_twice {
+                out.push(DeviceEvent::MacChanged { gateway, old_mac: old.mac.clone(), ip, mac });
+            }
         }
     }
     for (mac, ips) in by_mac {
@@ -836,6 +843,21 @@ mod tests {
         assert_eq!(ev.iter().filter(|e| matches!(e, DeviceEvent::Returned { .. })).count(), 1);
         // 0 days turns "returned" off.
         assert!(!device_events(&prev, &found, &gw, now, 0).iter().any(|e| matches!(e, DeviceEvent::Returned { .. })));
+    }
+
+    #[test]
+    fn a_reused_dhcp_address_is_not_spoofing() {
+        let now = 100 * 86_400;
+        let none = HashSet::new();
+        let changed = |ev: &[DeviceEvent]| ev.iter().any(|e| matches!(e, DeviceEvent::MacChanged { .. }));
+        let prev = vec![row("192.168.1.20", "laptop", now - 86_400, false, false), row("192.168.1.30", "nas", now, true, false)];
+        // The laptop left and the router gave its address to a phone: a new device, not a changed one.
+        let ev = device_events(&prev, &[pair("192.168.1.20", "phone"), pair("192.168.1.30", "nas")], &none, now, 14);
+        assert!(!changed(&ev) && ev.contains(&DeviceEvent::New { ip: "192.168.1.20".into(), mac: "phone".into() }));
+        // The laptop still answers elsewhere while another MAC claims its old address.
+        assert!(changed(&device_events(&prev, &[pair("192.168.1.20", "evil"), pair("192.168.1.21", "laptop")], &none, now, 14)));
+        // One MAC answering for its own address and the laptop's.
+        assert!(changed(&device_events(&prev, &[pair("192.168.1.20", "evil"), pair("192.168.1.99", "evil")], &none, now, 14)));
     }
 
     #[test]

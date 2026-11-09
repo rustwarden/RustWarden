@@ -112,6 +112,28 @@ impl Names {
         shared_label(v)
     }
 
+    /// Records the server name `pid`'s TLS connection to `ip` asked for. It always names that program's traffic to the
+    /// address; the address's own label (`labelled`: something already named it) is only filled when it had none, so a
+    /// lookup's name isn't replaced by whichever connection came last. Returns the new label when it set one.
+    fn sni(&mut self, pid: u32, ip: IpAddr, name: &str, labelled: bool) -> Option<String> {
+        if pid != 0 {
+            if self.by_pid.len() > 50_000 {
+                self.by_pid.clear();
+            }
+            self.by_pid.insert((pid, ip), name.to_owned());
+        }
+        if labelled {
+            return None;
+        }
+        let v = self.by_ip.entry(ip).or_default();
+        v.retain(|n| n != name);
+        v.push(name.to_owned());
+        if v.len() > 16 {
+            v.remove(0);
+        }
+        Some(shared_label(v))
+    }
+
     /// The name this process looked up for the address, if it did.
     fn for_flow(&self, pid: u32, ip: IpAddr) -> Option<&str> {
         self.by_pid.get(&(pid, ip)).map(String::as_str)
@@ -228,6 +250,13 @@ impl Collector {
                         }
                         let app = path.as_deref().map_or("Unknown", super::apps::file_name).to_owned();
                         dns_rows.push(DnsEntry { ts: now, app, name: name.clone(), qtype: *qtype, ips: ips.iter().map(IpAddr::to_string).collect(), status: *status, listed: false });
+                    }
+                }
+                NetEvent::Sni { pid, name, ip } => {
+                    if let Some(shown) = self.dns_names.sni(*pid, *ip, name, self.names.contains_key(ip)) {
+                        self.names.insert(*ip, shown.clone());
+                        self.new_names.push((*ip, shown));
+                        let _ = self.db.set_hostname(&ip.to_string(), name, now);
                     }
                 }
                 NetEvent::Data { .. } => {
@@ -575,6 +604,22 @@ mod tests {
         assert_eq!(n.for_flow(20, shared), Some("b.example.com"));
         assert_eq!(n.for_flow(30, shared), None);
         assert_eq!(shown, "b.example.com (+1 shared)");
+    }
+
+    #[test]
+    fn a_tls_server_name_names_its_own_programs_traffic() {
+        let mut n = Names::default();
+        let cdn = ip("104.16.0.1");
+        // Another program's lookup named the shared address first.
+        n.dns(10, cdn, "ads.example.net");
+        // The browser's DNS was encrypted (no answer seen), but its TLS hello says where it went.
+        assert_eq!(n.sni(20, cdn, "news.example.org", true), None, "the address keeps the label it had");
+        assert_eq!(n.for_flow(20, cdn), Some("news.example.org"));
+        assert_eq!(n.for_flow(10, cdn), Some("ads.example.net"), "the other program is not renamed");
+        // An address nothing named yet takes the server name as its label, even with no program known.
+        let fresh = ip("203.0.113.7");
+        assert_eq!(n.sni(0, fresh, "cdn.example.com", false).as_deref(), Some("cdn.example.com"));
+        assert_eq!(n.for_flow(0, fresh), None);
     }
 
     #[test]

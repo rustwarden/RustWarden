@@ -126,11 +126,13 @@ fn packet_loop(net: &Handle, flows: &Flows, known: &Arc<dyn Fn(std::net::IpAddr)
                 report(shared, &found);
             }
         } else if p.proto == netpkt::TCP {
-            // The server name fills a gap only: an address a DNS answer already named keeps that name.
-            if let Some(name) = crate::netparse::sni(payload)
-                && !known(p.dst)
-            {
-                etw::inject(NetEvent::Dns { pid: 0, name, qtype: 1, status: 0, ips: vec![p.dst], log: false });
+            // Every server name goes in with the program that asked for it, so its own traffic is named right; the address's
+            // general label still only takes it when nothing named the address yet (the collector decides that).
+            if let Some(name) = crate::netparse::sni(payload) {
+                let pid = flows.read().unwrap_or_else(|e| e.into_inner()).get(&p.flow(true)).copied().unwrap_or(0);
+                if pid != 0 || !known(p.dst) {
+                    etw::inject(NetEvent::Sni { pid, name, ip: p.dst });
+                }
             }
             if watch.1
                 && let Some(hello) = crate::tlsprint::parse(payload)

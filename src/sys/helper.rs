@@ -94,13 +94,44 @@ fn adopt(from: &Path, to_dir: &Path, exe: &str, wanted: &str) -> bool {
     genuine
 }
 
-/// True when the program is there (after taking over a genuine copy from an earlier non-elevated run).
+/// The checksum `ready` last confirmed per plugin and program, which `start` holds the file to before running it.
+static CHECKED: Mutex<Vec<(String, String, String)>> = Mutex::new(Vec::new());
+/// Hashes by (path, size, modified time), so a plugin that asks `ready` on every tick doesn't read a 50 MB file each time.
+static HASHES: Mutex<Vec<(PathBuf, u64, std::time::SystemTime, String)>> = Mutex::new(Vec::new());
+
+fn cached_sha(path: &Path) -> String {
+    let Ok(meta) = std::fs::metadata(path) else { return String::new() };
+    let Ok(modified) = meta.modified() else { return sha_of(path) };
+    let mut hashes = HASHES.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, _, _, sha)) = hashes.iter().find(|(p, len, m, _)| p == path && *len == meta.len() && *m == modified) {
+        return sha.clone();
+    }
+    let sha = sha_of(path);
+    hashes.retain(|(p, ..)| p != path);
+    hashes.push((path.to_owned(), meta.len(), modified, sha.clone()));
+    sha
+}
+
+/// True when the program is there and is the one the plugin expects (after taking over a genuine copy from an
+/// earlier non-elevated run). A copy that no longer matches reads as missing, so the plugin offers to download it again.
 pub fn ready(plugin: &str, exe: &str, exe_sha256: &str) -> bool {
     if !valid_exe_name(exe) {
         return false;
     }
     adopt_user_copy(plugin, exe, exe_sha256);
-    dir(plugin).join(exe).is_file()
+    let path = dir(plugin).join(exe);
+    let genuine = path.is_file() && cached_sha(&path).eq_ignore_ascii_case(exe_sha256);
+    let mut checked = CHECKED.lock().unwrap_or_else(|e| e.into_inner());
+    checked.retain(|(p, e, _)| !(p == plugin && e == exe));
+    if genuine {
+        checked.push((plugin.to_owned(), exe.to_owned(), exe_sha256.to_ascii_lowercase()));
+    }
+    genuine
+}
+
+/// The checksum `ready` confirmed for this program, if it did.
+fn confirmed(plugin: &str, exe: &str) -> Option<String> {
+    CHECKED.lock().unwrap_or_else(|e| e.into_inner()).iter().find(|(p, e, _)| p == plugin && e == exe).map(|(.., sha)| sha.clone())
 }
 
 /// Downloads `url`, checks it against `zip_sha256` and unpacks `exe` from it (a url ending in `.exe` is the program
@@ -112,7 +143,7 @@ pub fn install(plugin: &str, url: &str, zip_sha256: &str, exe: &str) -> Result<(
     let dir = dir(plugin);
     std::fs::create_dir_all(&dir).map_err(|e| format!("Can't create {}: {e}", dir.display()))?;
     let mut curl = crate::sys::tool("curl.exe");
-    curl.args(["-fsSL", "--proto", "=https", "--max-time", "300", "-o", "download.zip", url]).current_dir(&dir);
+    curl.args(["-fsSLg", "--proto", "=https", "--proto-redir", "=https", "--max-time", "300", "-o", "download.zip", url]).current_dir(&dir);
     run_tool(&mut curl, "Can't download it")?;
     let zip = dir.join("download.zip");
     if !sha_of(&zip).eq_ignore_ascii_case(zip_sha256) {
@@ -159,6 +190,12 @@ pub fn start(
     let path = dir(plugin).join(exe);
     if !path.is_file() {
         return Err(format!("{exe} isn't downloaded yet"));
+    }
+    // Hashed again in full (not from the cache) right before it runs: the file could have been swapped since `ready`.
+    let Some(wanted) = confirmed(plugin, exe) else { return Err(format!("{exe} hasn't been checked yet")) };
+    if !sha_of(&path).eq_ignore_ascii_case(&wanted) {
+        CHECKED.lock().unwrap_or_else(|e| e.into_inner()).retain(|(p, e, _)| !(p == plugin && e == exe));
+        return Err(format!("{exe} has changed since it was downloaded, so it wasn't run. Download it again."));
     }
     // "{dir}" in an argument is the plugin's own folder, so a program can keep its files there (removed with the plugin's data).
     let folder = dir(plugin).to_string_lossy().into_owned();
@@ -279,6 +316,25 @@ mod tests {
         assert!(adopt(&from, &to, "tool.exe", &real));
         assert!(to.join("tool.exe").is_file());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn only_a_program_that_still_matches_its_checksum_runs() {
+        let plugin = format!("rustwarden-test-helper-{}", std::process::id());
+        let folder = dir(&plugin);
+        std::fs::create_dir_all(&folder).unwrap();
+        let exe = folder.join("tool.exe");
+        std::fs::write(&exe, b"program").unwrap();
+        let real = sha_of(&exe);
+        let start_it = || start(&plugin, "tool.exe", vec![], Duration::from_secs(1), |_| {}, |_| {});
+        assert!(start_it().unwrap_err().contains("checked"), "never confirmed by ready");
+        assert!(!ready(&plugin, "tool.exe", &"0".repeat(64)), "a wrong checksum is not ready");
+        assert!(ready(&plugin, "tool.exe", &real));
+        // Swapped after the check (same size, so only a full hash catches it).
+        std::fs::write(&exe, b"PROGRAM").unwrap();
+        assert!(start_it().unwrap_err().contains("changed"));
+        assert!(start_it().unwrap_err().contains("checked"), "the confirmation is dropped");
+        let _ = std::fs::remove_dir_all(&folder);
     }
 
     #[test]

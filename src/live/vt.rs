@@ -1,11 +1,11 @@
 //! VirusTotal reputation of the programs on the Firewall tab, by SHA-256. Only the hash is sent: a
 //! program VirusTotal has never seen stays "Not found" until the user confirms uploading that one file
-//! (up to 32 MB, see [`Scanner::upload`]); it is then looked up again every minute, that program
+//! (up to 650 MB, see [`Scanner::upload`]); it is then looked up again every minute, that program
 //! only, until its report exists or `MAX_POLLS` minutes pass. Lookups run one at a time on a background thread, paced for the
 //! free API's 4 requests a minute, through `curl.exe` with the key passed on stdin so it never
 //! shows in the process list.
 
-use super::asn::json_val;
+use super::asn::json_find;
 use super::db::Db;
 use super::store::Shared;
 use super::store::lock;
@@ -16,9 +16,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const API: &str = "https://www.virustotal.com/api/v3/files";
-/// The plain upload endpoint's limit; bigger files need a separate upload URL.
-/// shortcut: larger files are skipped, add the upload_url call if they matter.
+/// The plain upload endpoint's limit; bigger files go to a one-time address from `upload_url`.
 const MAX_UPLOAD: u64 = 32 * 1024 * 1024;
+/// The most VirusTotal takes through an `upload_url` address; bigger files are skipped.
+const MAX_BIG_UPLOAD: u64 = 650 * 1024 * 1024;
 const POLL: Duration = Duration::from_secs(60);
 const RETRY_FAILED: Duration = Duration::from_secs(3600);
 /// Looks at an uploaded file this many times, a minute further apart each time, then stops asking.
@@ -26,6 +27,8 @@ const MAX_POLLS: u32 = 8;
 /// This many failures in a row (usually the quota running out) pause all lookups for `HOLD`.
 const HOLD_AFTER: u64 = 3;
 const HOLD: Duration = Duration::from_secs(6 * 3600);
+/// Where the hold's end (unix seconds) is saved.
+const KV_HOLD: &str = "vt_hold_until";
 
 /// The API key and the auto-scan switch of the VirusTotal plugin, while it runs with the `programs.hash` permission.
 /// The key is empty while it doesn't run, which turns every lookup off.
@@ -49,13 +52,13 @@ pub struct Scanner {
     uploads: Mutex<VecDeque<String>>,
     /// Uploaded files whose report isn't there yet, with when to look next and how often it was looked at.
     waiting: Mutex<HashMap<String, (Instant, u32)>>,
-    /// When set and in the future, no lookups run. shortcut: not saved, a restart ends the hold.
-    hold_until: Mutex<Option<Instant>>,
+    /// When set and in the future (unix seconds), no lookups run. Saved, so a restart doesn't spend more of a used-up quota.
+    hold_until: Mutex<Option<i64>>,
 }
 
 impl Scanner {
     fn on_hold(&self) -> bool {
-        lock(&self.hold_until).is_some_and(|t| t > Instant::now())
+        lock(&self.hold_until).is_some_and(|t| t > crate::clock::now_unix())
     }
 
     pub fn get(&self, db: &Db, hash: &str) -> Vt {
@@ -97,10 +100,23 @@ impl Scanner {
         lock(&self.uploads).push_back(hash.to_owned());
     }
 
-    /// A new key deserves a retry of lookups that failed with the old one.
+    /// Lookups that failed are tried again (hourly, and with a new key). The quota hold is separate (`lift_hold`):
+    /// clearing it here ended every 6-hour hold after the first hour.
     pub fn forget_failures(&self) {
-        *lock(&self.hold_until) = None;
         lock(&self.cache).retain(|_, v| *v != Vt::Failed);
+    }
+
+    /// Ends the quota hold, here and in the database (a new key has a quota of its own).
+    fn lift_hold(&self, db: &Db) {
+        *lock(&self.hold_until) = None;
+        let _ = db.kv_set(KV_HOLD, "");
+    }
+
+    /// Starts the quota hold and saves when it ends.
+    fn hold(&self, db: &Db) {
+        let until = crate::clock::now_unix() + HOLD.as_secs() as i64;
+        *lock(&self.hold_until) = Some(until);
+        let _ = db.kv_set(KV_HOLD, &until.to_string());
     }
 
     /// The next uploaded file whose minute is up; it is looked at again a minute later.
@@ -125,7 +141,8 @@ impl Scanner {
         };
         let mut last_retry = Instant::now();
         let mut failures = 0u64;
-        let mut last_key = String::new();
+        let mut last_key: Option<String> = None;
+        *lock(&self.hold_until) = db.kv_get(KV_HOLD).and_then(|v| v.parse().ok());
         while !shared.stopping() {
             // A network blip must not leave a program marked Failed until restart.
             if last_retry.elapsed() > RETRY_FAILED {
@@ -134,9 +151,13 @@ impl Scanner {
             }
             let (key, auto) = settings();
             // A new key deserves a retry of lookups that failed with the old one.
-            if key != last_key {
+            if last_key.as_ref() != Some(&key) {
                 self.forget_failures();
-                last_key.clone_from(&key);
+                // Only a key the user changed lifts the hold, not the first look at the saved one after a restart.
+                if last_key.is_some() {
+                    self.lift_hold(&db);
+                }
+                last_key = Some(key.clone());
             }
             if key.is_empty() || self.on_hold() {
                 nap(&shared, 5);
@@ -166,7 +187,7 @@ impl Scanner {
             failures = if result == Vt::Failed { failures + 1 } else { 0 };
             lock(&self.cache).insert(hash, result);
             if failures >= HOLD_AFTER {
-                *lock(&self.hold_until) = Some(Instant::now() + HOLD);
+                self.hold(&db);
                 failures = 0;
             }
             shared.repaint();
@@ -236,14 +257,36 @@ fn upload_unknown(db: &Db, key: &str, hash: &str) -> Vt {
     if name.contains(['"', '\\', '\n']) {
         return Vt::Failed;
     }
-    match std::fs::metadata(path) {
-        Ok(m) if m.len() > MAX_UPLOAD => return Vt::Skipped,
-        Ok(_) => {}
+    let size = match std::fs::metadata(path) {
+        Ok(m) if m.len() > MAX_BIG_UPLOAD => return Vt::Skipped,
+        Ok(m) => m.len(),
         Err(_) => return Vt::Failed,
-    }
+    };
+    // Past the plain endpoint's limit, VirusTotal hands out a one-time upload address first.
+    let target = if size > MAX_UPLOAD {
+        match curl(key, &format!("url = \"{API}/upload_url\"\n"), None, "20").and_then(|b| upload_address(&b)) {
+            Some(u) => u,
+            None => return Vt::Failed,
+        }
+    } else {
+        API.to_owned()
+    };
     crate::applog::line("rustwarden.log", &format!("VirusTotal upload, confirmed by the user: {} ({hash})", path.display()));
-    let body = curl(key, &format!("url = \"{API}\"\nform = \"file=@\\\"{name}\\\"\"\n"), Some(dir), "300");
+    let body = curl(key, &format!("url = \"{target}\"\nform = \"file=@\\\"{name}\\\"\"\n"), Some(dir), "900");
     if body.is_some_and(|b| b.trim_end().ends_with("200")) { Vt::Analysing } else { Vt::Failed }
+}
+
+/// The one-time upload address from an `upload_url` answer ("<json>\n<status>"). It goes into a curl config with the API
+/// key, so only a plain https address on VirusTotal's own site is accepted.
+fn upload_address(body: &str) -> Option<String> {
+    let (json, code) = body.rsplit_once('\n')?;
+    if code.trim() != "200" {
+        return None;
+    }
+    let doc: serde_json::Value = serde_json::from_str(json).ok()?;
+    let url = doc.get("data")?.as_str()?;
+    let plain = url.bytes().all(|b| b > b' ' && b != b'"' && b != b'\\' && b != 0x7f);
+    (plain && url.starts_with("https://www.virustotal.com/")).then(|| url.to_owned())
 }
 
 /// `body` ends with "\n<http status>" (curl's `-w`).
@@ -252,8 +295,9 @@ fn parse_response(body: &str) -> Vt {
     match code.trim() {
         "404" => Vt::NotFound,
         "200" => {
-            let stats = json.find("\"last_analysis_stats\"").map_or("", |i| &json[i..]);
-            let n = |k| json_val(stats, k).and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
+            let doc: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
+            let stats = json_find(&doc, "last_analysis_stats");
+            let n = |k| stats.and_then(|s| s.get(k)).and_then(serde_json::Value::as_u64).map_or(0, |v| v.min(1_000_000) as u32);
             let bad = n("malicious");
             let total = bad + n("suspicious") + n("harmless") + n("undetected");
             // The file is known but has no engine results yet.
@@ -266,6 +310,17 @@ fn parse_response(body: &str) -> Vt {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_big_file_uploads_only_to_a_virustotal_address() {
+        let ok = "{\"data\": \"https://www.virustotal.com/_ah/upload/AMmfu6b/\"}\n200";
+        assert_eq!(upload_address(ok).as_deref(), Some("https://www.virustotal.com/_ah/upload/AMmfu6b/"));
+        assert_eq!(upload_address("{\"data\": \"https://evil.example/x\"}\n200"), None, "the key must not go elsewhere");
+        assert_eq!(upload_address("{\"data\": \"https://www.virustotal.com.evil.example/\"}\n200"), None);
+        assert_eq!(upload_address("{\"data\": \"https://www.virustotal.com/\\\"\\nurl = x\"}\n200"), None, "no breaking out of the config");
+        assert_eq!(upload_address("{\"data\": \"https://www.virustotal.com/x\"}\n429"), None);
+        assert_eq!(upload_address("nonsense"), None);
+    }
 
     #[test]
     fn responses() {

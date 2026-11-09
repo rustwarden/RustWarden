@@ -37,7 +37,13 @@ pub fn sign_out() -> std::io::Result<()> {
 }
 
 pub(crate) fn profile_dir() -> PathBuf {
-    crate::settings::data_dir().join("RustWarden").join("thinkbroadband-webview")
+    let dir = crate::settings::data_dir().join("thinkbroadband-webview");
+    // Earlier versions put it one `RustWarden` folder too deep; move it up so the saved sign-in is kept.
+    let old = crate::settings::data_dir().join("RustWarden").join("thinkbroadband-webview");
+    if !dir.exists() && old.is_dir() && std::fs::rename(&old, &dir).is_ok() {
+        let _ = std::fs::remove_dir(old.parent().unwrap_or(&old));
+    }
+    dir
 }
 
 /// Helper-side: the window is up for an extra check.

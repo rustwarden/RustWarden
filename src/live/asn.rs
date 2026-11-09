@@ -203,15 +203,39 @@ fn http(ip: IpAddr, template: &str) -> Option<String> {
     from_json(&curl_url(&["-s", "--max-time", "5"], &url)?)
 }
 
-/// Value of the first `"key": value` in `text`, without parsing the document.
-/// shortcut: first match wins and nesting is ignored, so switch to a JSON parser if a service needs it.
+/// The value of `key` nearest the top of the JSON document `text` (breadth first, so a top-level field beats one of
+/// the same name nested deeper), as text: a string as it is, a number or boolean written out. `None` for invalid
+/// JSON, a missing key, or a value that is null, an object or an array.
 pub(super) fn json_val(text: &str, key: &str) -> Option<String> {
-    let k = format!("\"{key}\"");
-    let rest = text[text.find(&k)? + k.len()..].trim_start().strip_prefix(':')?.trim_start();
-    match rest.strip_prefix('"') {
-        Some(s) => Some(s[..s.find('"')?].to_owned()),
-        None => Some(rest.split([',', '}', ' ', '\n']).next()?.to_owned()),
+    let doc: serde_json::Value = serde_json::from_str(text).ok()?;
+    json_find(&doc, key).and_then(|v| match v {
+        serde_json::Value::String(s) => Some(s.clone()),
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        serde_json::Value::Bool(b) => Some(b.to_string()),
+        _ => None,
+    })
+}
+
+/// The value of `key` nearest the top of `doc`, breadth first through objects and arrays.
+pub(super) fn json_find<'a>(doc: &'a serde_json::Value, key: &str) -> Option<&'a serde_json::Value> {
+    let mut level = vec![doc];
+    while !level.is_empty() {
+        let mut next = Vec::new();
+        for v in level {
+            match v {
+                serde_json::Value::Object(map) => {
+                    if let Some(found) = map.get(key) {
+                        return Some(found);
+                    }
+                    next.extend(map.values());
+                }
+                serde_json::Value::Array(items) => next.extend(items),
+                _ => {}
+            }
+        }
+        level = next;
     }
+    None
 }
 
 fn from_json(text: &str) -> Option<String> {
@@ -252,5 +276,21 @@ mod tests {
         assert_eq!(from_json(r#"{"connection":{"asn":15169,"org":"Google LLC"}}"#).unwrap(), "AS15169 · Google LLC");
         assert_eq!(from_json(r#"{"asn":"AS15169","as_name":"Google LLC"}"#).unwrap(), "AS15169 · Google LLC");
         assert_eq!(from_json(r#"{"error":"nope"}"#), None);
+        assert_eq!(from_json("not json"), None);
+    }
+
+    #[test]
+    fn json_values_are_read_properly() {
+        // A nested field of the same name listed first in the text doesn't beat the top-level one (RDAP's entities).
+        let rdap = r#"{"entities":[{"handle":"ABUSE-1","roles":["abuse"]}],"handle":"NET-8-8-8-0-1","name":"GOGL"}"#;
+        assert_eq!(json_val(rdap, "handle").as_deref(), Some("NET-8-8-8-0-1"));
+        // Escaped quotes, commas and braces inside a string don't cut it short.
+        assert_eq!(json_val(r#"{"org":"A \"B\", {C}"}"#, "org").as_deref(), Some("A \"B\", {C}"));
+        assert_eq!(json_val(r#"{"n": 7, "b": true, "z": null, "o": {}}"#, "n").as_deref(), Some("7"));
+        assert_eq!(json_val(r#"{"b": true}"#, "b").as_deref(), Some("true"));
+        assert_eq!(json_val(r#"{"z": null}"#, "z"), None);
+        assert_eq!(json_val(r#"{"o": {}}"#, "o"), None);
+        // A key inside a string value is not a key.
+        assert_eq!(json_val(r#"{"note":"\"asn\": 1"}"#, "asn"), None);
     }
 }

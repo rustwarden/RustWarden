@@ -1702,7 +1702,12 @@ Start RustWarden as administrator once: it undoes Block All automatically."
             crate::sys::open_url(&format!("https://www.shodan.io/host/{ip}"));
             return;
         }
-        self.notify("Looking up whois…");
+        // The answer comes from a third party and can take seconds: open the dialog now with a waiting line (the result replaces it).
+        let (title, body) = (format!("Whois {ip}"), "Looking up whois… this can take a few seconds.".to_owned());
+        match self.dialog {
+            None | Some(Dialog::Info { .. }) => self.dialog = Some(Dialog::Info { title, body }),
+            _ => self.ip_info = Some((title, body)),
+        }
         let (slot, ctx, ip) = (self.whois_result.clone(), ctx.clone(), ip.to_owned());
         std::thread::spawn(move || {
             let text = crate::live::asn::whois(&ip);

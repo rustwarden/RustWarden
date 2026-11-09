@@ -72,6 +72,12 @@ pub fn ready() -> bool {
     state() == DriverState::Ready
 }
 
+/// Driver features are shown: Driver mode is picked and the driver is installed. Either missing hides them all, so
+/// someone who doesn't want a driver never sees a feature that would need one.
+pub fn in_use(s: &crate::settings::Settings) -> bool {
+    s.app_mode == crate::settings::AppMode::Driver && ready()
+}
+
 /// What an install or removal in progress is doing; empty when idle. Read by the Settings card.
 static PROGRESS: Mutex<String> = Mutex::new(String::new());
 

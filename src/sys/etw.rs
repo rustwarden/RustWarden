@@ -36,6 +36,10 @@ pub enum NetEvent {
     /// A finished DNS lookup: who asked (0 when unknown), the name, record type, status code and the
     /// addresses it resolved to. `log` is false for per-server responses, which only feed the name map.
     Dns { pid: u32, name: String, qtype: u16, status: u32, ips: Vec<IpAddr>, log: bool },
+    /// The server name a program's TLS connection asked for (Driver mode reads it from the ClientHello), with the program
+    /// (0 when unknown) and the address it went to. It names that program's traffic to that address even when the address
+    /// is shared (a CDN) and another program's lookup named it first, and when the program's DNS is encrypted.
+    Sni { pid: u32, name: String, ip: IpAddr },
 }
 
 fn u16_be(d: &[u8], at: usize) -> Option<u16> {

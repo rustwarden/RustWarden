@@ -87,27 +87,45 @@ pub(crate) fn cache_path() -> std::path::PathBuf {
     crate::settings::data_dir().join("dns_threats.txt")
 }
 
+/// Each feed's names from its last good download this run, so a feed that fails keeps only its own names.
+static PER_FEED: std::sync::Mutex<Vec<(String, HashSet<String>)>> = std::sync::Mutex::new(Vec::new());
+
 /// Every name on the feeds, through the same download rules as the malicious-IP lists, or `None` when no list could be
-/// used. A feed that fails keeps the previous names, which is a shortcut: names that good feeds dropped linger until a
-/// download with every feed working. shortcut: keep names per feed, so only the failed feed's names are kept.
+/// used. A feed that fails keeps its own names from its last good download; names a working feed dropped are gone at once.
 fn download(feeds: &str, previous: &HashSet<String>) -> Option<HashSet<String>> {
-    let feeds = fetch(feeds);
-    let total = feeds.len();
+    let fetched = fetch(feeds);
+    let mut kept = PER_FEED.lock().unwrap_or_else(|e| e.into_inner());
+    merge(fetched, &mut kept, previous)
+}
+
+/// The names of the feeds that worked, plus those of the failed feeds as last downloaded (`kept`, updated here). A failed
+/// feed with no earlier download this run (the first round after a start) falls back to the whole saved list.
+fn merge(fetched: Vec<(String, Result<String, String>)>, kept: &mut Vec<(String, HashSet<String>)>, previous: &HashSet<String>) -> Option<HashSet<String>> {
+    let total = fetched.len();
     let mut all = HashSet::new();
-    let mut failed = 0;
-    for (name, body) in feeds {
+    let (mut failed, mut unknown_failed) = (0, false);
+    for (name, body) in fetched {
         match body.and_then(|text| vet(&text, text.lines().filter(|l| domain_of(l).is_some()).count(), MAX_DOMAINS).map(|()| text)) {
-            Ok(text) => all.extend(parse_domains(&text)),
+            Ok(text) => {
+                let names = parse_domains(&text);
+                all.extend(names.iter().cloned());
+                kept.retain(|(n, _)| *n != name);
+                kept.push((name, names));
+            }
             Err(why) => {
                 applog::line(LOG, &format!("skipped the list {name}: {why}"));
                 failed += 1;
+                match kept.iter().find(|(n, _)| *n == name) {
+                    Some((_, names)) => all.extend(names.iter().cloned()),
+                    None => unknown_failed = true,
+                }
             }
         }
     }
     if failed == total {
         return None;
     }
-    if failed > 0 {
+    if unknown_failed {
         all.extend(previous.iter().cloned());
     }
     Some(all)
@@ -195,6 +213,23 @@ mod tests {
         assert!(!is_listed(&list, "example"));
         assert!(!is_listed(&list, "evil.example.org"));
         assert!(!is_listed(&set(&[]), "evil.example"));
+    }
+
+    #[test]
+    fn a_failed_feed_keeps_only_its_own_names() {
+        let ok = |t: &str| Ok::<String, String>(t.to_owned());
+        let down = || Err::<String, String>("HTTP 500".to_owned());
+        let saved = set(&["old-a.example", "old-b.example", "gone.example"]);
+        let mut kept = Vec::new();
+        // First round after a start: feed b fails and has no download this run, so the saved list stands in.
+        let r = merge(vec![("a".into(), ok("a1.example\n")), ("b".into(), down())], &mut kept, &saved).unwrap();
+        assert!(r.contains("a1.example") && r.contains("gone.example"));
+        // b works, then fails again: its last names stay, and the saved list (with names a dropped) is not used.
+        merge(vec![("a".into(), ok("a1.example\n")), ("b".into(), ok("b1.example\n"))], &mut kept, &saved).unwrap();
+        let r = merge(vec![("a".into(), ok("a2.example\n")), ("b".into(), down())], &mut kept, &saved).unwrap();
+        assert_eq!(r, set(&["a2.example", "b1.example"]));
+        // Every feed failing is no list at all.
+        assert!(merge(vec![("a".into(), down())], &mut kept, &saved).is_none());
     }
 
     #[test]

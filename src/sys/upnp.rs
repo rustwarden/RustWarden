@@ -1,7 +1,7 @@
 //! Finds the UPnP internet gateway (the router) for plugins with the `upnp` permission. Discovery is UDP
 //! multicast, which a wasm plugin can't do; the plugin then talks to the router over plain HTTP itself.
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::{Duration, Instant};
 
 const SEARCH: &str = "M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 2\r\nST: urn:schemas-upnp-org:device:InternetGatewayDevice:1\r\n\r\n";
@@ -92,20 +92,23 @@ fn location_of(reply: &str) -> Option<String> {
     })
 }
 
-/// The address behind `url` when it is http on a private network, else None: a router never lives anywhere else,
-/// and a reply pointing at an internet address must not make this PC contact it.
+/// The address behind `url` when it is http to a private IPv4 address, else None: a router never lives anywhere else.
+/// Anyone on the network can send an SSDP reply, so a name (which would make this PC look it up) and this PC's own
+/// loopback (which would point the plugin at local services) are refused too; routers always answer with an address.
 fn lan_addr(url: &str) -> Option<SocketAddr> {
     let rest = url.strip_prefix("http://")?;
     let authority = rest.split(['/', '?', '#']).next()?;
-    // No port means http's 80, which `to_socket_addrs` needs spelled out.
-    let with_port = if authority.contains(':') { authority.to_owned() } else { format!("{authority}:80") };
-    let addr = with_port.to_socket_addrs().ok()?.next()?;
+    let addr = match authority.parse::<SocketAddr>() {
+        Ok(a) => a,
+        // No port means http's 80.
+        Err(_) => SocketAddr::new(authority.parse::<Ipv4Addr>().ok()?.into(), 80),
+    };
     private(addr.ip()).then_some(addr)
 }
 
 fn private(ip: IpAddr) -> bool {
     match ip {
-        IpAddr::V4(v4) => v4.is_private() || v4.is_link_local() || v4 == Ipv4Addr::LOCALHOST,
+        IpAddr::V4(v4) => v4.is_private() || v4.is_link_local(),
         IpAddr::V6(_) => false,
     }
 }
@@ -127,5 +130,10 @@ mod tests {
         assert!(lan_addr("http://10.0.0.1/desc.xml").is_some());
         assert!(lan_addr("http://8.8.8.8/desc.xml").is_none());
         assert!(lan_addr("https://192.168.1.1/desc.xml").is_none());
+        assert_eq!(lan_addr("http://192.168.1.1/desc.xml").unwrap().port(), 80);
+        // A spoofed reply can't point at this PC's own services or make it look a name up.
+        assert!(lan_addr("http://127.0.0.1:9877/metrics").is_none());
+        assert!(lan_addr("http://localhost:80/").is_none());
+        assert!(lan_addr("http://router.example:80/").is_none());
     }
 }

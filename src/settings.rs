@@ -892,10 +892,12 @@ impl Settings {
             s.env_mode = Some((mode, s.mode));
             s.mode = mode;
         }
-        // Deleting the password line from config.toml must not switch the protection off: an elevated run keeps a copy
-        // where only administrators can write.
-        if s.tamper_hash.is_empty() {
-            s.tamper_hash = crate::tamper::recall();
+        // config.toml is writable by any program running as the user, so the copy an elevated run keeps where only
+        // administrators can write wins: deleting the password line, or replacing it with a hash of a password the
+        // other program knows, must not unlock Settings or Exit.
+        let kept = crate::tamper::recall();
+        if !kept.is_empty() {
+            s.tamper_hash = kept;
         }
         s.sanitize();
         s

@@ -6,8 +6,9 @@ use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::{Output, Stdio};
 
-/// Refuses `file://` and the like, whatever address the settings hold.
-pub const PROTO: &str = "proto = \"=http,https\"\n";
+/// Refuses `file://` and the like, whatever address the settings hold, and turns curl's URL globbing off: an address
+/// such as `https://host/[1-1000000]` (from a plugin or a setting) would otherwise become a million requests.
+pub const PROTO: &str = "proto = \"=http,https\"\ngloboff\n";
 
 /// A quoted value for a curl config.
 pub fn quote(s: &str) -> String {
@@ -37,6 +38,14 @@ mod tests {
     fn refuses_other_protocols() {
         let out = run("silent\nurl = \"file:///c:/windows/win.ini\"\n", None).unwrap();
         assert!(!out.status.success() && out.stdout.is_empty());
+    }
+
+    #[test]
+    fn globbing_is_off() {
+        // With globbing on, curl reads the brackets as a range and asks for /1 and /2; off, it sends them as they are
+        // (and fails here only because nothing listens on that port).
+        let out = run("silent\nurl = \"http://127.0.0.1:9/[1-2]\"\nwrite-out = \"%{url_effective}\"\n", None).unwrap();
+        assert!(String::from_utf8_lossy(&out.stdout).contains("[1-2]"), "{}", String::from_utf8_lossy(&out.stdout));
     }
 
     #[test]

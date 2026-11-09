@@ -113,7 +113,7 @@ fn alerts(ui: &mut Ui, s: &mut Settings) {
     ui.add_space(4.0);
     for kind in AlertKind::ALL {
         // Needs the driver, so it only appears in Driver mode.
-        if matches!(kind, AlertKind::InboundScan | AlertKind::RogueDhcp | AlertKind::TlsMismatch) && (s.app_mode != crate::settings::AppMode::Driver || !crate::driver::ready()) {
+        if matches!(kind, AlertKind::InboundScan | AlertKind::RogueDhcp | AlertKind::TlsMismatch) && !crate::driver::in_use(s) {
             continue;
         }
         let mut on = kind.enabled(&s.alerts);
