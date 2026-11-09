@@ -287,7 +287,15 @@ impl RustWarden {
                         }
                     }
                     x = put(x, ly, &alert.app, true);
-                    x = put(x, ly, &alert.text, false);
+                    // A text too long for the card is cut short (the full text shows on hover) rather than run under the side panel.
+                    let room = (wall - x).max(0.0);
+                    if width(&alert.text, false) > room {
+                        widgets::text_fit(&p, pos2(x, ly), Align2::LEFT_CENTER, &alert.text, theme::font(15.0), theme::text(), room);
+                        ui.interact(Rect::from_min_size(pos2(x, ly - 10.0), vec2(room, 20.0)), ui.scope_id().with(("full", alert.id)), Sense::hover()).on_hover_text(&alert.text);
+                        x = wall;
+                    } else {
+                        x = put(x, ly, &alert.text, false);
+                    }
                     let ly = if wrapped {
                         x = left;
                         ly + 22.0

@@ -94,7 +94,7 @@ pub struct State {
     pub snooze_until: i64,
     /// Desktop notifications waiting for the UI to show them as popups.
     pub popups: Vec<Alert>,
-    /// The UI is visible and polling `popups`; otherwise alerts fall back to a tray balloon.
+    /// The UI shows `popups` (even from the tray); when false, alerts fall back to a tray balloon.
     pub popups_ok: bool,
     /// Prompt prompts waiting for the UI to take them.
     pub asks: Vec<ConnectAsk>,
@@ -156,7 +156,8 @@ impl Shared {
             scan_cancel: AtomicBool::new(false),
             elevated,
             db_path,
-            state: Mutex::new(State::default()),
+            // Popups are always the UI's own: a hidden window still runs `logic`, which shows what is queued here (a tray balloon is only a fallback).
+            state: Mutex::new(State { popups_ok: true, ..State::default() }),
             notes: Mutex::new(BTreeMap::new()),
             rule_seen: Mutex::new(HashMap::new()),
         }

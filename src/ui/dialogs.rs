@@ -1311,7 +1311,7 @@ fn alert_settings(ui: &mut Ui, s: &mut Settings) {
                                 ui.painter().rect_filled(badge, 4, theme::green());
                                 ui.painter().text(badge.center(), Align2::CENTER_CENTER, "ON", theme::bold(11.0), theme::WHITE);
                             }
-                            ui.painter().text(rect.left_center() + egui::vec2(56.0, 0.0), Align2::LEFT_CENTER, name, theme::font(14.0), theme::text());
+                            crate::widgets::text_fit(ui.painter(), rect.left_center() + egui::vec2(56.0, 0.0), Align2::LEFT_CENTER, name, theme::font(14.0), theme::text(), rect.width() - 62.0);
                             if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                                 sel = i;
                             }
