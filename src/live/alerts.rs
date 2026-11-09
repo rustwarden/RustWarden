@@ -300,7 +300,7 @@ impl AlertKind {
             Self::AnomalyHour => "Notify me when an app is active at an hour of the day it is almost never active.",
             Self::InboundScan => "Notify me when one address tries many different ports on this PC in a few seconds (a port scan), or when connection attempts arrive in a flood. Needs Driver mode.",
             Self::Beaconing => {
-                "Notify me when a program contacts the same address at near-perfectly regular intervals for a long time, the pattern of malware checking in with its controller. Many legitimate apps (updaters, mail, sync) do this too, so ignore the apps you trust in the alert settings."
+                "Notify me when a program contacts the same address at near-perfectly regular intervals for a long time, the pattern of malware checking in with its controller. Many legitimate apps (updaters, mail, sync) do this too, so add the programs you trust to the ignore list below."
             }
             Self::DnsTunnel => "Notify me when many long, random-looking DNS names are looked up under one domain, the way data is smuggled out through DNS. Needs the DNS log (Settings > Logs).",
             Self::RogueDhcp => "Notify me when more than one device answers DHCP requests on the network, which can hand your PC a wrong gateway or DNS server. Needs Driver mode.",

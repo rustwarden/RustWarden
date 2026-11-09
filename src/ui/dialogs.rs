@@ -1360,6 +1360,29 @@ fn alert_settings(ui: &mut Ui, s: &mut Settings) {
                             );
                             ui.add(egui::TextEdit::singleline(&mut s.dns_leak_ignore).desired_width(300.0));
                         }
+                        if kind == AlertKind::RogueDhcp {
+                            ui.checkbox(&mut s.dhcp_virtual_alert, "Also watch virtual adapters (VMware, Hyper-V, VirtualBox, VPN tunnels)");
+                            ui.label(egui::RichText::new("Trusted DHCP servers (addresses, or adapter name=address, comma separated):").color(theme::text_dim()));
+                            ui.add(egui::TextEdit::singleline(&mut s.dhcp_trusted).desired_width(300.0).hint_text("192.168.2.1, Ethernet=192.168.2.1"));
+                        }
+                        if kind == AlertKind::Beaconing {
+                            ui.label(
+                                egui::RichText::new("Ignore these programs (comma separated names, or part of a path, such as onedrive, dropbox). They are not watched for regular check-ins at all, so nothing is logged for them:")
+                                    .color(theme::text_dim()),
+                            );
+                            ui.add(egui::TextEdit::multiline(&mut s.beacon_ignore).desired_rows(3).desired_width(300.0).hint_text("onedrive, dropbox, chrome@live-video.net"));
+                            ui.label(egui::RichText::new("An entry like chrome@live-video.net ignores only that program's contacts with that domain. A regular rhythm is scored with the size of the contacts, the destination and the program; these are the limits:").color(theme::text_dim()));
+                            ui.horizontal(|ui| {
+                                ui.label("Watch at least");
+                                ui.add(egui::DragValue::new(&mut s.beacon_min_window).range(60..=7200).suffix(" s"));
+                                ui.label("report from score");
+                                ui.add(egui::DragValue::new(&mut s.beacon_threshold).range(1..=100));
+                                ui.label("jitter up to");
+                                ui.add(egui::DragValue::new(&mut s.beacon_max_jitter).range(0.01..=0.3).speed(0.005));
+                            });
+                            ui.label(egui::RichText::new("Media / CDN domains that lower the score:").color(theme::text_dim()));
+                            ui.add(egui::TextEdit::multiline(&mut s.beacon_cdn_suffixes).desired_rows(3).desired_width(300.0));
+                        }
                         if kind == AlertKind::Away {
                             ui.horizontal(|ui| {
                                 ui.label("Away after");

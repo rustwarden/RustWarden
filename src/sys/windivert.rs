@@ -61,6 +61,11 @@ impl Address {
         self.bits & (1 << 17) != 0
     }
 
+    /// For the network layer: the index of the interface the packet came in on.
+    pub fn if_idx(&self) -> u32 {
+        u32::from_le_bytes([self.data[0], self.data[1], self.data[2], self.data[3]])
+    }
+
     fn ipv6(&self) -> bool {
         self.bits & (1 << 20) != 0
     }

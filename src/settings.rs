@@ -538,6 +538,18 @@ pub struct Settings {
     pub block_doh: bool,
     /// Programs (file names, e.g. `chrome.exe`) whose QUIC / HTTP/3 traffic (UDP 443) is blocked, so they use HTTPS over TCP.
     pub quic_fallback: String,
+    /// Programs the beaconing alert skips: names or parts of a path, comma separated (see `live::beacon::ignored`).
+    pub beacon_ignore: String,
+    /// Beaconing: seconds the contacts must span, the largest jitter (fraction of the interval) and the score needed to report.
+    pub beacon_min_window: u32,
+    pub beacon_max_jitter: f64,
+    pub beacon_threshold: i32,
+    /// Beaconing: domain suffixes of media / CDN / telemetry hosts that lower the score.
+    pub beacon_cdn_suffixes: String,
+    /// DHCP servers the second-server alert trusts: addresses, or `interface name=address`, comma separated.
+    pub dhcp_trusted: String,
+    /// Also alert about a second DHCP server on a virtual adapter (VMware, Hyper-V, VirtualBox, tunnels). Off: those only get a note.
+    pub dhcp_virtual_alert: bool,
     /// Service that answers with just the caller's address; must be https.
     pub public_ip_url: String,
     /// Whois icon: show the answer in RustWarden (rdap.org) instead of opening Shodan in the browser.
@@ -731,6 +743,13 @@ impl Default for Settings {
             vpn_kill_switch: false,
             block_doh: false,
             quic_fallback: String::new(),
+            beacon_ignore: String::new(),
+            beacon_min_window: 300,
+            beacon_max_jitter: 0.08,
+            beacon_threshold: 60,
+            beacon_cdn_suffixes: crate::live::beacon::DEFAULT_CDN.into(),
+            dhcp_trusted: String::new(),
+            dhcp_virtual_alert: false,
             public_ip_url: "https://api.ipify.org".into(),
             whois_internal: false,
             update_url: String::new(),

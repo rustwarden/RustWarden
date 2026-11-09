@@ -147,9 +147,9 @@ fn packet_loop(net: &Handle, flows: &Flows, known: &Arc<dyn Fn(std::net::IpAddr)
             if watch.0
                 && let Some(reply) = crate::netwatch::dhcp_reply(payload).filter(|r| matches!(r.msg_type, 2 | 5))
                 && let std::net::IpAddr::V4(sender) = p.src
-                && let Some(servers) = dhcp.note(reply.server.unwrap_or(sender), crate::clock::now_unix())
             {
-                report_dhcp(shared, &servers);
+                let offer = crate::netwatch::Offer { server: reply.server.unwrap_or(sender), gateway: reply.gateway, dns: reply.dns };
+                dhcp_reply(shared, &mut dhcp, addr.if_idx(), offer);
             }
         } else if let Some(m) = crate::netparse::dns(payload).filter(|m| m.response) {
             // Windows' own resolver is already in the DNS log through ETW; only other programs' lookups are new.
@@ -217,10 +217,25 @@ pub fn refresh(shared: &Arc<super::store::Shared>, sniffer: &Sniffer) {
     shared.set_note("driver-names", note);
 }
 
-fn report_dhcp(shared: &super::store::Shared, servers: &[std::net::Ipv4Addr]) {
+/// Files a DHCP offer under the interface it arrived on (servers on different adapters are not rivals), skips trusted
+/// servers, and leaves virtual adapters at a status note unless the setting asks for alerts there too.
+fn dhcp_reply(shared: &super::store::Shared, dhcp: &mut crate::netwatch::DhcpWatch, if_idx: u32, offer: crate::netwatch::Offer) {
+    let s = shared.settings();
+    let adapter = crate::sys::netinfo::adapters().ok().and_then(|all| all.into_iter().find(|a| a.if_index == if_idx));
+    let name = adapter.as_ref().map_or_else(|| format!("interface {if_idx}"), |a| a.name.clone());
+    if crate::netwatch::trusted(&s.dhcp_trusted, &name, offer.server) {
+        return;
+    }
+    let Some(found) = dhcp.note(if_idx, offer, crate::clock::now_unix()) else { return };
+    let list = found.offers.iter().map(crate::netwatch::Offer::describe).collect::<Vec<_>>().join("; ");
+    if adapter.is_some_and(|a| a.virtual_nic) && !s.dhcp_virtual_alert {
+        let note = format!("Several DHCP servers answer on the virtual adapter {name}: {list}. Not alerted (Settings > Alerts > Second DHCP server).");
+        shared.set_note("dhcp-virtual", Some(crate::data::StatusNote::info(note)));
+        return;
+    }
     let Ok(db) = shared.open_db() else { return };
-    let list = servers.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
-    shared.alert(&db, super::alerts::AlertKind::RogueDhcp, "DHCP", "answered by more than one server; one of them may not be your router:", &list, "");
+    let text = format!("answered by more than one server on {name}; one of them may not be your router:");
+    shared.alert_as(&db, super::alerts::AlertKind::RogueDhcp, "DHCP", &text, &list, "", found.critical);
 }
 
 fn report_print(shared: &super::store::Shared, m: &crate::netwatch::Mismatch, ja3: &str) {

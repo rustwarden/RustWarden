@@ -25,6 +25,16 @@ pub struct Adapter {
     pub loopback: bool,
     /// A VPN / tunnel interface (traffic on it is the apps' own, before the VPN client encrypts it).
     pub tunnel: bool,
+    /// A VM host's or container's virtual adapter (VMware, Hyper-V / WSL, VirtualBox), or a tunnel.
+    pub virtual_nic: bool,
+}
+
+/// Whether an adapter is virtual: a VM vendor's MAC prefix (VMware 00:50:56, 00:0C:29, 00:05:69; Hyper-V 00:15:5D; VirtualBox
+/// 0A:00:27, 08:00:27) or a name / description that says so.
+pub fn is_virtual(mac: &[u8; 6], tunnel: bool, text: &str) -> bool {
+    const OUIS: &[[u8; 3]] = &[[0x00, 0x50, 0x56], [0x00, 0x0C, 0x29], [0x00, 0x05, 0x69], [0x00, 0x15, 0x5D], [0x0A, 0x00, 0x27], [0x08, 0x00, 0x27]];
+    let t = text.to_lowercase();
+    tunnel || OUIS.contains(&[mac[0], mac[1], mac[2]]) || ["virtual", "vmware", "vmnet", "hyper-v", "vethernet", "virtualbox", "tap-", "wintun", "wireguard"].iter().any(|h| t.contains(h))
 }
 
 /// IfType 131 is a tunnel and 53 a proprietary virtual adapter; the description catches the rest (TAP, Wintun, WireGuard...).
@@ -96,6 +106,7 @@ pub fn adapters() -> Result<Vec<Adapter>, String> {
             ad.tunnel = is_tunnel(a.IfType, &format!("{} {desc}", ad.name));
             let len = (a.PhysicalAddressLength as usize).min(6);
             ad.mac[..len].copy_from_slice(&a.PhysicalAddress[..len]);
+            ad.virtual_nic = is_virtual(&ad.mac, ad.tunnel, &format!("{} {desc}", ad.name));
             let mut u = a.FirstUnicastAddress;
             while !u.is_null() {
                 if let Some(ip) = socket_ip(&(*u).Address) {
@@ -264,6 +275,14 @@ pub fn internet_connected() -> Option<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn virtual_adapters_are_told_by_mac_or_name() {
+        assert!(is_virtual(&[0x00, 0x50, 0x56, 0xC0, 0, 1], false, "VMnet1"));
+        assert!(is_virtual(&[0x00, 0x15, 0x5D, 1, 2, 3], false, "vEthernet (WSL)"));
+        assert!(is_virtual(&[0x24, 0x4B, 0xFE, 1, 2, 3], true, "WireGuard Tunnel"));
+        assert!(!is_virtual(&[0x24, 0x4B, 0xFE, 1, 2, 3], false, "Ethernet Realtek PCIe GbE Family Controller"));
+    }
 
     #[test]
     fn mac_helpers() {

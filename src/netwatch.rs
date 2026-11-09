@@ -13,6 +13,9 @@ pub struct Dhcp {
     pub msg_type: u8,
     /// The server's own identifier (option 54), when it sent one.
     pub server: Option<Ipv4Addr>,
+    /// The first default gateway (option 3) and DNS server (option 6) it hands out.
+    pub gateway: Option<Ipv4Addr>,
+    pub dns: Option<Ipv4Addr>,
 }
 
 /// Reads a DHCP/BOOTP reply (the UDP payload of a packet from port 67 to 68). `None` for requests and anything else.
@@ -20,7 +23,8 @@ pub fn dhcp_reply(d: &[u8]) -> Option<Dhcp> {
     if d.len() < 241 || d[0] != 2 || d[236..240] != [99, 130, 83, 99] {
         return None;
     }
-    let (mut at, mut msg_type, mut server) = (240, 0, None);
+    let (mut at, mut msg_type, mut server, mut gateway, mut dns) = (240, 0, None, None, None);
+    let first = |body: &[u8]| (body.len() >= 4).then(|| Ipv4Addr::new(body[0], body[1], body[2], body[3]));
     while at < d.len() {
         match d[at] {
             0 => at += 1,
@@ -30,14 +34,16 @@ pub fn dhcp_reply(d: &[u8]) -> Option<Dhcp> {
                 let body = d.get(at + 2..at + 2 + len)?;
                 match (code, len) {
                     (53, 1) => msg_type = body[0],
-                    (54, 4) => server = Some(Ipv4Addr::new(body[0], body[1], body[2], body[3])),
+                    (54, 4) => server = first(body),
+                    (3, _) => gateway = first(body),
+                    (6, _) => dns = first(body),
                     _ => {}
                 }
                 at += 2 + len;
             }
         }
     }
-    (msg_type != 0).then_some(Dhcp { msg_type, server })
+    (msg_type != 0).then_some(Dhcp { msg_type, server, gateway, dns })
 }
 
 /// How long a server stays "recently seen".
@@ -45,26 +51,65 @@ const SERVER_WINDOW: i64 = 900;
 /// A second server is reported at most this often.
 const REPORT_EVERY: i64 = 3600;
 
-/// Servers that answered DHCP lately. More than one on a network is unusual at home: a rogue one can hand out a wrong
-/// gateway or DNS server.
+/// What one DHCP server told a client.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Offer {
+    pub server: Ipv4Addr,
+    pub gateway: Option<Ipv4Addr>,
+    pub dns: Option<Ipv4Addr>,
+}
+
+impl Offer {
+    /// "192.168.2.1 (gateway 192.168.2.1, DNS 192.168.2.1)".
+    pub fn describe(&self) -> String {
+        let f = |v: Option<Ipv4Addr>| v.map_or("none".to_owned(), |a| a.to_string());
+        format!("{} (gateway {}, DNS {})", self.server, f(self.gateway), f(self.dns))
+    }
+}
+
+/// Two or more servers answering on one interface. `critical` when a later one hands out a different gateway or DNS server
+/// than the established (first seen) one.
+#[derive(Debug, PartialEq)]
+pub struct Finding {
+    pub offers: Vec<Offer>,
+    pub critical: bool,
+}
+
+/// Whether `list` (comma, semicolon or line separated) trusts `server` on the interface called `iface`. An entry is a bare
+/// address (any interface) or `interface name=address`. This is the DHCP allowlist: Settings > Alerts > Second DHCP server.
+pub fn trusted(list: &str, iface: &str, server: Ipv4Addr) -> bool {
+    list.split([',', ';', '\n']).any(|e| match e.trim().split_once('=') {
+        Some((name, ip)) => name.trim().eq_ignore_ascii_case(iface) && ip.trim().parse() == Ok(server),
+        None => e.trim().parse() == Ok(server),
+    })
+}
+
+/// Servers that answered DHCP lately, per interface (by index): a router and a VM host's own DHCP service on different
+/// adapters are not rivals. Two on one interface are unusual at home; a rogue one can hand out a wrong gateway or DNS server.
 #[derive(Default)]
 pub struct DhcpWatch {
-    seen: HashMap<Ipv4Addr, i64>,
-    reported: i64,
+    /// Per interface: each server's latest offer, when it was first seen and when last.
+    seen: HashMap<u32, HashMap<Ipv4Addr, (Offer, i64, i64)>>,
+    reported: HashMap<u32, i64>,
 }
 
 impl DhcpWatch {
-    /// Notes an OFFER or ACK from `server` at `now`; returns the servers seen (sorted) when there are two or more.
-    pub fn note(&mut self, server: Ipv4Addr, now: i64) -> Option<Vec<Ipv4Addr>> {
-        self.seen.retain(|_, at| now - *at < SERVER_WINDOW);
-        self.seen.insert(server, now);
-        if self.seen.len() < 2 || (self.reported != 0 && now - self.reported < REPORT_EVERY) {
+    /// Notes an OFFER or ACK on interface `iface` at `now`; returns the findings when two or more servers answered there.
+    pub fn note(&mut self, iface: u32, offer: Offer, now: i64) -> Option<Finding> {
+        let servers = self.seen.entry(iface).or_default();
+        servers.retain(|_, (_, _, last)| now - *last < SERVER_WINDOW);
+        let first = servers.get(&offer.server).map_or(now, |(_, first, _)| *first);
+        servers.insert(offer.server, (offer, first, now));
+        let last_report = self.reported.get(&iface).copied().unwrap_or(0);
+        if servers.len() < 2 || (last_report != 0 && now - last_report < REPORT_EVERY) {
             return None;
         }
-        self.reported = now;
-        let mut all: Vec<Ipv4Addr> = self.seen.keys().copied().collect();
-        all.sort();
-        Some(all)
+        self.reported.insert(iface, now);
+        let mut all: Vec<_> = servers.values().copied().collect();
+        all.sort_by_key(|(o, first, _)| (*first, o.server));
+        let est = all[0].0;
+        let critical = all[1..].iter().any(|(o, _, _)| (o.gateway.is_some() && o.gateway != est.gateway) || (o.dns.is_some() && o.dns != est.dns));
+        Some(Finding { offers: all.into_iter().map(|(o, _, _)| o).collect(), critical })
     }
 }
 
@@ -158,7 +203,7 @@ mod tests {
 
     #[test]
     fn reads_the_server_of_an_offer_and_refuses_requests() {
-        assert_eq!(dhcp_reply(&reply(2, Some([192, 168, 1, 1]))), Some(Dhcp { msg_type: 2, server: Some(Ipv4Addr::new(192, 168, 1, 1)) }));
+        assert_eq!(dhcp_reply(&reply(2, Some([192, 168, 1, 1]))), Some(Dhcp { msg_type: 2, server: Some(Ipv4Addr::new(192, 168, 1, 1)), gateway: None, dns: None }));
         assert_eq!(dhcp_reply(&reply(5, None)).unwrap().server, None);
         let mut request = reply(1, None);
         request[0] = 1;
@@ -172,15 +217,60 @@ mod tests {
         }
     }
 
+    fn offer(server: [u8; 4], gateway: Option<[u8; 4]>, dns: Option<[u8; 4]>) -> Offer {
+        Offer { server: server.into(), gateway: gateway.map(Into::into), dns: dns.map(Into::into) }
+    }
+
     #[test]
-    fn a_second_server_is_reported_once_an_hour() {
-        let (a, b) = (Ipv4Addr::new(192, 168, 1, 1), Ipv4Addr::new(192, 168, 1, 77));
+    fn reads_gateway_and_dns_options() {
+        let mut p = reply(2, Some([10, 0, 0, 1]));
+        p.truncate(p.len() - 2);
+        p.extend([3, 4, 10, 0, 0, 254, 6, 8, 1, 1, 1, 1, 8, 8, 8, 8, 255]);
+        let d = dhcp_reply(&p).unwrap();
+        assert_eq!((d.gateway, d.dns), (Some(Ipv4Addr::new(10, 0, 0, 254)), Some(Ipv4Addr::new(1, 1, 1, 1))));
+    }
+
+    #[test]
+    fn vmware_services_on_their_own_adapters_are_not_rivals() {
         let mut w = DhcpWatch::default();
-        assert_eq!(w.note(a, 100), None);
-        assert_eq!(w.note(a, 200), None, "the same server again is fine");
-        assert_eq!(w.note(b, 300), Some(vec![a, b]));
-        assert_eq!(w.note(b, 400), None, "reported already");
-        assert_eq!(w.note(b, 300 + REPORT_EVERY + 1), None, "the first server has been quiet past the window");
+        assert_eq!(w.note(10, offer([192, 168, 2, 1], Some([192, 168, 2, 1]), Some([192, 168, 2, 1])), 100), None);
+        assert_eq!(w.note(11, offer([192, 168, 135, 254], None, None), 110), None);
+        assert_eq!(w.note(12, offer([192, 168, 148, 254], None, None), 120), None);
+    }
+
+    #[test]
+    fn a_second_server_with_another_gateway_is_critical() {
+        let mut w = DhcpWatch::default();
+        assert_eq!(w.note(10, offer([192, 168, 2, 1], Some([192, 168, 2, 1]), None), 100), None);
+        let f = w.note(10, offer([192, 168, 2, 77], Some([192, 168, 2, 77]), None), 200).unwrap();
+        assert!(f.critical);
+        assert_eq!(f.offers[0].server, Ipv4Addr::new(192, 168, 2, 1));
+        assert_eq!(w.note(10, offer([192, 168, 2, 77], Some([192, 168, 2, 77]), None), 300), None, "reported already");
+    }
+
+    #[test]
+    fn a_second_server_offering_nothing_is_a_warning() {
+        let mut w = DhcpWatch::default();
+        w.note(10, offer([192, 168, 2, 1], Some([192, 168, 2, 1]), Some([192, 168, 2, 1])), 100);
+        assert!(!w.note(10, offer([192, 168, 2, 9], None, None), 200).unwrap().critical);
+    }
+
+    #[test]
+    fn a_renewal_from_the_same_server_is_quiet() {
+        let mut w = DhcpWatch::default();
+        let o = offer([192, 168, 2, 1], Some([192, 168, 2, 1]), None);
+        assert_eq!(w.note(10, o, 100), None);
+        assert_eq!(w.note(10, o, 200), None);
+        assert_eq!(w.note(10, offer([192, 168, 2, 1], Some([192, 168, 2, 254]), None), 300), None, "one server whose answer changed");
+    }
+
+    #[test]
+    fn the_allowlist_takes_bare_and_per_interface_entries() {
+        let s = Ipv4Addr::new(192, 168, 2, 9);
+        assert!(trusted("192.168.2.9", "Ethernet", s));
+        assert!(trusted("10.0.0.1; ethernet = 192.168.2.9", "Ethernet", s));
+        assert!(!trusted("Wi-Fi=192.168.2.9", "Ethernet", s));
+        assert!(!trusted("", "Ethernet", s));
     }
 
     #[test]

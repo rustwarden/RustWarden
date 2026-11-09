@@ -191,7 +191,7 @@ impl Collector {
         let mut per_app: HashMap<i64, (u64, u64)> = HashMap::new();
         let mut total = (0u64, 0u64);
         // Read once per second, not cloned from the settings for every event.
-        let (hidden, hide_vpn, vpn_apps, dns_log, split_kernel, p2p_detect, p2p_ignore, beacon_on) = {
+        let (hidden, hide_vpn, vpn_apps, dns_log, split_kernel, p2p_detect, p2p_ignore, beacon_on, beacon_ignore, beacon_cfg) = {
             let s = self.shared.settings();
             (
                 s.incognito_apps.iter().map(|p| p.to_lowercase()).collect::<Vec<String>>(),
@@ -202,11 +202,14 @@ impl Collector {
                 s.p2p_detect,
                 s.p2p_ignore.iter().map(|p| p.to_lowercase()).collect::<Vec<String>>(),
                 s.alerts.beaconing,
+                s.beacon_ignore,
+                super::beacon::Config { min_window: i64::from(s.beacon_min_window), max_spread: s.beacon_max_jitter, threshold: s.beacon_threshold, cdn_suffixes: s.beacon_cdn_suffixes },
             )
         };
         let mut p2p_names: Vec<(i64, String, String)> = Vec::new();
         let mut seen = HashSet::new();
-        let mut contacts: HashSet<(String, String, IpAddr)> = HashSet::new();
+        // (key, name, address) -> (app id, bytes sent, bytes received) this second.
+        let mut contacts: HashMap<(String, String, IpAddr), (i64, u64, u64)> = HashMap::new();
         let mut dns_rows = Vec::new();
         while let Ok(ev) = rx.try_recv() {
             match &ev {
@@ -261,8 +264,13 @@ impl Collector {
                         self.app_names.insert((app.id, flow.remote), n.to_owned());
                     }
                     seen.insert((app.key.clone(), flow.remote));
-                    if beacon_on && flow.kind == KIND_WAN {
-                        contacts.insert((app.key.clone(), app.name.clone(), flow.remote));
+                    if beacon_on && flow.kind == KIND_WAN && !super::beacon::ignored(&beacon_ignore, &app.key, &app.name) {
+                        let c = contacts.entry((app.key.clone(), app.name.clone(), flow.remote)).or_insert((app.id, 0, 0));
+                        if flow.down {
+                            c.2 += u64::from(bytes);
+                        } else {
+                            c.1 += u64::from(bytes);
+                        }
                     }
                     agg.add(app.id, &flow, bytes);
                     self.note_remote(app.id, flow.remote, u64::from(bytes));
@@ -278,11 +286,30 @@ impl Collector {
                 }
             }
         }
-        for (key, name, remote) in contacts {
-            if let Some(beat) = self.beacons.observe(&key, remote, now) {
-                let text = format!("contacts {} like clockwork, about every {} ({} times in a row):", self.name_of(remote), super::beacon::period_text(beat.period), beat.count);
-                self.shared.alert(&self.db, AlertKind::Beaconing, &name, &text, &remote.to_string(), &self.geo.place(remote).code());
+        for ((key, name, remote), (app_id, up, down)) in contacts {
+            let Some(beat) = self.beacons.observe(&key, remote, now, (up, down), &beacon_cfg) else { continue };
+            // The name this program looked up beats the shared label of an address many names point to.
+            let host = self.app_names.get(&(app_id, remote)).or_else(|| self.names.get(&remote)).map(|n| n.split(" (+").next().unwrap_or(n).to_owned());
+            if host.as_deref().is_some_and(|h| super::beacon::ignored_pair(&beacon_ignore, &key, &name, h)) {
+                continue;
             }
+            let (destinations, programs) = self.beacons.spread(&key, remote);
+            let signed = self.db.app_by_key(&key).ok().flatten().and_then(|a| a.signed);
+            let ctx = super::beacon::Context { host: host.as_deref(), browser: crate::netwatch::is_browser(super::apps::file_name(&key)), signed, destinations, programs };
+            let verdict = super::beacon::score(&beat, &ctx, &beacon_cfg);
+            if !verdict.alert {
+                continue;
+            }
+            self.beacons.reported(&key, remote, now);
+            let text = format!(
+                "contacts {} like clockwork, about every {} ({} times in a row; score {}/100: {}):",
+                self.name_of(remote),
+                super::beacon::period_text(beat.period),
+                beat.count,
+                verdict.score,
+                verdict.reasons.join(", ")
+            );
+            self.shared.alert_as(&self.db, AlertKind::Beaconing, &name, &text, &remote.to_string(), &self.geo.place(remote).code(), verdict.important);
         }
         self.publish_p2p(p2p_detect, p2p_names, &p2p_ignore, now);
         let _ = self.db.add_dns(&dns_rows);

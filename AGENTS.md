@@ -21,6 +21,7 @@ Rules:
 - After each new feature commit, increment the minor version (the middle number) by 1 and reset the patch: 1.1 becomes 1.2, 1.2.1 becomes 1.3.
 - After each bug fix commit, increment the patch version (the last number) by 1: 1.2 becomes 1.2.1, 1.2.1 becomes 1.2.2.
 - The version lives in Cargo.toml. Keep it in step with each commit.
+- On the dev branch, never bump the version to 2.0.0 (or any 2.x). 2.0.0 is reserved for the next main branch build. If a bump would reach it, stop and ask.
 
 # File updates
 
