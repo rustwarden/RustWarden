@@ -1,10 +1,10 @@
 [package]
 name = "rustwarden"
-version = "1.8.3-dev"
+version = "1.9.0-dev"
 edition = "2024"
 
 [workspace]
-members = [".", "plugin-sdk", "plugins/example-hello", "plugins/discord", "plugins/slack", "plugins/pushbullet", "plugins/ntfy", "plugins/gotify", "plugins/webhook", "plugins/ping", "plugins/ha", "plugins/virustotal", "plugins/prometheus", "plugins/upnp", "plugins/cloudflare", "plugins/opnsense", "plugins/speedtest", "plugins/thinkbroadband"]
+members = [".", "plugin-sdk", "plugins/example-hello", "plugins/discord", "plugins/slack", "plugins/pushbullet", "plugins/ntfy", "plugins/gotify", "plugins/webhook", "plugins/ping", "plugins/ha", "plugins/virustotal", "plugins/prometheus", "plugins/upnp", "plugins/cloudflare", "plugins/opnsense", "plugins/speedtest", "plugins/thinkbroadband", "plugins/shodan", "plugins/abuseipdb"]
 # Plain `cargo build` at the root builds RustWarden only; plugins are built with `-p <name> --target wasm32-wasip1`.
 default-members = ["."]
 

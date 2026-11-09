@@ -1,5 +1,5 @@
 //! "AS15169 · Google LLC" for remote addresses, from a free service chosen in Settings:
-//! Team Cymru's DNS interface (via `nslookup`) or any JSON web API (via `curl.exe`).
+//! Team Cymru's DNS interface (a DNS TXT lookup made by Windows) or any JSON web API (via `curl.exe`).
 //! Lookups run on one background thread; the UI only reads the cache.
 
 use super::net::{Locality, classify};
@@ -118,7 +118,7 @@ fn run_in(program: &str, args: &[&str], input: Option<&str>) -> Option<String> {
         // Dropped at the end of the block, so curl sees the end of its config.
         child.stdin.take()?.write_all(input.as_bytes()).ok()?;
     }
-    // A hung nslookup must not stall the lookup thread for good.
+    // A hung helper must not stall the lookup thread for good.
     let deadline = std::time::Instant::now() + Duration::from_secs(15);
     while child.try_wait().ok()?.is_none() {
         if std::time::Instant::now() > deadline {
@@ -145,17 +145,35 @@ fn cymru_name(ip: IpAddr) -> String {
     }
 }
 
-/// The first quoted string of an `nslookup -type=TXT` answer.
-fn txt(out: &str) -> Option<&str> {
-    let rest = &out[out.find('"')? + 1..];
-    Some(&rest[..rest.find('"')?])
+/// The first string of a TXT record, asked of Windows in this process (no helper program that Block All would have to let out).
+fn txt_lookup(name: &str) -> Option<String> {
+    use windows::Win32::NetworkManagement::Dns::{DNS_QUERY_STANDARD, DNS_RECORDA, DNS_TYPE_TEXT, DnsFree, DnsFreeRecordList, DnsQuery_A};
+    use windows::core::PCSTR;
+    let name = std::ffi::CString::new(name).ok()?;
+    let mut records: *mut DNS_RECORDA = std::ptr::null_mut();
+    unsafe {
+        if DnsQuery_A(PCSTR(name.as_ptr().cast()), DNS_TYPE_TEXT, DNS_QUERY_STANDARD, None, &mut records, None).0 != 0 || records.is_null() {
+            return None;
+        }
+        let mut found = None;
+        let mut at = records;
+        while !at.is_null() && found.is_none() {
+            let rec = &*at;
+            if rec.wType == DNS_TYPE_TEXT.0 && rec.Data.TXT.dwStringCount > 0 {
+                found = rec.Data.TXT.pStringArray[0].to_string().ok();
+            }
+            at = rec.pNext;
+        }
+        DnsFree(Some(records as *const _), DnsFreeRecordList);
+        found
+    }
 }
 
 fn cymru(ip: IpAddr) -> Option<String> {
-    let out = run("nslookup", &["-type=TXT", &cymru_name(ip)])?;
+    let line = txt_lookup(&cymru_name(ip))?;
     // "15169 | 8.8.8.0/24 | US | arin | 2023-12-28"; announced by several ASes: "15169 36040 | ..."
-    let asn = txt(&out)?.split('|').next()?.split_whitespace().next()?.to_owned();
-    let org = run("nslookup", &["-type=TXT", &format!("AS{asn}.asn.cymru.com")]).and_then(|o| txt(&o).and_then(|t| t.rsplit('|').next()).map(|s| s.trim().to_owned()));
+    let asn = line.split('|').next()?.split_whitespace().next()?.to_owned();
+    let org = txt_lookup(&format!("AS{asn}.asn.cymru.com")).and_then(|t| t.rsplit('|').next().map(|s| s.trim().to_owned()));
     format_info(Some(&asn), org.as_deref())
 }
 
@@ -225,13 +243,6 @@ mod tests {
         assert_eq!(cymru_name("8.8.4.0".parse().unwrap()), "0.4.8.8.origin.asn.cymru.com");
         let v6 = cymru_name("2001:db8::1".parse().unwrap());
         assert!(v6.starts_with("1.0.0.0.") && v6.ends_with("8.b.d.0.1.0.0.2.origin6.asn.cymru.com"), "{v6}");
-    }
-
-    #[test]
-    fn nslookup_txt_and_cymru_fields() {
-        let out = "Non-authoritative answer:\r\nx.origin.asn.cymru.com\ttext =\r\n\r\n\t\"15169 | 8.8.8.0/24 | US | arin | 2023-12-28\"\r\n";
-        assert_eq!(txt(out).unwrap().split('|').next().unwrap().trim(), "15169");
-        assert_eq!(txt("no quotes"), None);
     }
 
     #[test]

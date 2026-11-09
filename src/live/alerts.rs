@@ -40,6 +40,10 @@ pub enum AlertKind {
     AnomalyVolume,
     AnomalyHour,
     InboundScan,
+    Beaconing,
+    DnsTunnel,
+    RogueDhcp,
+    TlsMismatch,
 }
 
 /// Keys of the behaviour-baseline alerts; they carry a "Mark as normal" action.
@@ -83,6 +87,10 @@ impl AlertKind {
             Self::AnomalyVolume => "volume_spike",
             Self::AnomalyHour => "unusual_hour",
             Self::InboundScan => "inbound_scan",
+            Self::Beaconing => "beaconing",
+            Self::DnsTunnel => "dns_tunnel",
+            Self::RogueDhcp => "rogue_dhcp",
+            Self::TlsMismatch => "tls_mismatch",
         }
     }
 
@@ -121,11 +129,15 @@ impl AlertKind {
             "volume_spike" => "Traffic spike",
             "unusual_hour" => "Unusual hour",
             "inbound_scan" => "Port scan or flood",
+            "beaconing" => "Regular check-ins",
+            "dns_tunnel" => "DNS tunnelling",
+            "rogue_dhcp" => "Second DHCP server",
+            "tls_mismatch" => "Program fingerprint mismatch",
             _ => "Alert",
         }
     }
 
-    pub const ALL: [AlertKind; 32] = [
+    pub const ALL: [AlertKind; 36] = [
         Self::FirstActivity,
         Self::AppChanged,
         Self::Internet,
@@ -158,6 +170,10 @@ impl AlertKind {
         Self::AnomalyVolume,
         Self::AnomalyHour,
         Self::InboundScan,
+        Self::Beaconing,
+        Self::DnsTunnel,
+        Self::RogueDhcp,
+        Self::TlsMismatch,
     ];
 
     /// Name in the settings list.
@@ -195,6 +211,10 @@ impl AlertKind {
             Self::AnomalyVolume => "Behaviour: traffic spike",
             Self::AnomalyHour => "Behaviour: unusual hour",
             Self::InboundScan => "Inbound port scan and flood (Driver mode)",
+            Self::Beaconing => "Beaconing detection",
+            Self::DnsTunnel => "DNS tunnelling detection",
+            Self::RogueDhcp => "Rogue DHCP server detection (Driver mode)",
+            Self::TlsMismatch => "TLS fingerprint check (Driver mode)",
         }
     }
 
@@ -233,6 +253,10 @@ impl AlertKind {
             Self::AnomalyVolume => ("demo.exe", "sent or received 1.8 GB today. Usual: about 120 MB a day.", ""),
             Self::AnomalyHour => ("demo.exe", "was active at 03:00, an hour it is almost never active in the last 14 days.", ""),
             Self::InboundScan => ("Port scan", "from 203.0.113.7 tried 14 different ports on this PC in a few seconds:", "22, 80, 135, 139, 443, 445, 3389 …"),
+            Self::Beaconing => ("demo.exe", "contacts 203.0.113.50 like clockwork, every 60 s (42 times, almost no variation):", "203.0.113.50"),
+            Self::DnsTunnel => ("DNS", "sent an unusual number of long, random-looking lookups under one domain:", "x7f3k9q2.exfil.example (84 lookups in 5 minutes)"),
+            Self::RogueDhcp => ("DHCP", "answered by more than one server; a second one is not your router:", "192.168.1.1 and 192.168.1.77"),
+            Self::TlsMismatch => ("chrome.exe", "opened a TLS connection whose fingerprint belongs to a different program:", "looks like curl (JA3 e7d705a3286e19ea42f587b344ee6865)"),
         }
     }
 
@@ -275,6 +299,14 @@ impl AlertKind {
             Self::AnomalyVolume => "Notify me when an app moves far more data in a day than its usual amount.",
             Self::AnomalyHour => "Notify me when an app is active at an hour of the day it is almost never active.",
             Self::InboundScan => "Notify me when one address tries many different ports on this PC in a few seconds (a port scan), or when connection attempts arrive in a flood. Needs Driver mode.",
+            Self::Beaconing => {
+                "Notify me when a program contacts the same address at near-perfectly regular intervals for a long time, the pattern of malware checking in with its controller. Many legitimate apps (updaters, mail, sync) do this too, so ignore the apps you trust in the alert settings."
+            }
+            Self::DnsTunnel => "Notify me when many long, random-looking DNS names are looked up under one domain, the way data is smuggled out through DNS. Needs the DNS log (Settings > Logs).",
+            Self::RogueDhcp => "Notify me when more than one device answers DHCP requests on the network, which can hand your PC a wrong gateway or DNS server. Needs Driver mode.",
+            Self::TlsMismatch => {
+                "Notify me when a program that identifies itself as a web browser makes TLS connections with the fingerprint of some other program, which can mean it is impersonating a browser. Needs Driver mode."
+            }
         }
     }
 
@@ -293,7 +325,11 @@ impl AlertKind {
             | Self::MicCamera
             | Self::NewListener
             | Self::DnsLeak
-            | Self::InboundScan => (true, AlertLevel::Important),
+            | Self::InboundScan
+            | Self::Beaconing
+            | Self::DnsTunnel
+            | Self::RogueDhcp
+            | Self::TlsMismatch => (true, AlertLevel::Important),
             Self::NewDevice | Self::DeviceReturned | Self::FirewallRules | Self::Unlock => (true, AlertLevel::Logs),
             Self::DeviceSpoof => (true, AlertLevel::Important),
             Self::Arp | Self::DnsServers | Self::Proxy | Self::Away | Self::NewServices | Self::PublicIp => (false, AlertLevel::Logs),
@@ -343,6 +379,10 @@ impl AlertKind {
             Self::AnomalyVolume => &mut s.anomaly_volume,
             Self::AnomalyHour => &mut s.anomaly_hour,
             Self::InboundScan => &mut s.inbound_scan,
+            Self::Beaconing => &mut s.beaconing,
+            Self::DnsTunnel => &mut s.dns_tunnel,
+            Self::RogueDhcp => &mut s.rogue_dhcp,
+            Self::TlsMismatch => &mut s.tls_mismatch,
         }
     }
 
@@ -380,6 +420,10 @@ impl AlertKind {
             Self::AnomalyVolume => s.anomaly_volume,
             Self::AnomalyHour => s.anomaly_hour,
             Self::InboundScan => s.inbound_scan,
+            Self::Beaconing => s.beaconing,
+            Self::DnsTunnel => s.dns_tunnel,
+            Self::RogueDhcp => s.rogue_dhcp,
+            Self::TlsMismatch => s.tls_mismatch,
         }
     }
 }

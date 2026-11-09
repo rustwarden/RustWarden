@@ -333,6 +333,11 @@ pub fn install_alert_sink(shared: std::sync::Arc<Shared>) {
     let _ = ALERT_SINK.set(shared);
 }
 
+/// The addresses blocked by the malicious-address list or by hand, for plugins with "firewall.blocks.read".
+pub fn blocked_addresses() -> Vec<String> {
+    ALERT_SINK.get().map(|s| s.state().fw.threat_blocked.clone()).unwrap_or_default()
+}
+
 /// A packet-loss alert from the thinkbroadband plugin, with the user's settings for that alert kind applied.
 pub fn raise_plugin_alert(who: &str, text: &str) {
     let Some(shared) = ALERT_SINK.get() else { return };

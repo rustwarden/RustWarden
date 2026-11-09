@@ -10,16 +10,19 @@ pub mod apps;
 pub mod ask;
 pub mod asn;
 pub mod baseline;
+pub mod beacon;
 pub mod bucket;
 pub mod capture;
 pub mod db;
 pub mod dest;
 pub mod dns;
 pub mod dnsguard;
+pub mod dnstunnel;
 pub mod domains;
 pub mod engine;
 pub mod firewall;
 pub mod geo;
+pub mod guard;
 pub mod hardware;
 pub mod lease;
 pub mod monitors;
@@ -128,6 +131,8 @@ impl LiveBackend {
         backend.spawn("driver-names", move |shared| sniff::run(shared, sniffer));
         let (shared, fw) = (backend.shared.clone(), backend.fw.clone());
         backend.spawn("p2p", move |_| p2p::run(shared, fw));
+        let (shared, fw) = (backend.shared.clone(), backend.fw.clone());
+        backend.spawn("guard", move |_| guard::run(shared, fw));
         let (shared, fw) = (backend.shared.clone(), backend.fw.clone());
         backend.spawn("ask", move |_| ask::run(shared, fw));
         let (shared, fw) = (backend.shared.clone(), backend.fw.clone());
@@ -533,7 +538,7 @@ impl Backend for LiveBackend {
         let hostnames = st.hostnames.clone();
         drop(st);
         let own_exe = std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
-        let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into()).to_lowercase();
+        let root = apps::system_root();
         let blocked = |key: &str, outbound: bool| rules.iter().any(|r| r.block && firewall::row_key(&r.program, &r.service) == key && r.outbound == outbound && !firewall::is_lan(&r.name));
         let local_blocked = |key: &str| rules.iter().any(|r| r.block && firewall::row_key(&r.program, &r.service) == key && firewall::is_lan(&r.name));
         // Prompt denies by default: an app with no rules yet (just removed, or new) is denied until answered.
@@ -821,6 +826,18 @@ impl Backend for LiveBackend {
                 }
             })
             .collect();
+        // UDP flows come from the driver's flow events, so they appear only with the driver installed and in use.
+        if self.shared.settings().app_mode == crate::settings::AppMode::Driver && crate::driver::ready() {
+            for (pid, local, remote) in self.sniffer.udp_flows() {
+                let app =
+                    names.entry(pid).or_insert_with(|| crate::sys::apps::pid_path(pid).and_then(|p| p.rsplit(['\\', '/']).next().map(str::to_owned)).unwrap_or_else(|| format!("PID {pid}"))).clone();
+                let country = match self.place_of(&remote.ip().to_string()) {
+                    geo::Place::Unknown => None,
+                    p => Some(p.country()),
+                };
+                out.push(LiveConn { pid, app, state: "UDP".into(), local, remote, host: hostnames.get(&remote.ip()).cloned().unwrap_or_default(), bytes: None, killable: true, country, since: None });
+            }
+        }
         out.sort_by(|a, b| b.bytes.map_or(0, |(i, o)| i + o).cmp(&a.bytes.map_or(0, |(i, o)| i + o)).then(a.app.to_lowercase().cmp(&b.app.to_lowercase())).then(a.remote.cmp(&b.remote)));
         out
     }
@@ -828,6 +845,9 @@ impl Backend for LiveBackend {
     fn kill_connection(&self, c: &LiveConn) -> Result<String, String> {
         if !self.shared.elevated {
             return Err("Ending a connection needs administrator rights. Use \"Restart as administrator\".".into());
+        }
+        if c.state == "UDP" {
+            return sniff::kill_udp(c.local, c.remote);
         }
         let state = crate::sys::conns::TcpState::Established;
         crate::sys::conns::kill(&crate::sys::conns::ConnRow { pid: c.pid, local: c.local, remote: c.remote, state, bytes: c.bytes, started: c.since })?;

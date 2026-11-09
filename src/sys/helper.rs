@@ -46,7 +46,11 @@ pub fn dir(plugin: &str) -> PathBuf {
 /// inside the plugin's own folder.
 type Split = (Vec<(String, String)>, Vec<String>);
 
-fn split_env(args: Vec<String>) -> Result<Split, String> {
+fn split_env(args: Vec<String>, folder: &str) -> Result<Split, String> {
+    let inside = |v: &str| {
+        let (v, f) = (v.replace('/', "\\").to_ascii_lowercase(), folder.to_ascii_lowercase());
+        !v.split('\\').any(|part| part == "..") && (v == f || v.starts_with(&format!("{}\\", f.trim_end_matches('\\'))))
+    };
     let (mut env, mut rest) = (Vec::new(), Vec::new());
     for a in args {
         let Some(spec) = a.strip_prefix("env:") else {
@@ -54,7 +58,7 @@ fn split_env(args: Vec<String>) -> Result<Split, String> {
             continue;
         };
         match spec.split_once('=') {
-            Some((name @ ("USERPROFILE" | "HOME"), value)) if !value.contains("..") => env.push((name.to_owned(), value.to_owned())),
+            Some((name @ ("USERPROFILE" | "HOME"), value)) if inside(value) => env.push((name.to_owned(), value.to_owned())),
             _ => return Err("that environment variable can't be set".into()),
         }
     }
@@ -161,13 +165,15 @@ pub fn start(
     let args: Vec<String> = args.into_iter().map(|a| a.replace("{dir}", &folder)).collect();
     // "env:NAME=value" arguments set an environment variable for the program instead of being passed to it. Only the
     // home folder may be set (a program that keeps its sign-in under it, such as cloudflared, then keeps it in the plugin's folder).
-    let (env, args) = split_env(args)?;
+    let (env, args) = split_env(args, &folder)?;
     for (_, value) in &env {
         let _ = std::fs::create_dir_all(value);
     }
     let stop = Arc::new(AtomicBool::new(false));
     {
         let mut running = RUNNING.lock().unwrap_or_else(|e| e.into_inner());
+        // A helper this plugin left running (its worker was replaced) is stopped, not just forgotten.
+        running.iter().filter(|(p, _)| p == plugin).for_each(|(_, f)| f.store(true, Ordering::SeqCst));
         running.retain(|(p, f)| p != plugin && !Arc::ptr_eq(f, &stop));
         running.push((plugin.to_owned(), stop.clone()));
     }
@@ -243,11 +249,14 @@ mod tests {
 
     #[test]
     fn only_the_home_folder_can_be_set() {
-        let (env, rest) = split_env(vec![r"env:HOME=C:\p\home".into(), "tunnel".into()]).unwrap();
+        let p = r"C:\p";
+        let (env, rest) = split_env(vec![r"env:HOME=C:\p\home".into(), "tunnel".into()], p).unwrap();
         assert_eq!(env, [("HOME".to_owned(), r"C:\p\home".to_owned())]);
         assert_eq!(rest, ["tunnel"]);
-        assert!(split_env(vec![r"env:PATH=C:\evil".into()]).is_err());
-        assert!(split_env(vec![r"env:HOME=C:\p\..\x".into()]).is_err());
+        assert!(split_env(vec![r"env:PATH=C:\evil".into()], p).is_err());
+        assert!(split_env(vec![r"env:HOME=C:\p\..\x".into()], p).is_err());
+        assert!(split_env(vec![r"env:HOME=C:\Windows\Foo".into()], p).is_err(), "outside the plugin's folder");
+        assert!(split_env(vec![r"env:HOME=C:\pother".into()], p).is_err(), "a sibling that starts the same");
     }
 
     #[test]

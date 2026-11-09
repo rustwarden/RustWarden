@@ -76,13 +76,15 @@ fn run_elevated(flag: &str) -> Option<u32> {
     }
 }
 
-/// True if `exe` is under the folder named by environment variable `var`.
-fn under(exe: &Path, var: &str) -> bool {
-    std::env::var(var).is_ok_and(|d| exe.to_string_lossy().to_lowercase().starts_with(&format!("{}\\", d.to_lowercase().trim_end_matches('\\'))))
+/// True if `exe` is under `dir`.
+fn under(exe: &Path, dir: &str) -> bool {
+    exe.to_string_lossy().to_lowercase().starts_with(&format!("{}\\", dir.to_lowercase().trim_end_matches('\\')))
 }
 
+/// Asks Windows for Program Files: an environment variable could point the elevated service install at a folder the user controls.
 fn in_program_files(exe: &Path) -> bool {
-    under(exe, "ProgramFiles") || under(exe, "ProgramFiles(x86)")
+    use windows::Win32::UI::Shell::{FOLDERID_ProgramFiles, FOLDERID_ProgramFilesX86};
+    [FOLDERID_ProgramFiles, FOLDERID_ProgramFilesX86].iter().filter_map(crate::settings::known_folder).any(|d| under(exe, &d))
 }
 
 /// `RustWarden.lnk` in a known folder (the user's Desktop, or their Start menu Programs).
@@ -131,7 +133,7 @@ pub(crate) fn installed_exe() -> Result<std::path::PathBuf, String> {
     if in_program_files(&me) && !me.starts_with(crate::settings::legacy_admin_dir()) {
         return Ok(me);
     }
-    Ok(std::path::PathBuf::from(std::env::var("ProgramFiles").map_err(|e| e.to_string())?).join("RustWarden").join("RustWarden.exe"))
+    Ok(crate::settings::admin_dir().join("RustWarden.exe"))
 }
 
 /// Installs the service from wherever the exe is run (e.g. Downloads) by re-running it elevated with

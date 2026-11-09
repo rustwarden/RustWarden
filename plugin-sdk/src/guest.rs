@@ -143,6 +143,12 @@ pub fn http_raw_full(url: &str, headers: &[String], body: Option<&str>, insecure
     Ok((v["status"].as_u64().unwrap_or(0) as u16, v["body"].as_str().unwrap_or("").to_owned(), v["cookie"].as_str().unwrap_or("").to_owned()))
 }
 
+/// The addresses RustWarden has blocked. Needs "firewall.blocks.read".
+pub fn blocked_addresses() -> Result<Vec<String>, String> {
+    let json = text(host(&HostCall::BlockedAddresses))?;
+    serde_json::from_str(&json).map_err(|e| e.to_string())
+}
+
 /// A new WireGuard keypair `(private, public)`, base64, made by RustWarden from the operating system's random numbers.
 pub fn wg_keypair() -> Result<(String, String), String> {
     let json = text(host(&HostCall::WgKeypair))?;

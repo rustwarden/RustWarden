@@ -41,6 +41,8 @@ struct DemoState {
     /// The sample Prompt prompt and malicious-IP warning are raised once per run.
     ask_raised: bool,
     threat_raised: bool,
+    /// Programs whose "Scan with VirusTotal" was pressed: they get a made-up clean result.
+    vt_scanned: Vec<String>,
 }
 
 /// Replaces the sample "NT Kernel & System" row with one row per kernel service, as Live mode shows them.
@@ -103,6 +105,7 @@ impl MockBackend {
                 profile: "Default".into(),
                 ask_raised: false,
                 threat_raised: false,
+                vt_scanned: Vec::new(),
             }),
         }
     }
@@ -171,7 +174,7 @@ fn demo_dest_status(r: &crate::destrules::DestRule) -> String {
 /// Made-up open connections for the Live connections tab. Byte counts grow with `now`; the last row is IPv6.
 fn demo_connections(now: i64) -> Vec<LiveConn> {
     #[allow(clippy::type_complexity)]
-    let rows: [(u32, &str, &str, &str, &str, &str, u64, Country, i64); 7] = [
+    let rows: [(u32, &str, &str, &str, &str, &str, u64, Country, i64); 8] = [
         (4120, "chrome.exe", "Established", "192.168.1.20:51522", "208.80.154.224:443", "www.wikipedia.org", 900, Country::UnitedStates, 1260),
         (5310, "Spotify.exe", "Established", "192.168.1.20:51801", "35.186.224.25:443", "spclient.wg.spotify.com", 5200, Country::Sweden, 5400),
         (8844, "Steam.exe", "Established", "192.168.1.20:52010", "104.18.20.54:443", "cdn.cloudflare.steamstatic.com", 48_000, Country::UnitedStates, 310),
@@ -179,6 +182,7 @@ fn demo_connections(now: i64) -> Vec<LiveConn> {
         (7720, "curl.exe", "Connecting", "192.168.1.20:52200", "203.0.113.66:80", "cdn.badhost-demo.example", 0, Country::Other, 3),
         (2210, "OneDrive.exe", "Established", "192.168.1.20:52240", "13.107.42.12:443", "storage.live.com", 2300, Country::Ireland, 86_400),
         (4120, "chrome.exe", "Established", "[fd00::20]:52300", "[2620:0:861:ed1a::1]:443", "www.wikipedia.org", 400, Country::UnitedStates, 1260),
+        (4120, "chrome.exe", "UDP", "192.168.1.20:60123", "142.250.179.110:443", "www.youtube.com", 0, Country::UnitedStates, 600),
     ];
     let killed = DEMO_KILLED.lock().unwrap_or_else(|e| e.into_inner());
     let mut out: Vec<LiveConn> = rows
@@ -195,7 +199,7 @@ fn demo_connections(now: i64) -> Vec<LiveConn> {
                 remote,
                 host: host.into(),
                 bytes: up.then(|| ((now as u64 % 100_000) * rate, (now as u64 % 100_000) * rate / 8)),
-                killable: up && remote.is_ipv4(),
+                killable: (up && remote.is_ipv4()) || state == "UDP",
                 country: Some(country),
                 since: Some(now - age),
             }
@@ -633,6 +637,18 @@ impl Backend for MockBackend {
         }
     }
 
+    fn scan_virustotal(&self, key: &str) {
+        self.state().vt_scanned.push(key.to_owned());
+    }
+
+    fn upload_virustotal(&self, key: &str) {
+        self.scan_virustotal(key);
+    }
+
+    fn virustotal(&self, who: &str) -> Vt {
+        demo_vt(who)
+    }
+
     fn firewall_apps(&self) -> Vec<FirewallApp> {
         // Sample VirusTotal verdicts, so the banner and the Firewall column show in Demo.
         let st = self.state();
@@ -640,6 +656,9 @@ impl Backend for MockBackend {
         apps.into_iter()
             .map(|mut a| {
                 a.virustotal = demo_vt(&a.name);
+                if a.virustotal == Vt::None && st.vt_scanned.contains(&a.key) {
+                    a.virustotal = Vt::Result { bad: 0, total: 72 };
+                }
                 a
             })
             .collect()
@@ -1295,6 +1314,10 @@ mod tests {
         assert!(!b.alerts_snoozed());
         assert!(b.net_info("192.168.1.1").is_empty() && b.net_info("claude.ai").starts_with("AS"));
         assert!(b.firewall_apps().iter().any(|a| a.virustotal != Vt::None));
+        let unknown = b.firewall_apps().into_iter().find(|a| a.virustotal == Vt::None).unwrap();
+        b.scan_virustotal(&unknown.key);
+        assert_eq!(b.firewall_apps().into_iter().find(|a| a.key == unknown.key).unwrap().virustotal, Vt::Result { bad: 0, total: 72 });
+        assert_eq!(b.virustotal("RustDesk Remote Desktop"), Vt::Result { bad: 5, total: 72 });
     }
 
     #[test]

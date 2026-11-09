@@ -90,6 +90,7 @@ Permissions (list them in `Manifest.permissions`; the user ticks each one):
 | `alerts.write` | raise a packet-loss alert with `raise_alert`, delivered like RustWarden's own (only the thinkbroadband plugin uses it today) |
 | `helper.exe` | download a helper program from an address in `http_hosts` (checked against a SHA-256 you declare), run it with arguments you give, and get each line it prints as `Call::HelperLine` (`helper_ready`, `helper_install`, `helper_start`, `helper_stop`). A download whose address ends in `.exe` is the program itself instead of a zip. With a timeout of 0 the program runs until `helper_stop` or until RustWarden closes, and the lines it prints to its error output come back as `HelperLine` too (the bundled Cloudflare Tunnel plugin) |
 | `browser.session` | use RustWarden's sign-in browser window and signed-in fetches for one site (only thinkbroadband today) |
+| `firewall.blocks.read` | read the addresses RustWarden has blocked with `blocked_addresses()` (a JSON array of address strings) |
 | `devices.annotate` | read the scanned devices (`devices()`), and have RustWarden show what you store in `p_<id>__devices` (columns `mac`, `found`, `name`, `area`, `kind`, `model`, `url`) on the Scanner tab |
 
 Any other permission name in a manifest is shown to the user as unknown and grants nothing.

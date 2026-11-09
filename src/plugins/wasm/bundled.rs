@@ -13,7 +13,25 @@ macro_rules! bundle {
 }
 
 // Keep in step with PLUGINS in build.rs.
-bundle!("discord", "slack", "pushbullet", "ntfy", "gotify", "webhook", "ping", "ha", "virustotal", "opnsense", "speedtest", "thinkbroadband", "prometheus", "upnp", "cloudflare");
+bundle!(
+    "discord",
+    "slack",
+    "pushbullet",
+    "ntfy",
+    "gotify",
+    "webhook",
+    "ping",
+    "ha",
+    "virustotal",
+    "opnsense",
+    "speedtest",
+    "thinkbroadband",
+    "prometheus",
+    "upnp",
+    "cloudflare",
+    "shodan",
+    "abuseipdb"
+);
 
 /// Every built-in plugin that loads, in list order. One that fails to load is skipped (and logged), never fatal.
 pub fn found() -> Vec<Found> {
@@ -71,6 +89,33 @@ mod tests {
         assert!(format!("{tree:?}").contains("Copy address"));
         click(&mut p, "rm:0");
         assert_eq!(p.host().config.get("maps").map(String::as_str), Some(""));
+    }
+
+    /// Demo mode answers for a made-up address, so the page shows a result without asking Shodan.
+    #[test]
+    fn the_shodan_plugin_looks_up_the_demo_address() {
+        use plugin_sdk::{Call, Event};
+        use rusqlite::Connection;
+        use std::collections::BTreeSet;
+        let Some(mut p) = load("shodan") else { return };
+        p.bind(Connection::open_in_memory().unwrap(), BTreeSet::new(), true).unwrap();
+        p.call(&Call::Event(Event::Click { id: "me".into() })).unwrap();
+        let result = p.host().config.get("result").cloned().unwrap_or_default();
+        assert!(result.contains("Open ports: 22, 80, 443") && result.contains("CVE-2021-41773"), "{result}");
+    }
+
+    /// With "alerts.read" and automatic checks on, an alert's public address is scored (Demo mode makes the score up) and remembered.
+    #[test]
+    fn the_abuseipdb_plugin_scores_addresses_in_alerts() {
+        use plugin_sdk::{Call, Event};
+        use rusqlite::Connection;
+        use std::collections::BTreeSet;
+        let Some(mut p) = load("abuseipdb") else { return };
+        p.bind(Connection::open_in_memory().unwrap(), BTreeSet::from(["alerts.read".to_owned()]), true).unwrap();
+        p.call(&Call::Event(Event::Bool { id: "auto".into(), on: true })).unwrap();
+        p.call(&Call::Alert { important: true, title: "Port scan".into(), text: "from 203.0.113.7 tried 14 ports on 192.168.1.5".into() }).unwrap();
+        let recent = p.host().config.get("recent").cloned().unwrap_or_default();
+        assert!(recent.starts_with("203.0.113.7|") && recent.lines().count() == 1, "{recent}");
     }
 
     /// Demo mode starts and stops a pretend tunnel without running anything.

@@ -292,6 +292,7 @@ impl Dest {
 fn spec(rule: &DestRule, outbound: bool, n: usize, chunk: &str) -> RuleSpec {
     let hash = destrules::fingerprint(&format!("{}|{}|{chunk}", rule.program.to_lowercase(), u8::from(rule.mode == Mode::Block)));
     RuleSpec {
+        interfaces: None,
         name: format!("{DEST_PREFIX}{} {} {n} {hash:08x}", rule.id, if outbound { "out" } else { "in" }),
         description: format!(
             "Created by RustWarden: destination rule {} ({} {}). Use \"Restore firewall defaults\" in RustWarden to remove all such rules.",

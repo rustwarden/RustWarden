@@ -72,6 +72,8 @@ impl Qos {
         if let Some(reason) = critical_reason(&key, &limit.program, &self.own_exe, &system_root()) {
             return Err(format!("{reason}, so it can't have a bandwidth limit."));
         }
+        // Held until the list is stored: `reconcile` also rewrites it (ended simulations), and would overwrite this save.
+        let edit = lock(&self.busy);
         let db = self.shared.open_db().map_err(|e| format!("Can't open the database: {e}"))?;
         let mut limits = load(&db);
         if limits.iter().any(|l| l.id != limit.id && l.program.eq_ignore_ascii_case(&limit.program)) {
@@ -92,7 +94,7 @@ impl Qos {
             return Err("That limit no longer exists.".into());
         };
         store(&db, &limits)?;
-        drop(db);
+        drop((db, edit));
         self.applied.store(true, Ordering::Relaxed);
         self.reconcile();
         match lock(&self.status).get(&id) {
@@ -105,11 +107,12 @@ impl Qos {
         if !self.shared.elevated {
             return Err(NEEDS_ADMIN.into());
         }
+        let edit = lock(&self.busy);
         let db = self.shared.open_db().map_err(|e| format!("Can't open the database: {e}"))?;
         let mut limits = load(&db);
         limits.retain(|l| l.id != id);
         store(&db, &limits)?;
-        drop(db);
+        drop((db, edit));
         self.applied.store(true, Ordering::Relaxed);
         self.reconcile();
         Ok(())

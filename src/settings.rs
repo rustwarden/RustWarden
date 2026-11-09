@@ -280,6 +280,10 @@ pub struct AlertSwitches {
     pub anomaly_volume: bool,
     pub anomaly_hour: bool,
     pub inbound_scan: bool,
+    pub beaconing: bool,
+    pub dns_tunnel: bool,
+    pub rogue_dhcp: bool,
+    pub tls_mismatch: bool,
 }
 
 impl Default for AlertSwitches {
@@ -317,6 +321,10 @@ impl Default for AlertSwitches {
             anomaly_volume: true,
             anomaly_hour: true,
             inbound_scan: true,
+            beaconing: true,
+            dns_tunnel: true,
+            rogue_dhcp: true,
+            tls_mismatch: true,
         }
     }
 }
@@ -524,6 +532,12 @@ pub struct Settings {
     pub public_ip_check: bool,
     /// Adapters the VPN DNS leak check skips: names or parts of names, separated by commas (bridged VM adapters never use the VPN).
     pub dns_leak_ignore: String,
+    /// Blocks the internet on the real network cards while a VPN is up or has dropped (see `live::guard`). Off by default.
+    pub vpn_kill_switch: bool,
+    /// Blocks HTTPS and DNS-over-TLS to well-known public DNS resolvers. Off by default.
+    pub block_doh: bool,
+    /// Programs (file names, e.g. `chrome.exe`) whose QUIC / HTTP/3 traffic (UDP 443) is blocked, so they use HTTPS over TCP.
+    pub quic_fallback: String,
     /// Service that answers with just the caller's address; must be https.
     pub public_ip_url: String,
     /// Whois icon: show the answer in RustWarden (rdap.org) instead of opening Shodan in the browser.
@@ -714,6 +728,9 @@ impl Default for Settings {
             net_info_url: "https://ipinfo.io/{ip}/json".into(),
             public_ip_check: false,
             dns_leak_ignore: "VMware, VirtualBox, vEthernet".into(),
+            vpn_kill_switch: false,
+            block_doh: false,
+            quic_fallback: String::new(),
             public_ip_url: "https://api.ipify.org".into(),
             whois_internal: false,
             update_url: String::new(),
@@ -766,16 +783,28 @@ pub fn legacy_admin_dir() -> PathBuf {
 /// `Program Files\RustWarden`: only administrators can write here, so elevated code may load or run what it holds.
 /// Windows is asked, not `%ProgramFiles%`, because a user can override environment variables.
 pub fn admin_dir() -> PathBuf {
+    use windows::Win32::UI::Shell::FOLDERID_ProgramFiles;
+    PathBuf::from(known_folder(&FOLDERID_ProgramFiles).unwrap_or_else(|| r"C:\Program Files".to_owned())).join("RustWarden")
+}
+
+/// A folder Windows names (not an environment variable, which any program running as the user can override).
+pub fn known_folder(id: &windows::core::GUID) -> Option<String> {
     use windows::Win32::System::Com::CoTaskMemFree;
-    use windows::Win32::UI::Shell::{FOLDERID_ProgramFiles, KF_FLAG_DEFAULT, SHGetKnownFolderPath};
-    let known = unsafe {
-        SHGetKnownFolderPath(&FOLDERID_ProgramFiles, KF_FLAG_DEFAULT, None).ok().and_then(|p| {
+    use windows::Win32::UI::Shell::{KF_FLAG_DEFAULT, SHGetKnownFolderPath};
+    unsafe {
+        SHGetKnownFolderPath(id, KF_FLAG_DEFAULT, None).ok().and_then(|p| {
             let path = p.to_string().ok();
             CoTaskMemFree(Some(p.0 as *const _));
             path
         })
-    };
-    PathBuf::from(known.unwrap_or_else(|| r"C:\Program Files".to_owned())).join("RustWarden")
+    }
+}
+
+/// The Windows folder, asked of Windows (`%SystemRoot%` can be overridden by the user's own programs).
+pub fn windows_dir() -> String {
+    let mut buf = [0u16; 260];
+    let n = unsafe { windows::Win32::System::SystemInformation::GetSystemWindowsDirectoryW(Some(&mut buf)) } as usize;
+    if n > 0 && n < buf.len() { String::from_utf16_lossy(&buf[..n]) } else { r"C:\Windows".to_owned() }
 }
 
 /// Tokens and webhook addresses are written to the config encrypted for the current Windows user
@@ -790,8 +819,8 @@ pub mod secret {
         if value.is_empty() || value.starts_with(PREFIX) {
             return s.serialize_str(value);
         }
-        match crate::sys::dpapi::protect(value.as_bytes()) {
-            Some(sealed) => s.serialize_str(&format!("{PREFIX}{}", sealed.iter().map(|b| format!("{b:02x}")).collect::<String>())),
+        match seal(value) {
+            Some(sealed) => s.serialize_str(&sealed),
             // Never written as plain text: the save fails (and says so) until Windows can encrypt it.
             None => Err(serde::ser::Error::custom("Windows couldn't encrypt a saved token or webhook address, so nothing was written")),
         }
@@ -799,6 +828,11 @@ pub mod secret {
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<String, D::Error> {
         Ok(open(&String::deserialize(d)?))
+    }
+
+    /// `dpapi:<hex>` for `value`, encrypted for the current Windows user.
+    pub fn seal(value: &str) -> Option<String> {
+        crate::sys::dpapi::protect(value.as_bytes()).map(|sealed| format!("{PREFIX}{}", sealed.iter().map(|b| format!("{b:02x}")).collect::<String>()))
     }
 
     /// The text behind a stored value: decrypted when it is `dpapi:<hex>`, else as it is.
@@ -838,6 +872,11 @@ impl Settings {
         if let Some(mode) = std::env::var("RUSTWARDEN_MODE").ok().and_then(|v| Mode::parse(&v)) {
             s.env_mode = Some((mode, s.mode));
             s.mode = mode;
+        }
+        // Deleting the password line from config.toml must not switch the protection off: an elevated run keeps a copy
+        // where only administrators can write.
+        if s.tamper_hash.is_empty() {
+            s.tamper_hash = crate::tamper::recall();
         }
         s.sanitize();
         s
@@ -1033,6 +1072,7 @@ impl Settings {
             }
         }
         let text = toml::to_string_pretty(&out).map_err(std::io::Error::other)?;
+        crate::tamper::remember(&self.tamper_hash);
         // Write beside the file and rename, so a crash mid-write can't leave a truncated config.
         let tmp = path.with_extension("toml.tmp");
         std::fs::write(&tmp, text)?;

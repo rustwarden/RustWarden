@@ -8,6 +8,9 @@ use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
 use std::collections::{BTreeMap, BTreeSet};
 use wasmtime::{StoreLimits, StoreLimitsBuilder};
 
+/// Longest one `DbExec` or `DbQuery` may run.
+const DB_CALL_LIMIT: std::time::Duration = std::time::Duration::from_secs(2);
+
 pub struct Host {
     pub id: String,
     pub http_hosts: Vec<String>,
@@ -72,11 +75,8 @@ impl Host {
                 self.secrets.insert(key, value);
                 Ok(String::new())
             }
-            HostCall::DbExec { sql } => {
-                let n = self.db()?.execute_batch(&sql).map(|_| 0).map_err(|e| e.to_string())?;
-                Ok(n.to_string())
-            }
-            HostCall::DbQuery { sql } => query(self.db()?, &sql),
+            HostCall::DbExec { sql } => self.guarded(|db| db.execute_batch(&sql).map(|()| "0".to_owned()).map_err(|e| e.to_string())),
+            HostCall::DbQuery { sql } => self.guarded(|db| query(db, &sql)),
             HostCall::HttpRequest { url, headers, body } => {
                 if !host_allowed(&url, &self.http_hosts) {
                     return Err("that address is not in the plugin's http_hosts".into());
@@ -91,7 +91,7 @@ impl Host {
                 Ok(String::new())
             }
             HostCall::NotifyInApp { msg } => {
-                self.notes.push(msg);
+                self.notes.push(msg.chars().filter(|c| !c.is_control()).take(500).collect());
                 Ok(String::new())
             }
             HostCall::PingRound { addrs, count } => {
@@ -170,6 +170,10 @@ impl Host {
                 Ok(serde_json::Value::Array(list).to_string())
             }
             HostCall::WgKeypair => Ok(wg_keypair().to_string()),
+            HostCall::BlockedAddresses => {
+                let list = if self.demo { vec!["198.51.100.23".to_owned(), "203.0.113.50".to_owned()] } else { crate::live::store::blocked_addresses() };
+                Ok(serde_json::Value::from(list).to_string())
+            }
             HostCall::SetTick { millis } => {
                 self.tick_ms = (millis != 0).then(|| millis.clamp(50, 3_600_000));
                 Ok(String::new())
@@ -210,6 +214,21 @@ impl Host {
 
     fn db(&self) -> Result<&Connection, String> {
         self.db.as_ref().ok_or_else(|| "the plugin has no database".to_owned())
+    }
+
+    /// Runs one database call with a time limit, and rolls back a transaction the call left open: the connection is
+    /// the real database's, so a plugin that kept a write lock (or ran for ever) would stop RustWarden's own writes.
+    fn guarded(&mut self, f: impl FnOnce(&Connection) -> Result<String, String>) -> Result<String, String> {
+        let db = self.db.as_mut().ok_or_else(|| "the plugin has no database".to_owned())?;
+        let start = std::time::Instant::now();
+        let _ = db.progress_handler(1000, Some(move || start.elapsed() > DB_CALL_LIMIT));
+        let result = f(db);
+        let _ = db.progress_handler(1000, None::<fn() -> bool>);
+        if !db.is_autocommit() {
+            let _ = db.execute_batch("ROLLBACK");
+            return Err("a transaction must be finished (COMMIT) within the same call, so it was rolled back".into());
+        }
+        result
     }
 }
 
@@ -464,6 +483,16 @@ mod tests {
             assert!(matches!(h.handle(HostCall::DbQuery { sql: sql.into() }), HostReply::Err(_)), "{sql}");
             assert!(matches!(h.handle(HostCall::DbExec { sql: sql.into() }), HostReply::Err(_)), "{sql}");
         }
+    }
+
+    #[test]
+    fn a_plugin_cannot_keep_a_transaction_open_or_run_for_ever() {
+        let mut h = host_with_db("mine");
+        let r = h.handle(HostCall::DbExec { sql: "CREATE TABLE p_mine__t (x INTEGER); BEGIN IMMEDIATE".into() });
+        assert!(matches!(r, HostReply::Err(_)), "{r:?}");
+        assert!(h.db.as_ref().unwrap().is_autocommit(), "rolled back");
+        let r = h.handle(HostCall::DbQuery { sql: "WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM c) SELECT count(*) FROM c".into() });
+        assert!(matches!(r, HostReply::Err(_)), "{r:?}");
     }
 
     #[test]

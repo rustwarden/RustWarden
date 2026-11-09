@@ -446,6 +446,9 @@ pub enum HostCall {
     /// A new WireGuard keypair from the operating system's random numbers: replies `{"private": "...", "public": "..."}`
     /// (base64, as `wg genkey` and `wg pubkey` print them). A plugin's own random numbers aren't good enough for a key.
     WgKeypair,
+    /// The addresses RustWarden has blocked (its malicious-address blocks and the ones blocked by hand), as a JSON array
+    /// of strings. Needs "firewall.blocks.read".
+    BlockedAddresses,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

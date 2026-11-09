@@ -101,6 +101,7 @@ fn rule_name(key: &str, outbound: bool) -> String {
 
 fn spec(key: &str, outbound: bool) -> RuleSpec {
     RuleSpec {
+        interfaces: None,
         name: rule_name(key, outbound),
         description: format!("Created by RustWarden: peer-to-peer guard blocks {key} while no VPN is connected. Use \"Restore firewall defaults\" in RustWarden to remove all such rules."),
         grouping: GROUP.into(),

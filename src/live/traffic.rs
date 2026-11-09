@@ -148,6 +148,8 @@ struct Collector {
     recent_apps: HashMap<i64, VecDeque<(f64, f64)>>,
     last_seen_app: HashMap<i64, Instant>,
     p2p: super::p2p::Detector,
+    beacons: super::beacon::Tracker,
+    tunnels: super::dnstunnel::Tracker,
     /// Programs flagged as peer-to-peer: id, (key, name, last time flagged). Kept for a week so the list doesn't flicker.
     p2p_seen: HashMap<i64, (String, String, i64)>,
 }
@@ -189,7 +191,7 @@ impl Collector {
         let mut per_app: HashMap<i64, (u64, u64)> = HashMap::new();
         let mut total = (0u64, 0u64);
         // Read once per second, not cloned from the settings for every event.
-        let (hidden, hide_vpn, vpn_apps, dns_log, split_kernel, p2p_detect, p2p_ignore) = {
+        let (hidden, hide_vpn, vpn_apps, dns_log, split_kernel, p2p_detect, p2p_ignore, beacon_on) = {
             let s = self.shared.settings();
             (
                 s.incognito_apps.iter().map(|p| p.to_lowercase()).collect::<Vec<String>>(),
@@ -199,10 +201,12 @@ impl Collector {
                 s.split_kernel,
                 s.p2p_detect,
                 s.p2p_ignore.iter().map(|p| p.to_lowercase()).collect::<Vec<String>>(),
+                s.alerts.beaconing,
             )
         };
         let mut p2p_names: Vec<(i64, String, String)> = Vec::new();
         let mut seen = HashSet::new();
+        let mut contacts: HashSet<(String, String, IpAddr)> = HashSet::new();
         let mut dns_rows = Vec::new();
         while let Ok(ev) = rx.try_recv() {
             match &ev {
@@ -257,6 +261,9 @@ impl Collector {
                         self.app_names.insert((app.id, flow.remote), n.to_owned());
                     }
                     seen.insert((app.key.clone(), flow.remote));
+                    if beacon_on && flow.kind == KIND_WAN {
+                        contacts.insert((app.key.clone(), app.name.clone(), flow.remote));
+                    }
                     agg.add(app.id, &flow, bytes);
                     self.note_remote(app.id, flow.remote, u64::from(bytes));
                     self.last_seen_app.insert(app.id, Instant::now());
@@ -271,9 +278,23 @@ impl Collector {
                 }
             }
         }
+        for (key, name, remote) in contacts {
+            if let Some(beat) = self.beacons.observe(&key, remote, now) {
+                let text = format!("contacts {} like clockwork, about every {} ({} times in a row):", self.name_of(remote), super::beacon::period_text(beat.period), beat.count);
+                self.shared.alert(&self.db, AlertKind::Beaconing, &name, &text, &remote.to_string(), &self.geo.place(remote).code());
+            }
+        }
         self.publish_p2p(p2p_detect, p2p_names, &p2p_ignore, now);
         let _ = self.db.add_dns(&dns_rows);
         super::dns::check(&self.shared, &self.db, &dns_rows);
+        if !dns_rows.is_empty() && self.shared.settings().alerts.dns_tunnel {
+            for r in &dns_rows {
+                if let Some(t) = self.tunnels.note(&r.name, now) {
+                    let text = "sent an unusual number of long, random-looking lookups under one domain, which is how data is tunnelled out through DNS:";
+                    self.shared.alert(&self.db, AlertKind::DnsTunnel, &r.app, text, &format!("{} ({} names in 5 minutes, e.g. {})", t.domain, t.names, t.example), "");
+                }
+            }
+        }
         super::threat::hits(&self.shared, seen);
         self.publish_rates(total, per_app, true);
         agg.drain()
@@ -405,6 +426,8 @@ pub fn run(shared: Arc<Shared>) {
         recent_apps: HashMap::new(),
         last_seen_app: HashMap::new(),
         p2p: Default::default(),
+        beacons: Default::default(),
+        tunnels: Default::default(),
         p2p_seen: HashMap::new(),
         shared: shared.clone(),
         db,

@@ -91,13 +91,19 @@ impl Listener {
 }
 
 /// Every TCP port in the listening state, IPv4 and IPv6.
+/// Windows 11 builds report a socket that is listening (and accepts connections) with state 0 instead of LISTEN (2) when
+/// it was set up by newer runtimes, so a state-less row with no remote end counts too.
+fn is_listening(state: u32, remote_port: u32) -> bool {
+    TcpState::from_raw(state) == Some(TcpState::Listen) || (state == 0 && remote_port == 0)
+}
+
 pub fn listeners() -> Result<Vec<Listener>, String> {
     let mut out = Vec::new();
     let v4 = fetch(AF_INET.0 as u32)?;
     unsafe {
         let t = &*(v4.as_ptr() as *const MIB_TCPTABLE_OWNER_PID);
         for r in std::slice::from_raw_parts(t.table.as_ptr(), t.dwNumEntries as usize) {
-            if TcpState::from_raw(r.dwState) == Some(TcpState::Listen) {
+            if is_listening(r.dwState, r.dwRemotePort) {
                 out.push(Listener { pid: r.dwOwningPid, addr: Ipv4Addr::from(r.dwLocalAddr.to_le_bytes()).into(), port: port_of(r.dwLocalPort) });
             }
         }
@@ -106,7 +112,7 @@ pub fn listeners() -> Result<Vec<Listener>, String> {
         unsafe {
             let t = &*(v6.as_ptr() as *const MIB_TCP6TABLE_OWNER_PID);
             for r in std::slice::from_raw_parts(t.table.as_ptr(), t.dwNumEntries as usize) {
-                if TcpState::from_raw(r.dwState) == Some(TcpState::Listen) {
+                if is_listening(r.dwState, r.dwRemotePort) {
                     out.push(Listener { pid: r.dwOwningPid, addr: Ipv6Addr::from(r.ucLocalAddr).into(), port: port_of(r.dwLocalPort) });
                 }
             }
@@ -351,6 +357,12 @@ mod tests {
         let sock = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = sock.local_addr().unwrap().port();
         assert!(listeners().unwrap().iter().any(|x| x.port == port && x.pid == std::process::id()));
+    }
+
+    #[test]
+    fn a_stateless_row_with_no_remote_end_is_a_listener() {
+        assert!(is_listening(2, 0) && is_listening(0, 0));
+        assert!(!is_listening(5, 0) && !is_listening(0, raw_port(443)));
     }
 
     #[test]

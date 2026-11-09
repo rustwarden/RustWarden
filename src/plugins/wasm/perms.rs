@@ -12,6 +12,7 @@ pub fn needed(call: &HostCall) -> Option<&'static str> {
         HostCall::BrowserSignIn | HostCall::BrowserFetch { .. } | HostCall::BrowserSignOut => Some("browser.session"),
         HostCall::HelperReady { .. } | HostCall::HelperInstall { .. } | HostCall::HelperStart { .. } | HostCall::HelperStop => Some("helper.exe"),
         HostCall::UpnpDiscover => Some("upnp"),
+        HostCall::BlockedAddresses => Some("firewall.blocks.read"),
         _ => None,
     }
 }

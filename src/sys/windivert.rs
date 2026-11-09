@@ -12,6 +12,8 @@ pub const LAYER_NETWORK: i32 = 0;
 pub const LAYER_FLOW: i32 = 2;
 pub const FLAG_SNIFF: u64 = 1;
 pub const FLAG_RECV_ONLY: u64 = 4;
+/// Matching packets are dropped; the handle never has to read them.
+pub const FLAG_DROP: u64 = 2;
 /// `WinDivertShutdown(how)`: stop receiving and sending.
 const SHUTDOWN_BOTH: i32 = 3;
 /// Stop new packets being queued; what is already queued can still be received.

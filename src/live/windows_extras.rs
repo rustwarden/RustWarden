@@ -1,7 +1,7 @@
 //! The Windows programs "Block Windows components that don't need internet" cuts off. Edge, WebView2,
 //! the Store and App Installer are deliberately not here: they are left to the user, rule by rule.
 
-use super::apps::{file_name, system_root};
+use super::apps::file_name;
 
 pub struct Target {
     pub name: &'static str,
@@ -240,8 +240,8 @@ fn expand(pattern: &str) -> Vec<String> {
 /// Every file of every target that exists on this PC (SysWOW64 twins included), minus the protected
 /// ones, with the index of its group in [`GROUPS`].
 pub fn resolve(own_exe: &str) -> Vec<(usize, String)> {
-    let win = std::env::var("SystemRoot").unwrap_or_else(|_| system_root());
-    let pf = std::env::var("ProgramFiles").unwrap_or_else(|_| r"C:\Program Files".into());
+    let win = crate::settings::windows_dir();
+    let pf = crate::settings::known_folder(&windows::Win32::UI::Shell::FOLDERID_ProgramFiles).unwrap_or_else(|| r"C:\Program Files".into());
     let mut out: Vec<(usize, String)> = Vec::new();
     for (gi, pattern) in GROUPS.iter().enumerate().flat_map(|(gi, g)| g.targets.iter().flat_map(|t| t.files).map(move |f| (gi, f))) {
         let pattern = pattern.replace("{win}", &win).replace("{pf}", &pf);

@@ -46,7 +46,7 @@ fn dns_from_text(t: &str) -> DnsMap {
 }
 
 fn hosts_dir() -> std::path::PathBuf {
-    std::path::PathBuf::from(std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into())).join(r"System32\drivers\etc")
+    std::path::PathBuf::from(crate::settings::windows_dir()).join(r"System32\drivers\etc")
 }
 
 fn hosts_snapshot() -> BTreeMap<String, String> {

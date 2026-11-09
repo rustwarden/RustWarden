@@ -5,7 +5,8 @@ use super::{from_wide, wide};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use windows::Win32::Foundation::{ERROR_BUFFER_OVERFLOW, NO_ERROR};
 use windows::Win32::NetworkManagement::IpHelper::{
-    FreeMibTable, GAA_FLAG_INCLUDE_GATEWAYS, GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_MULTICAST, GetAdaptersAddresses, GetIpNetTable2, IP_ADAPTER_ADDRESSES_LH, MIB_IPNET_TABLE2,
+    FreeMibTable, GAA_FLAG_INCLUDE_GATEWAYS, GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_MULTICAST, GetAdaptersAddresses, GetIpForwardTable2, GetIpNetTable2, IP_ADAPTER_ADDRESSES_LH, MIB_IPFORWARD_TABLE2,
+    MIB_IPNET_TABLE2,
 };
 use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6, AF_UNSPEC, SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6, SOCKET_ADDRESS};
 use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, RegGetValueW};
@@ -149,6 +150,30 @@ pub fn neighbors() -> Result<Vec<Neighbor>, String> {
             mac[..len].copy_from_slice(&r.PhysicalAddress[..len]);
             // NlnsUnreachable = 0, Incomplete = 1; everything above has a MAC.
             out.push(Neighbor { if_index: r.InterfaceIndex, ip, mac, resolved: r.State.0 >= 2 && len == 6 });
+        }
+        FreeMibTable(table as *const _);
+    }
+    Ok(out)
+}
+
+/// Single-address routes that go through a gateway: the way a VPN client keeps the packets to its own server outside the
+/// tunnel. Each is (address, adapter index).
+pub fn host_routes() -> Result<Vec<(IpAddr, u32)>, String> {
+    let mut table: *mut MIB_IPFORWARD_TABLE2 = std::ptr::null_mut();
+    let mut out = Vec::new();
+    unsafe {
+        GetIpForwardTable2(AF_UNSPEC, &mut table).ok().map_err(|e| format!("GetIpForwardTable2 failed: {e}"))?;
+        let rows = std::slice::from_raw_parts((*table).Table.as_ptr(), (*table).NumEntries as usize);
+        for r in rows {
+            let prefix = &r.DestinationPrefix;
+            let (dest, next, whole) = match prefix.Prefix.si_family {
+                f if f == AF_INET => (IpAddr::V4(Ipv4Addr::from(prefix.Prefix.Ipv4.sin_addr.S_un.S_addr.to_le_bytes())), r.NextHop.Ipv4.sin_addr.S_un.S_addr != 0, prefix.PrefixLength == 32),
+                f if f == AF_INET6 => (IpAddr::V6(Ipv6Addr::from(prefix.Prefix.Ipv6.sin6_addr.u.Byte)), r.NextHop.Ipv6.sin6_addr.u.Byte != [0; 16], prefix.PrefixLength == 128),
+                _ => continue,
+            };
+            if whole && next {
+                out.push((dest, r.InterfaceIndex));
+            }
         }
         FreeMibTable(table as *const _);
     }

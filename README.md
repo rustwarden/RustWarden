@@ -24,8 +24,8 @@ A fast, native Windows network monitor and firewall front-end, written in Rust.
 
 ### What it does
 - **See what is happening:** a live traffic graph and world map per app, live connections, a DNS log and a network scanner.
-- **Stay in control:** allow, block or be asked about each program, destination rules, upload limits and data quotas.
-- **Get warned, not buried:** alerts, malicious IP protection, VirusTotal scores and a behaviour baseline.
+- **Stay in control:** allow, block or be asked about each program, destination rules, a VPN kill switch, upload limits and data quotas.
+- **Get warned, not buried:** alerts, malicious IP protection, VirusTotal scores, beaconing and DNS tunnelling detection and a behaviour baseline.
 - **Watch your connection and PC:** speedtest, ping monitor and hardware history.
 - **Fits your setup:** Home Assistant, Prometheus and webhook notifications.
 

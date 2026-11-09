@@ -4,7 +4,7 @@
 //! to do (read only, or read and write).
 
 use plugin_sdk::guest::{self, Guest};
-use plugin_sdk::{API_VERSION, Call, Event, Kind, Manifest, Reply, UiTree};
+use plugin_sdk::{API_VERSION, Call, Event, Kind, Manifest, Reply, TabDef, UiTree};
 use serde::{Deserialize, Serialize};
 
 /// Name of the throw-away alias the write check creates and deletes at once.
@@ -286,6 +286,276 @@ fn demo_probe(cfg: &Cfg, write: bool, keep: Option<bool>) -> Caps {
     }
 }
 
+// ---- what the options do ----
+
+/// The alias RustWarden keeps on the router: the addresses RustWarden has blocked. A firewall rule that blocks this
+/// alias (made by hand on the router) is what turns the list into a block there.
+const BLOCK_ALIAS: &str = "RustWarden_blocked";
+const ALIAS_NOTE: &str = "Addresses blocked by RustWarden. Managed by RustWarden: edits here are overwritten.";
+const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS p_opnsense__devices (
+    mac TEXT PRIMARY KEY, checked INTEGER NOT NULL, found INTEGER NOT NULL DEFAULT 0,
+    name TEXT NOT NULL DEFAULT '', area TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '', url TEXT NOT NULL DEFAULT '');";
+/// Gateway and log rows kept for the tab.
+const LOG_ROWS: usize = 25;
+
+fn field(v: &serde_json::Value, keys: &[&str]) -> String {
+    keys.iter().find_map(|k| v.get(*k).and_then(|x| x.as_str().map(str::to_owned).or_else(|| x.as_f64().map(|n| n.to_string())))).unwrap_or_default()
+}
+
+/// MAC addresses compare without regard to case or separators.
+fn norm_mac(mac: &str) -> String {
+    mac.chars().filter(char::is_ascii_hexdigit).collect::<String>().to_lowercase()
+}
+
+/// (MAC, host name) of the DHCP leases (ISC, or Kea's `rows`) and of an ARP table (a plain array), whichever `body` is.
+fn names_in(body: &str) -> Vec<(String, String)> {
+    let v: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
+    let rows = v.get("rows").and_then(|r| r.as_array()).or_else(|| v.as_array()).cloned().unwrap_or_default();
+    rows.iter()
+        .filter_map(|r| {
+            let mac = norm_mac(&field(r, &["mac", "hwaddr"]));
+            let name = field(r, &["hostname", "client-hostname"]);
+            (mac.len() == 12 && !name.trim().is_empty()).then(|| (mac, name.trim().to_owned()))
+        })
+        .collect()
+}
+
+#[derive(Debug, PartialEq)]
+struct Gateway {
+    name: String,
+    status: String,
+    delay: String,
+    loss: String,
+}
+
+fn gateways_in(body: &str) -> Vec<Gateway> {
+    let v: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
+    v.get("items")
+        .and_then(|i| i.as_array())
+        .map(|items| items.iter().map(|g| Gateway { name: field(g, &["name"]), status: field(g, &["status_translated", "status"]), delay: field(g, &["delay"]), loss: field(g, &["loss"]) }).collect())
+        .unwrap_or_default()
+}
+
+/// The newest lines of the router's firewall log: "time|action|interface|source|destination|protocol".
+fn log_lines(body: &str) -> Vec<String> {
+    let v: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
+    let rows = v.as_array().or_else(|| v.get("rows").and_then(|r| r.as_array())).cloned().unwrap_or_default();
+    rows.iter()
+        .take(LOG_ROWS)
+        .map(|r| {
+            let end = |addr: &str, port: &str| {
+                let (a, p) = (field(r, &[addr]), field(r, &[port]));
+                if p.is_empty() { a } else { format!("{a}:{p}") }
+            };
+            let clean = |s: String| s.replace('|', "/").replace('\n', " ");
+            [
+                field(r, &["__timestamp__", "timestamp"]),
+                field(r, &["action"]),
+                field(r, &["interface_name", "interface", "intf"]),
+                end("src", "srcport"),
+                end("dst", "dstport"),
+                field(r, &["protoname", "proto"]),
+            ]
+            .map(clean)
+            .join("|")
+        })
+        .collect()
+}
+
+/// The addresses that go into the alias: valid, once each, sorted. Anything else never reaches the router.
+fn alias_addresses(blocked: &[String]) -> Vec<String> {
+    let mut ips: Vec<String> = blocked.iter().filter_map(|s| s.trim().parse::<std::net::IpAddr>().ok()).map(|ip| ip.to_string()).collect();
+    ips.sort();
+    ips.dedup();
+    ips
+}
+
+/// Creates or updates `RustWarden_blocked` and has the router load it. Returns how many addresses it now holds.
+fn push_with(t: &dyn Transport, ips: &[String]) -> Result<usize, String> {
+    let body = serde_json::json!({"alias": {"enabled": "1", "name": BLOCK_ALIAS, "type": "host", "content": ips.join("\n"), "description": ALIAS_NOTE}}).to_string();
+    let uuid = match t.get(&format!("/api/firewall/alias/getAliasUUID/{BLOCK_ALIAS}")) {
+        Ok((200, b)) => json_str(&b, "uuid"),
+        _ => String::new(),
+    };
+    let path = if uuid.is_empty() { "/api/firewall/alias/addItem".to_owned() } else { format!("/api/firewall/alias/setItem/{uuid}") };
+    let (code, reply) = t.post(&path, &body)?;
+    if code == 401 || code == 403 {
+        return Err("The router refused to change the alias: the key can't write.".into());
+    }
+    if json_str(&reply, "result") != "saved" {
+        return Err(format!("The router didn't save the alias (HTTP {code})."));
+    }
+    // Only the alias is loaded; no firewall rule is touched.
+    match t.post("/api/firewall/alias/reconfigure", "{}")? {
+        (200, b) if json_str(&b, "status") == "ok" => Ok(ips.len()),
+        (code, _) => Err(format!("The alias was saved, but the router didn't load it (HTTP {code}).")),
+    }
+}
+
+fn fnv(s: &str) -> String {
+    format!("{:08x}", s.bytes().fold(0x811c_9dc5u32, |h, b| (h ^ u32::from(b)).wrapping_mul(0x0100_0193)))
+}
+
+/// Single-quoted SQL text.
+fn q(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
+}
+
+/// Names the scanned devices from the router's leases and ARP table. Returns how many were named.
+fn pull_devices(t: &dyn Transport, cfg: &Cfg) -> Result<usize, String> {
+    let scanned = guest::devices()?;
+    if scanned.is_empty() {
+        return Ok(0);
+    }
+    let mut known = std::collections::HashMap::new();
+    for path in ["/api/dhcpv4/leases/searchLease", "/api/kea/leases4/search", "/api/diagnostics/interface/getArp"] {
+        if let Ok((200, body)) = t.get(path) {
+            for (mac, name) in names_in(&body) {
+                known.entry(mac).or_insert(name);
+            }
+        }
+    }
+    let now = guest::now();
+    let mut named = 0;
+    for d in scanned {
+        let Some(name) = known.get(&norm_mac(&d.mac)) else { continue };
+        let sql = format!("INSERT OR REPLACE INTO p_opnsense__devices (mac, checked, found, name, area, kind, model, url) VALUES ({}, {now}, 1, {}, '', '', '', {})", q(&d.mac), q(name), q(&cfg.url));
+        guest::db_exec(&sql)?;
+        named += 1;
+    }
+    Ok(named)
+}
+
+fn set_status(text: &str) {
+    guest::config_set("status", text);
+}
+
+/// One round of the enabled options. Blocks the plugin's own worker, never the window.
+fn refresh() {
+    let cfg = Cfg::load();
+    if !cfg.ready() || !cfg.caps().is_some_and(Caps::any_read) {
+        return;
+    }
+    let demo = guest::is_demo();
+    let router = Router(&cfg);
+    let mut problems: Vec<String> = Vec::new();
+    if cfg.pull_devices && !demo {
+        match pull_devices(&router, &cfg) {
+            Ok(n) => guest::config_set("named", &n.to_string()),
+            Err(e) => problems.push(format!("Devices: {e}")),
+        }
+    }
+    if cfg.pull_gateway {
+        let rows = if demo {
+            "WAN_GW|Online|4.8 ms|0.0 %\nWAN6_GW|Online|5.1 ms|0.0 %".to_owned()
+        } else {
+            match router.get("/api/routes/gateway/status") {
+                Ok((200, b)) => gateways_in(&b).iter().map(|g| format!("{}|{}|{}|{}", g.name, g.status, g.delay, g.loss)).collect::<Vec<_>>().join("\n"),
+                Ok((c, _)) => {
+                    problems.push(format!("Gateways: HTTP {c}"));
+                    guest::config_get("gw")
+                }
+                Err(e) => {
+                    problems.push(format!("Gateways: {e}"));
+                    guest::config_get("gw")
+                }
+            }
+        };
+        guest::config_set("gw", &rows);
+    }
+    if cfg.pull_log {
+        let rows = if demo {
+            "2026-11-09T09:14:02|block|WAN|203.0.113.7:51514|198.51.100.2:23|tcp\n2026-11-09T09:13:40|block|WAN|203.0.113.50:40022|198.51.100.2:3389|tcp".to_owned()
+        } else {
+            match router.get(&format!("/api/diagnostics/firewall/log?limit={LOG_ROWS}")) {
+                Ok((200, b)) => log_lines(&b).join("\n"),
+                Ok((c, _)) => {
+                    problems.push(format!("Firewall log: HTTP {c}"));
+                    guest::config_get("fwlog")
+                }
+                Err(e) => {
+                    problems.push(format!("Firewall log: {e}"));
+                    guest::config_get("fwlog")
+                }
+            }
+        };
+        guest::config_set("fwlog", &rows);
+    }
+    if cfg.push_blocks && cfg.can_push() {
+        match guest::blocked_addresses() {
+            Ok(list) => {
+                let ips = alias_addresses(&list);
+                let hash = fnv(&format!("{}\n{}", cfg.url, ips.join(",")));
+                // The router is only asked when the list (or the router) changed.
+                if guest::config_get("pushed") != hash {
+                    let sent = if demo { Ok(ips.len()) } else { push_with(&router, &ips) };
+                    match sent {
+                        Ok(n) => {
+                            guest::config_set("pushed", &hash);
+                            guest::config_set("pushed_n", &n.to_string());
+                        }
+                        Err(e) => problems.push(format!("Blocked addresses: {e}")),
+                    }
+                }
+            }
+            Err(e) => problems.push(format!("Blocked addresses: {e}")),
+        }
+    }
+    guest::config_set("updated", &guest::now().to_string());
+    set_status(&problems.join(" "));
+}
+
+fn table(headers: &[&str], lines: &str, columns: usize) -> UiTree {
+    let mut children: Vec<UiTree> = headers.iter().map(|h| UiTree::Heading((*h).to_owned())).collect();
+    for line in lines.lines() {
+        let mut cells: Vec<&str> = line.split('|').collect();
+        cells.resize(columns, "");
+        children.extend(cells.into_iter().take(columns).map(|c| UiTree::Label(c.to_owned())));
+    }
+    UiTree::Grid { columns, children }
+}
+
+fn tab() -> UiTree {
+    let cfg = Cfg::load();
+    let mut rows = vec![UiTree::Info("What the OPNsense router reports. Choose what to bring in under Settings > Plugins > OPNsense.".into())];
+    let on = cfg.pull_gateway || cfg.pull_log || cfg.push_blocks || cfg.pull_devices;
+    if !cfg.ready() || !on {
+        rows.push(UiTree::Weak("Add the router's address and API key, test the connection and switch an option on in the plugin's settings.".into()));
+        return UiTree::Column(rows);
+    }
+    rows.push(UiTree::Button { id: "refresh".into(), text: "Refresh now".into() });
+    let status = guest::config_get("status");
+    if !status.is_empty() {
+        rows.push(UiTree::Label(format!("⚠ {status}")));
+    }
+    let updated: i64 = guest::config_get("updated").parse().unwrap_or(0);
+    rows.push(UiTree::Weak(if updated == 0 {
+        "Not fetched yet; the router is asked once a minute.".to_owned()
+    } else {
+        format!("Updated {} s ago. The router is asked once a minute.", (guest::now() - updated).max(0))
+    }));
+    if cfg.pull_gateway {
+        rows.push(UiTree::Heading("Gateways".into()));
+        rows.push(table(&["Name", "Status", "Delay", "Loss"], &guest::config_get("gw"), 4));
+    }
+    if cfg.pull_log {
+        rows.push(UiTree::Heading("Router firewall log".into()));
+        rows.push(table(&["Time", "Action", "Interface", "From", "To", "Protocol"], &guest::config_get("fwlog"), 6));
+    }
+    if cfg.pull_devices {
+        rows.push(UiTree::Label(format!("Named {} scanned device(s) from the router's leases and ARP table (shown on the Scanner tab).", guest::config_get("named").parse::<usize>().unwrap_or(0))));
+    }
+    if cfg.push_blocks {
+        let n = guest::config_get("pushed_n");
+        rows.push(UiTree::Label(if n.is_empty() {
+            format!("Not sent yet. The alias {BLOCK_ALIAS} is created on the first send.")
+        } else {
+            format!("Sent {n} blocked address(es) to the alias {BLOCK_ALIAS}.")
+        }));
+    }
+    UiTree::Column(rows)
+}
+
 // ---- the page ----
 
 fn badge(on: bool, label: &str) -> UiTree {
@@ -434,10 +704,15 @@ impl Guest for Opnsense {
             author: "RustWarden".into(),
             api_version: API_VERSION,
             kind: Kind::System,
+            tabs: vec![TabDef { id: "opnsense".into(), title: "OPNsense".into() }],
             settings_page: true,
             // The router is wherever the user put it, and its own certificate is usually self-signed.
             http_hosts: vec!["*".into()],
             allow_insecure_tls: true,
+            // Names for scanned devices, and the blocked addresses to send to the router's alias.
+            permissions: vec!["devices.annotate".into(), "firewall.blocks.read".into()],
+            tick_secs: 60,
+            schema: SCHEMA.into(),
             ..Manifest::default()
         }
     }
@@ -445,6 +720,15 @@ impl Guest for Opnsense {
     fn handle(call: Call) -> Reply {
         match call {
             Call::RenderSettings => Reply::Ui(page()),
+            Call::RenderTab { .. } => Reply::Ui(tab()),
+            Call::Tick => {
+                refresh();
+                Reply::Done
+            }
+            Call::Event(Event::Click { id }) if id == "refresh" => {
+                refresh();
+                Reply::Done
+            }
             Call::Event(e) => {
                 event(e);
                 Reply::Done
@@ -524,6 +808,8 @@ mod tests {
     /// Answers by path prefix; records every POST.
     struct Fake {
         reads: Vec<(&'static str, u16)>,
+        /// What `getAliasUUID` says.
+        alias: &'static str,
         add: (u16, &'static str),
         del: (u16, &'static str),
         posts: RefCell<Vec<String>>,
@@ -531,7 +817,7 @@ mod tests {
 
     impl Fake {
         fn new(add: (u16, &'static str)) -> Self {
-            Self { reads: vec![], add, del: (200, "{\"result\":\"deleted\"}"), posts: RefCell::new(vec![]) }
+            Self { reads: vec![], alias: "{}", add, del: (200, "{\"result\":\"deleted\"}"), posts: RefCell::new(vec![]) }
         }
     }
 
@@ -543,12 +829,21 @@ mod tests {
             if path == "/api/core/firmware/status" {
                 return Ok((200, "{\"product_version\":\"25.1.3\"}".into()));
             }
+            if path.contains("getAliasUUID") {
+                return Ok((200, self.alias.into()));
+            }
             let code = self.reads.iter().find(|(p, _)| path.starts_with(p)).map_or(403, |(_, c)| *c);
             Ok((code, "{}".into()))
         }
         fn post(&self, path: &str, _body: &str) -> Reply2 {
             self.posts.borrow_mut().push(path.to_owned());
-            Ok(if path.contains("addItem") { (self.add.0, self.add.1.into()) } else { (self.del.0, self.del.1.into()) })
+            Ok(if path.contains("addItem") || path.contains("setItem") {
+                (self.add.0, self.add.1.into())
+            } else if path.contains("reconfigure") {
+                (200, "{\"status\":\"ok\"}".into())
+            } else {
+                (self.del.0, self.del.1.into())
+            })
         }
     }
 
@@ -618,6 +913,45 @@ mod tests {
         assert_eq!(parse_add(403, ""), Added::Denied);
         assert!(matches!(parse_add(200, "{\"result\":\"failed\",\"validations\":{}}"), Added::Failed(_)));
         assert!(matches!(parse_add(200, "not json"), Added::Failed(_)));
+    }
+
+    #[test]
+    fn names_come_from_leases_and_the_arp_table_by_mac() {
+        let leases = r#"{"rows":[{"address":"192.168.1.20","mac":"AA:BB:CC:00:11:22","hostname":"laptop"},{"address":"192.168.1.21","hwaddr":"aa:bb:cc:00:11:33","hostname":""}]}"#;
+        assert_eq!(names_in(leases), [("aabbcc001122".to_owned(), "laptop".to_owned())]);
+        let arp = r#"[{"ip":"192.168.1.30","mac":"aa:bb:cc:00:11:44","hostname":"printer","manufacturer":"HP"},{"ip":"1.2.3.4","mac":"bad","hostname":"x"}]"#;
+        assert_eq!(names_in(arp), [("aabbcc001144".to_owned(), "printer".to_owned())]);
+        assert!(names_in("not json").is_empty());
+        assert_eq!(norm_mac("AA-BB-CC-00-11-22"), "aabbcc001122");
+    }
+
+    #[test]
+    fn gateways_and_log_lines_are_read_for_the_tab() {
+        let gw = r#"{"items":[{"name":"WAN_GW","status":"none","status_translated":"Online","delay":"4.8 ms","loss":"0.0 %"}],"status":"ok"}"#;
+        assert_eq!(gateways_in(gw), [Gateway { name: "WAN_GW".into(), status: "Online".into(), delay: "4.8 ms".into(), loss: "0.0 %".into() }]);
+        let log = r#"[{"__timestamp__":"2026-11-09T09:14:02","action":"block","interface_name":"wan","src":"203.0.113.7","srcport":"51514","dst":"198.51.100.2","dstport":"23","protoname":"tcp"}]"#;
+        assert_eq!(log_lines(log), ["2026-11-09T09:14:02|block|wan|203.0.113.7:51514|198.51.100.2:23|tcp"]);
+        assert!(log_lines("{}").is_empty() && gateways_in("[]").is_empty());
+    }
+
+    #[test]
+    fn only_valid_addresses_reach_the_alias() {
+        let list = ["203.0.113.50".to_owned(), " 198.51.100.23 ".to_owned(), "203.0.113.50".to_owned(), "evil\"; drop".to_owned(), "2001:db8::1".to_owned(), "".to_owned()];
+        assert_eq!(alias_addresses(&list), ["198.51.100.23", "2001:db8::1", "203.0.113.50"]);
+    }
+
+    #[test]
+    fn the_alias_is_created_then_updated_and_loaded_without_touching_rules() {
+        let f = Fake::new((200, SAVED));
+        assert_eq!(push_with(&f, &["203.0.113.50".into()]), Ok(1));
+        assert_eq!(f.posts.borrow().as_slice(), ["/api/firewall/alias/addItem", "/api/firewall/alias/reconfigure"]);
+        let mut f = Fake::new((200, "{\"result\":\"saved\"}"));
+        f.alias = "{\"uuid\":\"u-9\"}";
+        assert_eq!(push_with(&f, &[]), Ok(0));
+        assert_eq!(f.posts.borrow().as_slice(), ["/api/firewall/alias/setItem/u-9", "/api/firewall/alias/reconfigure"]);
+        assert!(!f.posts.borrow().iter().any(|p| p.contains("firewall/filter")), "no rule is created");
+        assert!(push_with(&Fake::new((403, "")), &[]).unwrap_err().contains("can't write"));
+        assert!(push_with(&Fake::new((200, "{\"result\":\"failed\"}")), &[]).is_err());
     }
 
     #[test]

@@ -37,6 +37,27 @@ pub fn hash(password: &str) -> String {
     format!("{}:{}", hex(&salt), hex(&digest(&salt, password)))
 }
 
+fn copy_path() -> std::path::PathBuf {
+    crate::settings::admin_dir().join("tamper.dat")
+}
+
+/// Keeps a copy of the password hash in Program Files (sealed for this user), or removes it when the password is removed.
+/// Only an elevated run can write there; without administrator rights the config file alone holds the password.
+pub fn remember(hash: &str) {
+    if hash.is_empty() {
+        let _ = std::fs::remove_file(copy_path());
+    } else if let Some(sealed) = crate::settings::secret::seal(hash) {
+        let _ = std::fs::create_dir_all(crate::settings::admin_dir()).and_then(|()| std::fs::write(copy_path(), sealed));
+    }
+}
+
+/// The hash `remember` kept, or empty.
+pub fn recall() -> String {
+    let text = std::fs::read_to_string(copy_path()).unwrap_or_default();
+    let hash = crate::settings::secret::open(text.trim());
+    if hash.starts_with("dpapi:") { String::new() } else { hash }
+}
+
 /// False for an empty or unreadable stored value, so a damaged setting never unlocks anything.
 pub fn verify(stored: &str, password: &str) -> bool {
     let Some((salt, want)) = stored.split_once(':') else { return false };

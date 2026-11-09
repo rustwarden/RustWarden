@@ -370,6 +370,8 @@ fn run(f: Found, state: PluginState, demo: bool, ctx: Option<egui::Context>, (tx
         }
         repaint(&ctx);
     }
+    // The plugin is switched off or replaced: its helper program (a tunnel, say) must not outlive it.
+    crate::sys::helper::stop(&f.manifest.id);
 }
 
 /// The plugin's in-memory database in Demo mode. Named and shared, so the page that draws its charts can read it too.

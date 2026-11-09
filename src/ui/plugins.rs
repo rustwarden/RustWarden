@@ -513,7 +513,7 @@ mod tests {
 
     #[test]
     fn every_permission_the_host_knows_has_a_description() {
-        for p in ["alerts.read", "alerts.write", "ping", "devices.annotate", "programs.hash", "metrics.serve", "upnp", "helper.exe", "browser.session"] {
+        for p in ["alerts.read", "alerts.write", "ping", "devices.annotate", "programs.hash", "metrics.serve", "upnp", "helper.exe", "browser.session", "firewall.blocks.read"] {
             assert!(!perm_text(p).starts_with("A permission this version"), "{p}");
         }
     }

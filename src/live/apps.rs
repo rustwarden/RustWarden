@@ -23,7 +23,7 @@ pub struct Resolved {
 pub const SYSTEM_KEY: &str = "system";
 
 pub fn system_root() -> String {
-    std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into()).to_lowercase()
+    crate::settings::windows_dir().to_lowercase()
 }
 
 pub fn key_for_path(path: &str) -> String {

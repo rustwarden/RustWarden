@@ -1,17 +1,17 @@
-# Graph Report - RustWarden  (2026-11-07)
+# Graph Report - RustWarden  (2026-11-09)
 
 ## Corpus Check
-- 181 files · ~264,156 words
+- 191 files · ~278,682 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 6 file(s) not represented in the graph (top: (none) 2, .ico 1, .tsv 1)
 
 ## Summary
-- 5262 nodes · 11451 edges · 227 communities (201 shown, 26 thin omitted)
-- Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 550 edges (avg confidence: 0.66)
+- 5509 nodes · 11969 edges · 220 communities (195 shown, 25 thin omitted)
+- Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 558 edges (avg confidence: 0.66)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `d4f3ea64`
+- Built from commit: `acea0ad5`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -31,7 +31,7 @@
 - baseline.rs
 - settings.rs
 - update.rs
-- AppIcon
+- guard.rs
 - Backend
 - manager.rs
 - RustWarden
@@ -57,7 +57,7 @@
 - AlertPeriod
 - wfp.rs
 - QosLimit
-- UiTree
+- abuseipdb/src/lib.rs
 - .notify
 - driver.rs
 - netinfo.rs
@@ -81,17 +81,17 @@
 - steps
 - dnsguard.rs
 - net.rs
-- tray_menu.rs
+- TrayAct
 - monitors.rs
 - clock.rs
 - hashset
 - metrics.rs
 - steps
 - data.rs
-- live/mod.rs
+- beacon.rs
 - Shared
 - tab
-- modal.rs
+- picker.rs
 - ha/src/lib.rs
 - speed.rs
 - sniff.rs
@@ -100,26 +100,26 @@
 - watch.rs
 - map.rs
 - run
-- Painter
+- .memory
 - ui_tree.rs
 - ConfirmAction
 - quota.rs
-- live/geo.rs
+- report.rs
 - services.rs
 - domains.rs
 - ping/src/lib.rs
 - Monitors
 - shots.rs
 - live/traffic.rs
-- picker.rs
-- RangeSet
+- netwatch.rs
+- DestRule
 - netpkt.rs
 - Outcome
 - Priority
 - scandetect.rs
 - protect.rs
 - live/dns.rs
-- RuleAction
+- alert_rules.rs
 - Dialog
 - wizard.rs
 - .tick
@@ -128,11 +128,11 @@
 - tray.rs
 - Theme
 - RangeSet
-- DestRule
+- dnstunnel.rs
 - pcap.rs
 - windows_extras.rs
 - guest.rs
-- AppRecord
+- live/geo.rs
 - TcpState
 - traffic_load.rs
 - Country
@@ -140,7 +140,7 @@
 - sys/qos.rs
 - filedialog.rs
 - .handle
-- tamper.rs
+- tlsprint.rs
 - err
 - host.rs
 - ask.rs
@@ -154,44 +154,45 @@
 - QuotaStatus
 - netparse.rs
 - HistoryData
-- Address
+- .new
 - notes.rs
+- session.rs
 - connections.rs
-- tcp_row
+- tray_menu.rs
 - PWSTR
 - PlanPeriod
-- HardwareSample
+- duration
 - render.rs
 - export.rs
 - src/geo.rs
-- TrafficFilter
-- super
+- row_in
+- curl.rs
 - pcwstr
 - hashmap
 - vt.rs
 - StatusNote
-- Vt
+- Geo
 - bucket.rs
 - HostCall
 - Rule
-- window_at
-- DeviceKind
-- HardwareSample
+- OPNsense plugin
+- Writing a RustWarden plugin
+- Report
 - Line
 - db.rs
 - QuotaAction
-- listeners
+- RustWarden
 - Direction
 - Card
-- W
+- remove_all_owned
 - Found
 - countries.rs
 - bundled.rs
 - install_service
 - quiet
 - AlertLevel
-- accent.rs
-- FirewallInfo
+- Place
+- path
 - audit.rs
 - AlertCheck
 - SpeedRoute
@@ -199,7 +200,6 @@
 - Security Policy
 - upnp/src/lib.rs
 - PCWSTR
-- .run
 - ExtrasAct
 - AccountChange
 - RuleSpec
@@ -211,26 +211,19 @@
 - Serialize
 - Manual checks on a real machine
 - Dim
-- erase
-- .start
+- What it does
+- NetEvent
 - DnsEntry
-- run
-- ThreatAct
+- DlJob
+- .hardware_tab
 - plan-release.sh
 - AlertSwitches
 - Held
-- .alert
 - main.rs
-- .show
 - flag_data.rs
 - plugin-sdk
-- with_reader
 - install_elevated
-- Capabilities
 - DeviceEvent
-- tcp6_row
-- CaFile
-- __call
 - P2pApp
 
 ## God Nodes (most connected - your core abstractions)
@@ -239,23 +232,23 @@
 3. `LiveBackend` - 113 edges
 4. `Settings` - 106 edges
 5. `Backend` - 103 edges
-6. `MockBackend` - 88 edges
-7. `FwController` - 67 edges
-8. `UiTree` - 64 edges
-9. `AlertKind` - 64 edges
+6. `MockBackend` - 91 edges
+7. `FwController` - 72 edges
+8. `UiTree` - 71 edges
+9. `AlertKind` - 68 edges
 10. `Icon` - 62 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `Writer` --references--> `W`  [INFERRED]
   src/pcap.rs → build.rs
-- `badge()` --references--> `UiTree`  [EXTRACTED]
-  plugins/opnsense/src/lib.rs → plugin-sdk/src/lib.rs
 - `read_cache()` --calls--> `valid()`  [INFERRED]
   src/live/threat.rs → plugin-sdk/src/notify.rs
 - `ha_config()` --calls--> `url()`  [INFERRED]
   src/plugins/legacy.rs → plugins/ha/src/lib.rs
 - `check()` --calls--> `url()`  [INFERRED]
   src/update.rs → plugins/ha/src/lib.rs
+- `ha_config()` --calls--> `token()`  [INFERRED]
+  src/plugins/legacy.rs → plugins/ha/src/lib.rs
 
 ## Import Cycles
 - 1-file cycle: `src/ui/plugins.rs -> src/ui/plugins.rs`
@@ -264,11 +257,15 @@
 - 1-file cycle: `src/ui/mod.rs -> src/ui/mod.rs`
 - 2-file cycle: `src/plugins/wasm/manager.rs -> src/plugins/wasm/ui_tree.rs -> src/plugins/wasm/manager.rs`
 
-## Communities (227 total, 26 thin omitted)
+## Communities (220 total, 25 thin omitted)
 
 ### Community 0 - "live/firewall.rs"
 Cohesion: 0.04
-Nodes (65): ACTIVE_PROFILE_KEY, adopt_legacy_rules(), allow_engine_traffic(), ASK_KEY, ask_marker_exists(), ask_marker_path(), audit_prev_path(), block_all_exceptions() (+57 more)
+Nodes (66): a_service_rule_is_a_separate_row_with_its_own_name(), ACTIVE_PROFILE_KEY, allow_engine_traffic(), allow_rules_are_ours_outbound_and_distinct_from_block_rules(), allow_spec(), ASK_KEY, ask_marker_exists(), ask_marker_path() (+58 more)
+
+### Community 1 - "LiveBackend"
+Cohesion: 0.04
+Nodes (6): db_path(), hosts_with_the_same_label_merge_into_one_row(), LiveBackend, MAX_HOSTS, merge_hosts(), verdict_shown()
 
 ### Community 2 - "toast.rs"
 Cohesion: 0.06
@@ -279,16 +276,16 @@ Cohesion: 0.08
 Nodes (54): accent(), ACCENT, accent_default(), accent_replaces_the_defaults_and_clears(), accent_rgb(), accent_soft(), accent_text(), acrylic() (+46 more)
 
 ### Community 4 - "threat.rs"
-Cohesion: 0.14
-Nodes (22): a_failed_list_keeps_only_its_own_last_good_entries(), add_name(), ALLOW_KEY, cache_keeps_list_names(), download(), feed_name(), feeds_keep_only_public_addresses(), fetch() (+14 more)
+Cohesion: 0.11
+Nodes (30): a_failed_list_keeps_only_its_own_last_good_entries(), act(), add_name(), ALLOW_KEY, cache_keeps_list_names(), cache_path(), download(), feed_name() (+22 more)
 
 ### Community 5 - "MockBackend"
 Cohesion: 0.05
-Nodes (4): demo_bandwidth_limits_can_be_added_changed_and_cleared(), demo_destination_rules_add_replace_remove_and_reset(), demo_networks_keep_separate_devices_and_threat_lists(), MockBackend
+Nodes (5): demo_bandwidth_limits_can_be_added_changed_and_cleared(), demo_destination_rules_add_replace_remove_and_reset(), demo_networks_keep_separate_devices_and_threat_lists(), demo_traffic_filter_narrows_the_sample_data(), MockBackend
 
 ### Community 6 - "widgets.rs"
-Cohesion: 0.14
-Nodes (28): brand_menu_row(), check_item(), check_item_icon(), column_handles(), combo_icon(), dialog_style(), DialogState, dragged_border_stays_between_neighbours_and_never_sticks() (+20 more)
+Cohesion: 0.09
+Nodes (46): fit_text(), area(), area_faded(), area_faded_to(), area_impl(), area_soft_to(), brand_menu_row(), check_item() (+38 more)
 
 ### Community 7 - "thinkbroadband/src/lib.rs"
 Cohesion: 0.08
@@ -303,8 +300,8 @@ Cohesion: 0.08
 Nodes (33): a_limit_only_paces_the_directions_it_names(), die(), DROP_LIMIT, DROP_WINDOW_MS, Engine, filter_loop(), filter_needs_swap(), flow_loop() (+25 more)
 
 ### Community 10 - "dialogs.rs"
-Cohesion: 0.11
-Nodes (44): ThreatLists, ABOUT_CLICKS, ABOUT_PNG, accent_picker(), ACCENTS, ALERT_JUMP, alert_settings(), Autostart (+36 more)
+Cohesion: 0.13
+Nodes (42): ThreatLists, ABOUT_PNG, accent_picker(), ACCENTS, ALERT_JUMP, alert_settings(), Autostart, BarRow (+34 more)
 
 ### Community 11 - "webview.rs"
 Cohesion: 0.06
@@ -312,63 +309,63 @@ Nodes (35): CHECK, CHECK_SECS, Ev, GiveUp, Loaded, Msg, fetch(), GIVE_UP_SECS (+
 
 ### Community 12 - "baseline.rs"
 Cohesion: 0.07
-Nodes (26): active_days_by_hour(), BUSY_HOUR, DAY, DIM_ASN, DIM_COUNTRY, DIM_HOUR, DIM_VOLUME, hour_why() (+18 more)
+Nodes (34): active_days_by_hour(), BUSY_HOUR, DAY, DIM_ASN, DIM_COUNTRY, DIM_HOUR, DIM_VOLUME, hour_why() (+26 more)
 
 ### Community 13 - "settings.rs"
-Cohesion: 0.07
-Nodes (28): alert_rules_are_sanitized_and_survive_a_save(), app_mode_defaults_to_normal_and_round_trips(), baseline_settings_are_clamped(), config_dir(), deserialize(), DNS_FEED_DEFAULT, DNS_FEED_RETIRED, dns_log_defaults_and_clamp() (+20 more)
+Cohesion: 0.06
+Nodes (29): alert_rules_are_sanitized_and_survive_a_save(), app_mode_defaults_to_normal_and_round_trips(), baseline_settings_are_clamped(), config_dir(), deserialize(), DNS_FEED_DEFAULT, DNS_FEED_RETIRED, dns_log_defaults_and_clamp() (+21 more)
 
 ### Community 14 - "update.rs"
 Cohesion: 0.06
 Nodes (43): UpdateView, Available, CheckFailed, Checking, InstallFailed, Installing, Latest, UpdateChannel (+35 more)
 
-### Community 15 - "AppIcon"
-Cohesion: 0.08
-Nodes (22): AppCategory, AiAssistants, .ALL, Browsers, CloudSync, DevTools, Other, RemoteAccess (+14 more)
+### Community 15 - "guard.rs"
+Cohesion: 0.11
+Nodes (32): fingerprint(), GUARD_PREFIX, adapter(), ARMED_KEY, DOH_ADDRS, DOH_PREFIX, doh_specs(), ENDPOINTS_KEY (+24 more)
 
 ### Community 17 - "manager.rs"
-Cohesion: 0.10
-Nodes (26): annotates(), annotator(), annotator_ids(), any_notification_plugin(), broadcast_alert(), deliver_alert(), granted_settings(), HELD_MAX (+18 more)
+Cohesion: 0.08
+Nodes (44): annotates(), annotator(), annotator_ids(), any_notification_plugin(), apply(), broadcast_alert(), deliver_alert(), drop_tables() (+36 more)
 
 ### Community 18 - "RustWarden"
-Cohesion: 0.06
-Nodes (18): BLOCK_AFTER_MINS, default_window(), DestDraft, About, DomainDraft, fit_window(), HwSeries, make_backend() (+10 more)
+Cohesion: 0.05
+Nodes (22): BLOCK_AFTER_MINS, DomainDraft, fit_window(), Gated, Exit, Restart, ServiceStop, Settings (+14 more)
 
 ### Community 19 - "Settings"
-Cohesion: 0.09
-Nodes (12): AppMode, Driver, Normal, config_path(), Mode, Demo, Live, parse_hex() (+4 more)
+Cohesion: 0.10
+Nodes (9): AppMode, Driver, Normal, config_path(), Mode, Demo, Live, parse_hex() (+1 more)
 
 ### Community 20 - "live/apps.rs"
-Cohesion: 0.10
-Nodes (21): core_services_are_refused_and_other_services_are_not(), CRITICAL_SERVICES, describe_change(), ensure_record(), ensure_service_record(), file_name(), icon_for(), is_svchost() (+13 more)
+Cohesion: 0.09
+Nodes (27): core_services_are_refused_and_other_services_are_not(), critical_reason(), CRITICAL_SERVICES, describe_change(), ensure_record(), ensure_service_record(), file_name(), is_svchost() (+19 more)
 
 ### Community 21 - "speedtest/src/lib.rs"
 Cohesion: 0.10
 Nodes (24): demo_history(), demo_live(), demo_readings_ramp_up_through_the_three_phases(), demo_result(), DEMO_STEP_MS, DEMO_TEST_SECS, EXE, EXE_SHA256 (+16 more)
 
 ### Community 22 - "live/scanner.rs"
-Cohesion: 0.08
-Nodes (33): finish(), progress(), arp_probe(), Found, guess_kind(), kind_to_i64(), MAX_PREFIX_HOSTS, nbstat() (+25 more)
+Cohesion: 0.07
+Nodes (40): finish(), DeviceKind, Generic, Laptop, Raspberry, SmartDevice, WiFi, progress() (+32 more)
 
 ### Community 23 - "Db"
-Cohesion: 0.06
-Nodes (7): row(), app_records_and_missing_state(), Db, .APP_COLS, DeviceRow, devices_keep_user_names_and_go_offline(), dns_log_round_trips_and_prunes()
+Cohesion: 0.07
+Nodes (6): row(), Db, .APP_COLS, DeviceRow, devices_keep_user_names_and_go_offline(), dns_log_round_trips_and_prunes()
 
 ### Community 24 - "demo.rs"
-Cohesion: 0.09
-Nodes (27): FirewallApp, demo_alerts(), demo_apps(), demo_block_all_shows_active(), demo_connections(), demo_connections_have_sample_rows(), demo_dest_rules(), demo_devices() (+19 more)
+Cohesion: 0.07
+Nodes (31): FirewallApp, bump(), demo_alerts(), demo_apps(), demo_block_all_shows_active(), demo_connections(), demo_connections_have_sample_rows(), demo_dest_rules() (+23 more)
 
 ### Community 25 - "FwController"
-Cohesion: 0.13
-Nodes (11): extras_paused(), extras_rules(), FwController, is_aux(), is_ours(), paused_extras(), profile_since(), removed_apps() (+3 more)
+Cohesion: 0.12
+Nodes (13): block_all_marker_exists(), extras_paused(), extras_rules(), FwController, is_aux(), kept_block(), marker_path(), paused_extras() (+5 more)
 
 ### Community 26 - "util.rs"
 Cohesion: 0.08
 Nodes (20): app_icon_rgba(), async_memo_answers_none_until_the_read_lands_then_keeps_it(), AsyncMemo, AsyncMemo<K, V>, Bg, bg_runs_the_latest_waiting_request_and_reports_a_panic_once(), Bg<T>, BIT_UNITS (+12 more)
 
 ### Community 27 - "popup.rs"
-Cohesion: 0.10
-Nodes (24): ALERT_INFO_TITLE, ALERT_TITLE, ALERTS_SECTION, ask_buttons(), ASK_INFO_TITLE, ask_size(), ASK_TITLE, ASK_W (+16 more)
+Cohesion: 0.08
+Nodes (27): ThreatAct, Block, Unblock, Unwhitelist, Whitelist, ALERT_INFO_TITLE, ALERT_TITLE, ALERTS_SECTION (+19 more)
 
 ### Community 28 - "Icon"
 Cohesion: 0.05
@@ -388,19 +385,19 @@ Nodes (20): arp_mac_change_is_reported_once(), ArpChange, device_events(), devic
 
 ### Community 32 - "AlertKind"
 Cohesion: 0.05
-Nodes (35): AlertKind, .ALL, AnomalyContact, AnomalyHour, AnomalyVolume, AppChanged, Arp, Away (+27 more)
+Nodes (39): AlertKind, .ALL, AnomalyContact, AnomalyHour, AnomalyVolume, AppChanged, Arp, Away (+31 more)
 
 ### Community 33 - "autostart.rs"
 Cohesion: 0.07
 Nodes (17): CHILD, claim_instance(), EVENTS, in_program_files(), LAUNCH, LAUNCH_HIDDEN, MOVED_TO, REFUSED (+9 more)
 
 ### Community 34 - "RustWarden"
-Cohesion: 0.16
-Nodes (4): cell(), RustWarden, screen_size(), RustWarden
+Cohesion: 0.11
+Nodes (12): cell(), about_click_hits(), labelled(), Apply, Confirmed, Rename, StartUpdate, Trust (+4 more)
 
 ### Community 35 - "sys/mod.rs"
-Cohesion: 0.08
-Nodes (21): file_icon_rgba(), has_valid_embedded_signature(), service_has_sid(), from_wide(), hidden_start(), home_region(), message(), NO_WINDOW (+13 more)
+Cohesion: 0.09
+Nodes (21): file_icon_rgba(), has_valid_embedded_signature(), service_has_sid(), from_wide(), hidden_start(), home_region(), is_elevated(), message() (+13 more)
 
 ### Community 36 - "icmp.rs"
 Cohesion: 0.11
@@ -411,8 +408,8 @@ Cohesion: 0.06
 Nodes (5): PROFILE_DOMAIN, PROFILE_PRIVATE, PROFILE_PUBLIC, PROFILES, PROTO_ANY
 
 ### Community 38 - "AlertPeriod"
-Cohesion: 0.07
-Nodes (23): LogState, Alert, AlertDest, .ALL, Any, Local, Remote, AlertFilter (+15 more)
+Cohesion: 0.05
+Nodes (33): LogState, Alert, AlertDest, .ALL, Any, Local, Remote, AlertFilter (+25 more)
 
 ### Community 39 - "wfp.rs"
 Cohesion: 0.08
@@ -420,70 +417,70 @@ Nodes (8): app_name(), decode(), dos_path(), is_icmp(), on_event(), RPC_C_AUTHN_
 
 ### Community 40 - "QosLimit"
 Cohesion: 0.08
-Nodes (15): decode_all(), directions_round_trip_and_old_lines_still_read(), encode_all(), fmt_rate(), limit(), MAX_DELAY_MS, MAX_KBPS, MAX_LOSS_PCT (+7 more)
+Nodes (16): decode_all(), directions_round_trip_and_old_lines_still_read(), encode_all(), fmt_rate(), limit(), MAX_DELAY_MS, MAX_KBPS, MAX_LIMITS (+8 more)
 
-### Community 41 - "UiTree"
-Cohesion: 0.08
-Nodes (24): UiTree, Button, Card, Column, Copy, Disabled, Dropdown, FileButton (+16 more)
+### Community 41 - "abuseipdb/src/lib.rs"
+Cohesion: 0.15
+Nodes (18): AbuseIpDb, DEFAULT_ALERT_SCORE, demo_verdict(), FRESH_SECS, is_public(), KEEP, key_ok(), lookup() (+10 more)
 
 ### Community 42 - ".notify"
-Cohesion: 0.13
-Nodes (8): Confirm, about_click_hits(), firewall_toggle_confirm(), profile_confirm(), virustotal_upload_confirm(), prompt_step(), RustWarden, set_mode_and_enable()
+Cohesion: 0.14
+Nodes (6): Confirm, firewall_toggle_confirm(), virustotal_upload_confirm(), RustWarden, RustWarden, set_mode_and_enable()
 
 ### Community 43 - "driver.rs"
 Cohesion: 0.09
-Nodes (25): BLOCKED_HELP, dir(), DLL, DriverState, Blocked, Missing, Ready, folder_state_tells_missing_ready_and_blocked_apart() (+17 more)
+Nodes (26): BLOCKED_HELP, dir(), DLL, DriverState, Blocked, Missing, Ready, folder_state_tells_missing_ready_and_blocked_apart() (+18 more)
 
 ### Community 44 - "netinfo.rs"
-Cohesion: 0.09
-Nodes (11): Adapter, adapters(), adapters_and_neighbors_are_readable(), idle_seconds(), is_tunnel(), Neighbor, neighbors(), proxy_snapshot() (+3 more)
+Cohesion: 0.08
+Nodes (11): adapters(), adapters_and_neighbors_are_readable(), host_routes(), idle_seconds(), is_tunnel(), Neighbor, neighbors(), proxy_snapshot() (+3 more)
 
 ### Community 45 - "etw.rs"
 Cohesion: 0.06
-Nodes (33): cached_path(), decode(), dns_answer_maps_name_to_addresses(), DNS_CLIENT, dns_payload(), DROPPED, failed_lookup_is_logged_without_addresses(), forget_dead() (+25 more)
+Nodes (26): cached_path(), decode(), dns_answer_maps_name_to_addresses(), DNS_CLIENT, dns_payload(), DROPPED, failed_lookup_is_logged_without_addresses(), forget_dead() (+18 more)
 
 ### Community 46 - "ui/traffic.rs"
-Cohesion: 0.12
-Nodes (11): blur_averages_and_keeps_length(), box_blur(), row_in(), tick_step(), command_card(), command_card_id(), kind_icon(), popup_fit() (+3 more)
+Cohesion: 0.18
+Nodes (8): tick_step(), command_card(), command_card_id(), kind_icon(), popup_fit(), RustWarden, fmt_bytes(), fmt_clock()
 
 ### Community 47 - "dest.rs"
-Cohesion: 0.13
-Nodes (15): MAX_RULES_PER_DEST, Dest, DNS_WINDOW, firewall_rules_belong_to_their_destination_rule(), id_of(), load(), name_changes_with_the_address_list_program_and_mode_only(), rule() (+7 more)
+Cohesion: 0.14
+Nodes (15): DestRuleView, MAX_RULES_PER_DEST, Dest, DNS_WINDOW, firewall_rules_belong_to_their_destination_rule(), id_of(), load(), name_changes_with_the_address_list_program_and_mode_only() (+7 more)
 
 ### Community 48 - "windivert.rs"
-Cohesion: 0.09
-Nodes (17): ChecksumFn, CloseFn, EVENT_FLOW_DELETED, EVENT_FLOW_ESTABLISHED, FLAG_RECV_ONLY, FLAG_SNIFF, LAYER_FLOW, LAYER_NETWORK (+9 more)
+Cohesion: 0.06
+Nodes (24): Address, ChecksumFn, CloseFn, EVENT_FLOW_DELETED, EVENT_FLOW_ESTABLISHED, FLAG_DROP, FLAG_RECV_ONLY, FLAG_SNIFF (+16 more)
 
 ### Community 49 - "conns.rs"
-Cohesion: 0.07
-Nodes (3): ENABLED, STATE_ESTABLISHED, STATE_SYN_SENT
+Cohesion: 0.06
+Nodes (24): Conn, ConnRow, ENABLED, fetch(), fetch_class(), filetime_to_unix(), fill_bytes(), is_listening() (+16 more)
 
 ### Community 50 - "rules_file.rs"
-Cohesion: 0.13
-Nodes (16): Verdict, Allowed, Blocked, a_file_survives_writing_and_reading(), AppRule, current_of(), destination_rules_are_added_once_and_get_fresh_ids(), file() (+8 more)
+Cohesion: 0.17
+Nodes (13): a_file_survives_writing_and_reading(), AppRule, current_of(), destination_rules_are_added_once_and_get_fresh_ids(), file(), FORMAT, matching_state_plans_nothing(), old_files_without_settings_or_lists_still_load() (+5 more)
 
 ### Community 51 - "helper.rs"
-Cohesion: 0.14
+Cohesion: 0.15
 Nodes (16): a_program_that_isnt_downloaded_is_refused_before_anything_runs(), adopt(), adopt_user_copy(), adopts_only_a_genuine_copy(), dir(), install(), only_the_home_folder_can_be_set(), ready() (+8 more)
 
 ### Community 52 - "RustWarden features"
-Cohesion: 0.05
-Nodes (34): 🚨 Alerts and log analysis, 🧭 Behaviour baseline, Clean up, 📏 Data quotas, 🔎 DNS Log, ⚙️ Everything else, 🛡️ Firewall: your firewall, simplified, 📈 Hardware resources (+26 more)
+Cohesion: 0.12
+Nodes (17): 🚨 Alerts and log analysis, 🧭 Behaviour baseline, Clean up, 📏 Data quotas, 🔎 DNS Log, ⚙️ Everything else, 🛡️ Firewall: your firewall, simplified, 📈 Hardware resources (+9 more)
 
 ### Community 53 - "lease.rs"
 Cohesion: 0.14
 Nodes (21): before_spawn(), check_again_at(), decode(), due(), encode(), end(), end_all(), GROUP (+13 more)
 
 ### Community 54 - "icons.rs"
-Cohesion: 0.17
-Nodes (15): a_ring_has_no_repeated_end_point(), app_icon(), app_icon_for(), arc_points(), flag(), flag_texture(), glyph(), IconCache (+7 more)
+Cohesion: 0.10
+Nodes (27): AppIcon, Bitwarden, Chrome, Claude, ClaudeCode, Drive, Gear, Generic (+19 more)
 
 ### Community 55 - "asn.rs"
-Cohesion: 0.14
-Nodes (16): curl_url(), cymru(), cymru_name(), cymru_names_are_reversed(), format_info(), from_json(), http(), json_val() (+8 more)
+Cohesion: 0.17
+Nodes (15): curl_url(), cymru(), cymru_name(), cymru_names_are_reversed(), format_info(), from_json(), http(), json_val() (+7 more)
 
 ### Community 56 - "notify.rs"
-Cohesion: 0.09
+Cohesion: 0.08
 Nodes (6): balloon(), copy(), copy_truncates_and_terminates(), icon(), LINGER, worker()
 
 ### Community 57 - "steps"
@@ -491,16 +488,16 @@ Cohesion: 0.07
 Nodes (27): run, GH_TOKEN, RUSTFLAGS, TAG_MATCH, UPDATE_SIGNING_KEY, jobs, release, name (+19 more)
 
 ### Community 58 - "live/qos.rs"
-Cohesion: 0.14
-Nodes (10): KEY, load(), NEEDS_ADMIN, Qos, run(), saved_limits_round_trip_through_the_store(), store(), without_administrator_rights_a_limit_is_refused() (+2 more)
+Cohesion: 0.13
+Nodes (10): KEY, load(), NEEDS_ADMIN, Qos, remove_orphans(), run(), saved_limits_round_trip_through_the_store(), store() (+2 more)
 
 ### Community 59 - "Call"
 Cohesion: 0.05
-Nodes (42): Guest, API_VERSION, Call, Alert, Event, HelperDone, HelperLine, Manifest (+34 more)
+Nodes (51): Guest, API_VERSION, Call, Alert, Event, HelperDone, HelperLine, Manifest (+43 more)
 
 ### Community 60 - "p2p.rs"
-Cohesion: 0.13
-Nodes (20): fingerprint(), P2P_PREFIX, blocked_keys(), blocks_only_with_detection_on_and_no_vpn(), BROWSERS, CLIENTS, Detector, ip() (+12 more)
+Cohesion: 0.14
+Nodes (19): P2P_PREFIX, blocked_keys(), blocks_only_with_detection_on_and_no_vpn(), BROWSERS, CLIENTS, Detector, ip(), is_peer_port() (+11 more)
 
 ### Community 61 - "sys/apps.rs"
 Cohesion: 0.09
@@ -511,16 +508,16 @@ Cohesion: 0.07
 Nodes (26): run, GH_TOKEN, RUSTFLAGS, UPDATE_SIGNING_KEY, jobs, release, name, on (+18 more)
 
 ### Community 63 - "dnsguard.rs"
-Cohesion: 0.16
+Cohesion: 0.17
 Nodes (14): Action, Pass, Redirect, Restore, decide(), FILTER, Guard, KEEP (+6 more)
 
 ### Community 64 - "net.rs"
-Cohesion: 0.13
-Nodes (17): classify_v4(), classify_v6(), dns_results_are_scanned_for_addresses(), ip(), ips_in_dns_results(), is_cgnat(), Locality, Local (+9 more)
+Cohesion: 0.12
+Nodes (18): classify(), classify_v4(), classify_v6(), dns_results_are_scanned_for_addresses(), ip(), ips_in_dns_results(), is_cgnat(), Locality (+10 more)
 
-### Community 65 - "tray_menu.rs"
-Cohesion: 0.07
-Nodes (31): FirewallMode, .ALL, AskToConnect, BlockAll, ClickToBlock, PROMPT_FOR, prompt_for_label(), mode_confirm() (+23 more)
+### Community 65 - "TrayAct"
+Cohesion: 0.14
+Nodes (14): prompt_for_label(), RustWarden, TrayAct, Alerts, Disable, Exit, Mode, PickApp (+6 more)
 
 ### Community 66 - "monitors.rs"
 Cohesion: 0.12
@@ -531,7 +528,7 @@ Cohesion: 0.14
 Nodes (13): civil_from_days(), day_label(), days_from_civil(), file_stamp(), fmt_date(), fmt_stamp(), fmt_time_lower(), local_offset_at() (+5 more)
 
 ### Community 68 - "hashset"
-Cohesion: 0.11
+Cohesion: 0.13
 Nodes (9): a_domain_covers_everything_below_it_but_not_lookalikes(), decode_all(), DomainRule, DomainView, encode_all(), MAX_LIST, MAX_RULES, normalize() (+1 more)
 
 ### Community 69 - "metrics.rs"
@@ -543,44 +540,44 @@ Cohesion: 0.08
 Nodes (23): run, GALLIUM_DRIVER, MESA_SHA256, RUSTWARDEN_SHOTS, jobs, screenshots, name, on (+15 more)
 
 ### Community 71 - "data.rs"
-Cohesion: 0.07
-Nodes (32): ProtectState, TrafficState, ActiveCountries, DetailRow, Glyph, App, Flag, More (+24 more)
+Cohesion: 0.06
+Nodes (36): TrafficState, ActiveCountries, DetailRow, EngineState, Ready, Unavailable, WindowsFirewallOff, Glyph (+28 more)
 
-### Community 72 - "live/mod.rs"
-Cohesion: 0.13
-Nodes (7): db_path(), hosts_with_the_same_label_merge_into_one_row(), MAX_HOSTS, merge_hosts(), row(), share(), verdict_shown()
+### Community 72 - "beacon.rs"
+Cohesion: 0.11
+Nodes (16): a_steady_timer_is_reported_once(), Beat, feed(), FORGET_AFTER, IDLE_GAP, ip(), KEEP, MAX_PERIOD (+8 more)
 
 ### Community 73 - "Shared"
-Cohesion: 0.20
-Nodes (3): install_alert_sink(), lock(), Shared
+Cohesion: 0.17
+Nodes (6): a_mute_rule_records_the_alert_but_shows_nothing(), an_escalate_rule_makes_an_alert_important_with_a_popup(), lock(), raise_plugin_alert(), Shared, shared()
 
 ### Community 74 - "tab"
 Cohesion: 0.11
 Nodes (26): BLUE, calendar(), camera(), column_count(), columns(), columns_keep_the_extremes_and_average_the_rest(), day_shift(), export() (+18 more)
 
-### Community 75 - "modal.rs"
-Cohesion: 0.09
-Nodes (3): find(), find_all(), MAIN
+### Community 75 - "picker.rs"
+Cohesion: 0.05
+Nodes (14): find(), find_all(), MAIN, app_in(), each_window(), is_frame_host(), Pick, proc() (+6 more)
 
 ### Community 76 - "ha/src/lib.rs"
-Cohesion: 0.11
-Nodes (26): event(), explain(), Ha, headers(), known(), LOGO, lookup(), next_due() (+18 more)
+Cohesion: 0.10
+Nodes (27): event(), explain(), flag(), Ha, headers(), known(), LOGO, lookup() (+19 more)
 
 ### Community 77 - "speed.rs"
 Cohesion: 0.11
 Nodes (25): SpeedPage, query_speed(), arc_mesh(), card_frame(), chart(), dial_frac(), DIAL_START, DIAL_SWEEP (+17 more)
 
 ### Community 78 - "sniff.rs"
-Cohesion: 0.21
-Nodes (12): FILTER, flow_loop(), Flows, MAX_FLOWS, packet_loop(), refresh(), report(), run() (+4 more)
+Cohesion: 0.14
+Nodes (18): a_udp_flow_filter_names_both_directions_and_one_ip_version(), FILTER, flow_loop(), Flows, kill_udp(), MAX_FLOWS, packet_loop(), refresh() (+10 more)
 
 ### Community 79 - "opnsense/src/lib.rs"
-Cohesion: 0.07
-Nodes (36): flag(), a_leftover_alias_is_reported(), a_read_check_keeps_the_earlier_write_result(), a_read_only_key_cannot_push(), a_read_only_key_is_told_apart(), a_writable_key_creates_then_removes_the_test_alias(), Added, Denied (+28 more)
+Cohesion: 0.06
+Nodes (52): a_leftover_alias_is_reported(), a_read_check_keeps_the_earlier_write_result(), a_read_only_key_cannot_push(), a_read_only_key_is_told_apart(), a_writable_key_creates_then_removes_the_test_alias(), Added, Denied, Failed (+44 more)
 
 ### Community 80 - "loader.rs"
-Cohesion: 0.12
-Nodes (19): a_wrong_api_version_is_refused(), an_infinite_loop_is_stopped_by_the_fuel_limit(), call_tick(), engine(), FUEL, hash_of(), host_calls_are_checked_by_the_host(), host_import() (+11 more)
+Cohesion: 0.11
+Nodes (21): a_wrong_api_version_is_refused(), an_infinite_loop_is_stopped_by_the_fuel_limit(), call_tick(), engine(), FUEL, hash_of(), host_calls_are_checked_by_the_host(), host_import() (+13 more)
 
 ### Community 81 - "watch.rs"
 Cohesion: 0.14
@@ -591,28 +588,28 @@ Cohesion: 0.21
 Nodes (13): ARC, blocked_color(), clamp_center(), home_dot(), land(), land_active(), land_edge(), land_hover() (+5 more)
 
 ### Community 83 - "run"
-Cohesion: 0.15
-Nodes (14): Active, HELD, Job, Alert, Call, Event, Render, Stop (+6 more)
+Cohesion: 0.14
+Nodes (16): Active, Job, Alert, Call, Event, Render, Stop, load_saved() (+8 more)
 
-### Community 84 - "Painter"
-Cohesion: 0.23
-Nodes (14): area(), area_faded(), area_faded_to(), area_impl(), area_soft_to(), count_badge(), fit_label(), Look (+6 more)
+### Community 84 - ".memory"
+Cohesion: 0.16
+Nodes (11): app_records_and_missing_state(), blocked_attempts_add_up_prune_and_clear(), delta(), filter_narrows_reads(), history_export_joins_names_and_respects_the_window(), report_queries_split_the_week_from_what_came_before(), retention_prunes_each_scale_separately(), service_rows_keep_their_service() (+3 more)
 
 ### Community 85 - "ui_tree.rs"
-Cohesion: 0.08
-Nodes (21): Event, Bool, ChartMissing, Click, File, Index, Number, TabOpened (+13 more)
+Cohesion: 0.07
+Nodes (22): Event, Bool, ChartMissing, Click, File, Index, Number, TabOpened (+14 more)
 
 ### Community 86 - "ConfirmAction"
-Cohesion: 0.10
-Nodes (21): ConfirmAction, ApplyRules, BlockProgram, BlockWindowsExtras, CleanUp, ClearHistory, DeleteProfile, FirewallEnabled (+13 more)
+Cohesion: 0.05
+Nodes (32): ConfirmAction, ApplyRules, BlockProgram, BlockWindowsExtras, CleanUp, ClearHistory, DeleteProfile, FirewallEnabled (+24 more)
 
 ### Community 87 - "quota.rs"
 Cohesion: 0.25
 Nodes (17): action_none_only_warns(), block_is_asked_for_until_it_happens(), clock_moved_back_starts_a_fresh_period(), Decision, deleted_disabled_or_retargeted_quotas_orphan_their_track(), jumping_straight_over_alerts_once(), KV_KEY, level() (+9 more)
 
-### Community 88 - "live/geo.rs"
-Cohesion: 0.05
-Nodes (41): asn_db_path(), asn_networks(), city_db_path(), country_networks_cover_addresses_the_database_places_there(), DATABASES, db_path(), DbInfo, default_db_path() (+33 more)
+### Community 88 - "report.rs"
+Cohesion: 0.16
+Nodes (18): KIND_WAN, a_report_is_due_once_per_slot(), build(), build_finds_new_hosts_only_with_older_history(), due(), KV_LAST, last_slot(), LISTED (+10 more)
 
 ### Community 89 - "services.rs"
 Cohesion: 0.15
@@ -623,39 +620,39 @@ Cohesion: 0.12
 Nodes (13): Matcher, Domains, FILTER, FILTER_BROAD, KEY, list_path(), load_rules(), packet_loop() (+5 more)
 
 ### Community 91 - "ping/src/lib.rs"
-Cohesion: 0.10
-Nodes (22): add_form(), chart(), CHART_SQL, clean(), demo_row(), demo_rows_are_sane_and_stable(), DEMO_SPAN, event() (+14 more)
+Cohesion: 0.05
+Nodes (48): UiTree, Button, Card, Column, Copy, Disabled, Dropdown, FileButton (+40 more)
 
 ### Community 93 - "shots.rs"
 Cohesion: 0.15
 Nodes (8): SCREENS, SETTLE, Setup, Shots, Window, Ask, Main, Threat
 
 ### Community 94 - "live/traffic.rs"
-Cohesion: 0.11
-Nodes (23): KIND_LAN, KIND_UNKNOWN, KIND_WAN, kernel_service(), Aggregator, aggregator_sums_by_key(), Collector, ev() (+15 more)
-
-### Community 95 - "picker.rs"
 Cohesion: 0.12
-Nodes (3): Pick, run(), start()
+Nodes (21): TrafficDelta, kernel_service(), Aggregator, aggregator_sums_by_key(), Collector, ev(), Flow, flow_of() (+13 more)
 
-### Community 96 - "RangeSet"
+### Community 95 - "netwatch.rs"
+Cohesion: 0.14
+Nodes (14): a_browser_using_a_tools_fingerprint_is_flagged_either_way_round(), BROWSERS, Dhcp, dhcp_reply(), DhcpWatch, is_browser(), MAX_PRINTS, Mismatch (+6 more)
+
+### Community 96 - "DestRule"
 Cohesion: 0.11
-Nodes (13): ip(), MAX_CHARS_PER_RULE, MAX_RANGES_PER_RULE, merge_seen(), only_allow_needs_a_program(), seen_addresses_expire(), seen_from_text(), seen_to_text() (+5 more)
+Nodes (12): decode_all(), DestRule, encode_all(), Mode, Block, OnlyAllow, only_allow_needs_a_program(), seen_from_text() (+4 more)
 
 ### Community 97 - "netpkt.rs"
-Cohesion: 0.15
+Cohesion: 0.14
 Nodes (16): pkt(), limited_ports(), addresses_can_be_swapped_in_ipv4_only(), FlowKey, ipv4_tcp(), parse(), Parsed, reads_ipv4_tcp_and_both_directions_share_one_flow() (+8 more)
 
 ### Community 98 - "Outcome"
-Cohesion: 0.10
-Nodes (23): driver_rows(), other_section(), Outcome, Apply, Close, Confirmed, ExportRules, ImportRules (+15 more)
+Cohesion: 0.13
+Nodes (19): driver_rows(), other_section(), Outcome, Close, ExportRules, ImportRules, InstallService, IpInfo (+11 more)
 
 ### Community 99 - "Priority"
 Cohesion: 0.12
 Nodes (10): LimitDir, .ALL, Both, Down, Up, Priority, .ALL, High (+2 more)
 
 ### Community 100 - "scandetect.rs"
-Cohesion: 0.18
+Cohesion: 0.19
 Nodes (12): a_burst_from_many_sources_is_a_flood(), Detector, Finding, PortScan, SynFlood, FLOOD_PER_SEC, ip(), many_ports_from_one_source_is_a_scan_reported_once() (+4 more)
 
 ### Community 101 - "protect.rs"
@@ -663,16 +660,16 @@ Cohesion: 0.15
 Nodes (10): PendingBlock, block(), countdown_is_the_earliest_block_of_that_app(), countdown_of(), DEFAULT_COLS, held_row_keeps_its_place_while_others_move(), hold_in_place(), ROW_H (+2 more)
 
 ### Community 102 - "live/dns.rs"
-Cohesion: 0.13
-Nodes (15): cache_path(), check(), domain_of(), download(), each_program_and_name_is_reported_once(), hits(), is_listed(), MAX_DOMAINS (+7 more)
+Cohesion: 0.15
+Nodes (16): cache_path(), check(), clean(), domain_of(), download(), each_program_and_name_is_reported_once(), hits(), is_listed() (+8 more)
 
-### Community 103 - "RuleAction"
-Cohesion: 0.25
-Nodes (6): RuleAction, .ALL, Escalate, KeepLocal, Limit, Mute
+### Community 103 - "alert_rules.rs"
+Cohesion: 0.11
+Nodes (14): ALL_DAYS, DAY_NAMES, parse_minute(), RuleAction, .ALL, Escalate, KeepLocal, Limit (+6 more)
 
 ### Community 104 - "Dialog"
-Cohesion: 0.11
-Nodes (16): Dialog, Confirm, Info, InstallService, NewProfile, Password, Rename, Report (+8 more)
+Cohesion: 0.15
+Nodes (12): Dialog, About, Confirm, Info, InstallService, NewProfile, Password, Rename (+4 more)
 
 ### Community 105 - "wizard.rs"
 Cohesion: 0.24
@@ -683,8 +680,8 @@ Cohesion: 0.21
 Nodes (8): orphaned(), run(), Track, tracks_from_text(), tracks_round_trip_through_text(), tracks_to_text(), user_blocked(), Worker
 
 ### Community 107 - "store.rs"
-Cohesion: 0.36
-Nodes (5): ALERT_SINK, country_of(), HwNow, State, TrafficNow
+Cohesion: 0.16
+Nodes (8): ConnectAsk, ALERT_SINK, blocked_addresses(), country_of(), HwNow, install_alert_sink(), State, TrafficNow
 
 ### Community 108 - "capture.rs"
 Cohesion: 0.17
@@ -695,51 +692,51 @@ Cohesion: 0.17
 Nodes (5): icon(), Tray, TrayCmd, Menu, Toggle
 
 ### Community 110 - "Theme"
-Cohesion: 0.05
-Nodes (22): ALL_DAYS, parse_minute(), png(), texture(), Theme, Dark, Light, draft_becomes_a_rule_or_says_why_not() (+14 more)
+Cohesion: 0.06
+Nodes (18): png(), texture(), Theme, Dark, Light, ROW_H, Chart, RANGES (+10 more)
 
 ### Community 111 - "RangeSet"
-Cohesion: 0.24
-Nodes (10): block_mode_never_touches_the_local_network(), blocked_set(), complement_covers_everything_else(), local_ranges(), long_lists_are_split_into_rules_within_the_limits(), merge(), RangeSet, set() (+2 more)
-
-### Community 112 - "DestRule"
 Cohesion: 0.12
-Nodes (8): demo_dest_status(), decode_all(), DestRule, DestRuleView, encode_all(), Mode, Block, OnlyAllow
+Nodes (17): block_mode_never_touches_the_local_network(), blocked_set(), complement_covers_everything_else(), ip(), local_ranges(), long_lists_are_split_into_rules_within_the_limits(), MAX_CHARS_PER_RULE, MAX_RANGES_PER_RULE (+9 more)
+
+### Community 112 - "dnstunnel.rs"
+Cohesion: 0.13
+Nodes (14): entropy(), LONG, many_random_names_under_one_domain_are_a_tunnel(), MAX_DOMAINS, MIN_NAMES, odd(), QUIET_AFTER_REPORT, RANDOM_BITS (+6 more)
 
 ### Community 113 - "pcap.rs"
-Cohesion: 0.22
-Nodes (5): LINKTYPE_RAW, MAX_BYTES, MAX_SECS, tcp_filter(), the_filter_names_both_directions_of_one_connection()
+Cohesion: 0.15
+Nodes (7): LINKTYPE_RAW, MAX_BYTES, MAX_SECS, tcp_filter(), the_filter_names_both_directions_of_one_connection(), Writer<W>, writes_the_pcap_header_and_records()
 
 ### Community 114 - "windows_extras.rs"
 Cohesion: 0.21
 Nodes (9): expand(), Group, GROUPS, is_protected(), matches(), PROTECTED, resolve(), t() (+1 more)
 
 ### Community 115 - "guest.rs"
-Cohesion: 0.12
-Nodes (38): browser_fetch(), browser_sign_in(), browser_sign_out(), config_get(), config_set(), db_exec(), db_query(), DeviceInfo (+30 more)
+Cohesion: 0.11
+Nodes (43): __alloc(), blocked_addresses(), browser_fetch(), browser_sign_in(), browser_sign_out(), __call(), config_get(), config_set() (+35 more)
 
-### Community 116 - "AppRecord"
-Cohesion: 0.24
-Nodes (8): learning(), local_day_hour(), new_item(), run(), throttled(), Worker, AppRecord, BaselineItem
+### Community 116 - "live/geo.rs"
+Cohesion: 0.16
+Nodes (11): asn_db_path(), city_db_path(), DATABASES, db_path(), DbInfo, default_db_path(), download_dbip(), download_script() (+3 more)
 
 ### Community 117 - "TcpState"
-Cohesion: 0.13
-Nodes (14): state_raw(), TcpState, Closed, CloseWait, Closing, DeleteTcb, Established, FinWait1 (+6 more)
+Cohesion: 0.14
+Nodes (13): TcpState, Closed, CloseWait, Closing, DeleteTcb, Established, FinWait1, FinWait2 (+5 more)
 
 ### Community 118 - "traffic_load.rs"
-Cohesion: 0.23
-Nodes (9): Load, Loader, merge_adds_parts_and_takes_the_newer_values(), Query, query(), run(), run_reads_only_what_was_asked(), sel_fractions() (+1 more)
+Cohesion: 0.10
+Nodes (20): Scope, .ALL, Both, Lan, Wan, TrafficDir, .ALL, Both (+12 more)
 
 ### Community 119 - "Country"
-Cohesion: 0.12
-Nodes (12): ConnectAsk, Country, France, Germany, Ireland, Iso, Local, Netherlands (+4 more)
+Cohesion: 0.18
+Nodes (11): Country, France, Germany, Ireland, Iso, Local, Netherlands, Other (+3 more)
 
 ### Community 120 - "alertrules.rs"
-Cohesion: 0.16
-Nodes (16): AlertInfo, AlertRule, conditions_all_have_to_hold(), contains_nocase(), DAY_NAMES, decide(), Effect, first_enabled_match_wins() (+8 more)
+Cohesion: 0.19
+Nodes (14): AlertInfo, AlertRule, conditions_all_have_to_hold(), contains_nocase(), decide(), Effect, first_enabled_match_wins(), in_window() (+6 more)
 
 ### Community 121 - "sys/qos.rs"
-Cohesion: 0.18
+Cohesion: 0.21
 Nodes (9): add_exclusion(), remove_exclusion(), apply(), list(), parse_policy(), Policy, powershell(), remove() (+1 more)
 
 ### Community 122 - "filedialog.rs"
@@ -750,24 +747,24 @@ Nodes (5): filter_list(), filter_list_is_double_null_terminated_with_all_files_l
 Cohesion: 0.16
 Nodes (15): SpeedLive, SpeedPhase, Download, Ping, Upload, event(), is_demo(), num() (+7 more)
 
-### Community 124 - "tamper.rs"
-Cohesion: 0.18
-Nodes (7): digest(), hash(), hex(), ROUNDS, salt(), verify(), checks_the_release_signature()
+### Community 124 - "tlsprint.rs"
+Cohesion: 0.10
+Nodes (27): copy_path(), digest(), hash(), hex(), recall(), remember(), ROUNDS, salt() (+19 more)
 
 ### Community 125 - "err"
-Cohesion: 0.22
-Nodes (13): add_rule(), adopt_rule(), bool_variant(), default_outbound_blocked(), enable_windows_firewall(), err(), policy(), profile_state() (+5 more)
+Cohesion: 0.19
+Nodes (14): add_rule(), adopt_rule(), bool_variant(), default_outbound_blocked(), enable_windows_firewall(), err(), interfaces_variant(), policy() (+6 more)
 
 ### Community 126 - "host.rs"
-Cohesion: 0.09
-Nodes (20): a_keypair_is_32_bytes_each_and_the_public_key_follows_from_the_private(), a_pinned_ca_skips_the_revocation_lookup_a_private_ca_cannot_answer(), a_value_cannot_break_out_of_the_curl_config(), answer(), config_and_secrets_round_trip_and_gated_calls_fail(), connect_address(), curl_config(), Host (+12 more)
+Cohesion: 0.07
+Nodes (25): a_keypair_is_32_bytes_each_and_the_public_key_follows_from_the_private(), a_pinned_ca_is_checked_and_its_file_removed(), a_pinned_ca_skips_the_revocation_lookup_a_private_ca_cannot_answer(), a_plugin_cannot_keep_a_transaction_open_or_run_for_ever(), a_value_cannot_break_out_of_the_curl_config(), answer(), CaFile, config_and_secrets_round_trip_and_gated_calls_fail() (+17 more)
 
 ### Community 127 - "ask.rs"
-Cohesion: 0.19
-Nodes (12): count(), fw_closed_since(), IN_FLIGHT, is_noise(), lookups_on(), MAX_IN_FLIGHT, MAX_OPEN_ASKS, note_engine_drop() (+4 more)
+Cohesion: 0.18
+Nodes (13): icon_for(), count(), fw_closed_since(), IN_FLIGHT, is_noise(), lookups_on(), MAX_IN_FLIGHT, MAX_OPEN_ASKS (+5 more)
 
 ### Community 128 - "migrate.rs"
-Cohesion: 0.31
+Cohesion: 0.26
 Nodes (12): DONE, merge_dir(), merge_keeps_what_the_new_folder_has(), move_program_files(), move_user_data(), OLD, rename_in_db(), run() (+4 more)
 
 ### Community 129 - "UsageEntry"
@@ -775,16 +772,20 @@ Cohesion: 0.17
 Nodes (8): Scale, .ALL, S1, S30, S600, inspect_db(), inspect_detail(), UsageEntry
 
 ### Community 130 - "legacy.rs"
-Cohesion: 0.15
-Nodes (23): clean(), ha_config(), migrate_tables(), NOTIFICATIONS, old_ping_rows_move_into_the_plugin_table_once(), old_speedtest_rows_move_into_the_plugin_table(), old_thinkbroadband_samples_move_into_the_plugin_table(), old_values() (+15 more)
+Cohesion: 0.16
+Nodes (22): ha_config(), migrate_tables(), NOTIFICATIONS, old_ping_rows_move_into_the_plugin_table_once(), old_speedtest_rows_move_into_the_plugin_table(), old_thinkbroadband_samples_move_into_the_plugin_table(), old_values(), old_values_are_found_trimmed_and_empty_ones_skipped() (+14 more)
 
 ### Community 131 - "upnp.rs"
 Cohesion: 0.22
 Nodes (7): discover(), Gateway, lan_addr(), local_networks(), location_of(), private(), SEARCH
 
+### Community 132 - "wallpaper.rs"
+Cohesion: 0.11
+Nodes (7): W, Writer, dword(), windows_accent(), windows_dark(), reg_str(), set_wallpaper()
+
 ### Community 133 - "Tab"
-Cohesion: 0.07
-Nodes (21): every_tab_has_its_own_key_that_reads_back(), Tab, AlertRules, .ALL, Bandwidth, Connections, DestRules, Dns (+13 more)
+Cohesion: 0.12
+Nodes (15): every_tab_has_its_own_key_that_reads_back(), Tab, AlertRules, .ALL, Bandwidth, Connections, DestRules, Dns (+7 more)
 
 ### Community 134 - "pathbuf"
 Cohesion: 0.23
@@ -795,28 +796,28 @@ Cohesion: 0.17
 Nodes (8): QuotaLevel, Ok, Over, Warn, QuotaStatus, demo_quotas(), used_by(), Quota
 
 ### Community 136 - "netparse.rs"
-Cohesion: 0.23
+Cohesion: 0.25
 Nodes (10): client_hello(), dns(), DnsMessage, finds_the_server_name_and_refuses_junk(), host_ok(), name_at(), query(), reads_queries_and_answers_with_compressed_names() (+2 more)
 
 ### Community 137 - "HistoryData"
 Cohesion: 0.29
 Nodes (6): HistoryData, Alerts, Traffic, HistoryFormat, Csv, Json
 
-### Community 138 - "Address"
-Cohesion: 0.14
-Nodes (6): Address, flow_address(), flow_events_are_read_from_the_address_union(), FlowInfo, Handle, ipv6_words_come_last_first()
+### Community 138 - ".new"
+Cohesion: 0.20
+Nodes (3): default_window(), DestDraft, make_backend()
 
 ### Community 139 - "notes.rs"
-Cohesion: 0.14
-Nodes (13): ScannerLoad, ScannerState, Device, DeviceNote, ScanState, Annotator, device_kind(), device_url() (+5 more)
+Cohesion: 0.20
+Nodes (10): Device, DeviceNote, Annotator, device_kind(), device_url(), display_name(), flag(), ICON (+2 more)
 
 ### Community 141 - "connections.rs"
 Cohesion: 0.07
 Nodes (24): ConnsState, LiveConn, Act, Block, Capture, Kill, compare(), conn() (+16 more)
 
-### Community 142 - "tcp_row"
-Cohesion: 0.24
-Nodes (10): ConnRow, filetime_to_unix(), fill_bytes(), kill(), killable(), read_bytes(), row_uses_network_byte_order(), set_collection() (+2 more)
+### Community 142 - "tray_menu.rs"
+Cohesion: 0.15
+Nodes (12): PROMPT_FOR, GAP, monitor_at(), Out, PAD, Shared, Snap, TrayMenu (+4 more)
 
 ### Community 143 - "PWSTR"
 Cohesion: 0.23
@@ -826,45 +827,45 @@ Nodes (9): handler(), launch_gui(), logon_hidden(), make_events(), report(), rep
 Cohesion: 0.17
 Nodes (11): PeriodKind, Day, Month, Week, period_kind(), period_word(), PlanPeriod, .ALL (+3 more)
 
-### Community 145 - "HardwareSample"
-Cohesion: 0.29
-Nodes (5): GB, HISTORY_STEP, MB, run(), HW_WINDOW
+### Community 145 - "duration"
+Cohesion: 0.14
+Nodes (6): HardwareSample, GB, HISTORY_STEP, MB, run(), HW_WINDOW
 
 ### Community 147 - "export.rs"
-Cohesion: 0.24
-Nodes (8): AlertRow, alerts_csv(), csv_keeps_awkward_values_in_one_cell(), json(), json_uses_field_names(), traffic_csv(), traffic_csv_has_one_line_per_row_after_the_header(), TrafficRow
+Cohesion: 0.23
+Nodes (9): a_value_that_looks_like_a_formula_is_made_text(), AlertRow, alerts_csv(), csv_keeps_awkward_values_in_one_cell(), json(), json_uses_field_names(), traffic_csv(), traffic_csv_has_one_line_per_row_after_the_header() (+1 more)
 
 ### Community 148 - "src/geo.rs"
 Cohesion: 0.26
 Nodes (7): Country, load(), no_giant_triangles(), Poly, Reader, world(), WORLD_BIN
 
-### Community 150 - "TrafficFilter"
-Cohesion: 0.12
-Nodes (12): Scope, .ALL, Both, Lan, Wan, TrafficDir, .ALL, Both (+4 more)
+### Community 150 - "row_in"
+Cohesion: 0.15
+Nodes (6): RustWarden, blur_averages_and_keeps_length(), box_blur(), row_in(), RustWarden, service()
 
-### Community 151 - "super"
-Cohesion: 0.20
-Nodes (7): a_full_log_moves_aside_and_restarts(), append(), line(), MAX, PROTO, refuses_other_protocols(), run()
+### Community 151 - "curl.rs"
+Cohesion: 0.28
+Nodes (3): PROTO, refuses_other_protocols(), run()
 
 ### Community 152 - "pcwstr"
-Cohesion: 0.23
-Nodes (4): protect(), round_trips_and_rejects_garbage(), take(), unprotect()
+Cohesion: 0.12
+Nodes (6): protect(), round_trips_and_rejects_garbage(), take(), unprotect(), EVENT_ID, write()
 
 ### Community 153 - "hashmap"
 Cohesion: 0.22
 Nodes (5): Counters, delta(), IF_OPER_STATUS_UP, IF_TYPE_SOFTWARE_LOOPBACK, read()
 
 ### Community 154 - "vt.rs"
-Cohesion: 0.14
-Nodes (13): a_hash_virustotal_has_not_seen_is_never_uploaded_by_itself(), API, curl(), HOLD, HOLD_AFTER, key(), lookup(), MAX_POLLS (+5 more)
+Cohesion: 0.08
+Nodes (31): Vt, Analysing, Failed, None, NotFound, OnHold, Pending, Result (+23 more)
 
 ### Community 155 - "StatusNote"
 Cohesion: 0.20
 Nodes (5): NoteLevel, Info, Vpn, Warn, StatusNote
 
-### Community 156 - "Vt"
-Cohesion: 0.14
-Nodes (12): Vt, Analysing, Failed, None, NotFound, OnHold, Pending, Result (+4 more)
+### Community 156 - "Geo"
+Cohesion: 0.21
+Nodes (4): asn_networks(), country_networks_cover_addresses_the_database_places_there(), Geo, country_of()
 
 ### Community 157 - "bucket.rs"
 Cohesion: 0.23
@@ -872,23 +873,23 @@ Nodes (10): TrafficSample, align(), fill(), fill_pads_and_converts_to_rates(), r
 
 ### Community 158 - "HostCall"
 Cohesion: 0.07
-Nodes (28): HostCall, BrowserFetch, BrowserSignIn, BrowserSignOut, ConfigGet, ConfigSet, DbExec, DbQuery (+20 more)
+Nodes (29): HostCall, BlockedAddresses, BrowserFetch, BrowserSignIn, BrowserSignOut, ConfigGet, ConfigSet, DbExec (+21 more)
 
 ### Community 159 - "Rule"
 Cohesion: 0.33
 Nodes (9): rules_to_suspend(), enabled_outbound_allows(), enabled_outbound_blocks(), read_rule(), reading_rules_works_without_administrator(), Rule, rules_in_group(), rules_named() (+1 more)
 
-### Community 160 - "window_at"
-Cohesion: 0.23
-Nodes (8): app_in(), each_window(), is_frame_host(), proc(), Search, State, window_at(), with()
+### Community 160 - "OPNsense plugin"
+Cohesion: 0.22
+Nodes (9): Demo mode, History, Names and prefixes, OPNsense plugin, Permissions, Privacy and safety, Setting it up, Troubleshooting (+1 more)
 
-### Community 161 - "DeviceKind"
+### Community 161 - "Writing a RustWarden plugin"
+Cohesion: 0.22
+Nodes (9): Build, Calls into your plugin, Install, Notification services, Pages, Rules your plugin must follow, The code, What you may ask RustWarden for (+1 more)
+
+### Community 162 - "Report"
 Cohesion: 0.25
-Nodes (7): DeviceKind, Generic, Laptop, Raspberry, SmartDevice, WiFi, kind_from_i64()
-
-### Community 162 - "HardwareSample"
-Cohesion: 0.18
-Nodes (3): HardwareSample, HardwareSnapshot, noise()
+Nodes (5): new_line(), Report, sample(), text_lists_every_section(), text_says_when_history_is_too_short_and_stays_under_the_limit()
 
 ### Community 163 - "Line"
 Cohesion: 0.24
@@ -896,35 +897,35 @@ Nodes (6): Line, Plan, At, Drop, Pass, the_line_serves_high_first_and_squeezes_t
 
 ### Community 164 - "db.rs"
 Cohesion: 0.10
-Nodes (26): add_column(), alert_chain_survives_reads_and_names_the_first_change(), alert_hash(), alerts_round_trip_and_mark_read(), BASE_ALERTED, BASE_LEARNED, BASE_NORMAL, blocked_attempts_add_up_prune_and_clear() (+18 more)
+Nodes (18): AlertCheck, add_column(), alert_chain_survives_reads_and_names_the_first_change(), alert_hash(), alerts_round_trip_and_mark_read(), BASE_ALERTED, BASE_LEARNED, BASE_NORMAL (+10 more)
 
 ### Community 165 - "QuotaAction"
 Cohesion: 0.20
 Nodes (7): QuotaAction, AlertOnly, .ALL, Block, None, Throttle, ThrottleBlock
 
-### Community 166 - "listeners"
-Cohesion: 0.22
-Nodes (7): Conn, fetch(), fetch_class(), Listener, listeners(), port_of(), tcp()
+### Community 166 - "RustWarden"
+Cohesion: 0.25
+Nodes (8): Acknowledgements, Build from source, Built to be safe, Download, Project layout, Rescue: remove every RustWarden firewall rule, RustWarden, What it does
 
 ### Community 167 - "Direction"
-Cohesion: 0.16
-Nodes (12): Answer, Allow, Block, Direction, In, Local, Out, critical_reason() (+4 more)
-
-### Community 169 - "W"
 Cohesion: 0.14
-Nodes (6): W, Writer, Writer<W>, writes_the_pcap_header_and_records(), EVENT_ID, write()
+Nodes (11): Answer, Allow, Block, Direction, In, Local, Out, Verdict (+3 more)
+
+### Community 169 - "remove_all_owned"
+Cohesion: 0.29
+Nodes (7): named(), plan_removals(), Removal, remove_all_owned(), rescue_deletes_only_ours_and_hands_imported_back(), LOG, run()
 
 ### Community 170 - "Found"
-Cohesion: 0.16
-Nodes (18): a_changed_hash_is_not_approved(), apply(), Found, inspect(), install(), plugin_dir(), preview(), reconcile() (+10 more)
+Cohesion: 0.29
+Nodes (8): a_changed_hash_is_not_approved(), Found, inspect(), scan_dir(), Source, Bundled, File, trusted()
 
 ### Community 171 - "countries.rs"
-Cohesion: 0.31
+Cohesion: 0.27
 Nodes (6): by_a2(), Entry, table!, parse_a2(), parse_name_or_a2(), search()
 
 ### Community 172 - "bundled.rs"
-Cohesion: 0.24
-Nodes (14): every_built_in_plugin_loads_with_its_own_id(), found(), load(), bundle!, the_cloudflare_plugin_pretends_in_demo(), the_home_assistant_plugin_keeps_its_settings_and_waits_for_a_token(), the_opnsense_plugin_gates_its_options_on_a_probe(), the_ping_plugin_stores_rounds_and_serves_its_chart() (+6 more)
+Cohesion: 0.21
+Nodes (16): every_built_in_plugin_loads_with_its_own_id(), found(), load(), bundle!, the_abuseipdb_plugin_scores_addresses_in_alerts(), the_cloudflare_plugin_pretends_in_demo(), the_home_assistant_plugin_keeps_its_settings_and_waits_for_a_token(), the_opnsense_plugin_gates_its_options_on_a_probe() (+8 more)
 
 ### Community 173 - "install_service"
 Cohesion: 0.22
@@ -938,16 +939,16 @@ Nodes (14): authorize_stop(), end_other_instances(), end_processes(), ensure_ser
 Cohesion: 0.33
 Nodes (4): AlertLevel, .ALL, Important, Logs
 
-### Community 176 - "accent.rs"
-Cohesion: 0.36
-Nodes (3): dword(), windows_accent(), windows_dark()
+### Community 176 - "Place"
+Cohesion: 0.25
+Nodes (4): Place, Country, Local, Unknown
 
-### Community 177 - "FirewallInfo"
-Cohesion: 0.22
-Nodes (7): ProtectLoad, EngineState, Ready, Unavailable, WindowsFirewallOff, FirewallInfo, banner_text()
+### Community 177 - "path"
+Cohesion: 0.47
+Nodes (4): a_full_log_moves_aside_and_restarts(), append(), line(), MAX
 
 ### Community 178 - "audit.rs"
-Cohesion: 0.24
+Cohesion: 0.22
 Nodes (9): auditpol(), blocked_since(), data(), failure_audit_on(), parse_events(), reads_outbound_drops_only(), set_failure_audit(), SUBCATEGORY (+1 more)
 
 ### Community 179 - "AlertCheck"
@@ -974,10 +975,6 @@ Nodes (33): clean(), click(), CONFLICT, control_of(), DESC, envelope(), find_rou
 Cohesion: 0.19
 Nodes (11): answer_stop(), DISPLAY, EV_ACK, EV_ASK, EV_NO, EV_OK, open_event(), SHOW_EVENT (+3 more)
 
-### Community 185 - ".run"
-Cohesion: 0.27
-Nodes (5): a_hash_with_a_final_answer_is_not_looked_up_or_sent_again(), nap(), Scanner, settings(), upload_queues_only_when_asked_and_only_once()
-
 ### Community 186 - "ExtrasAct"
 Cohesion: 0.29
 Nodes (4): ExtrasAct, Pause, Resume, Unblock
@@ -987,8 +984,8 @@ Cohesion: 0.29
 Nodes (7): account_and_task_changes(), AccountChange, Activated, Created, Deactivated, Deleted, diff_accounts()
 
 ### Community 188 - "RuleSpec"
-Cohesion: 0.12
-Nodes (18): a_service_rule_is_a_separate_row_with_its_own_name(), allow_rules_are_ours_outbound_and_distinct_from_block_rules(), allow_spec(), block_spec(), block_specs_are_scoped_to_one_program_and_direction(), Drift, icmp_specs(), lan_block_is_its_own_outbound_rule() (+10 more)
+Cohesion: 0.24
+Nodes (6): adopt_legacy_rules(), block_all_exceptions(), block_all_exceptions_are_ours_and_allow(), icmp_specs(), ping_rules_are_ours_allow_icmp_and_stay_off_the_program_list(), RuleSpec
 
 ### Community 189 - "AGENTS.md"
 Cohesion: 0.33
@@ -1014,25 +1011,13 @@ Nodes (5): Automated, Elevated (use "Restart as administrator"), Manual checks o
 Cohesion: 0.40
 Nodes (4): Dim, App, Proto, Remote
 
-### Community 197 - "erase"
-Cohesion: 0.25
-Nodes (11): table_prefix(), drop_tables(), erase(), load_saved(), remove(), save_saved(), Saved, saved_config() (+3 more)
+### Community 197 - "What it does"
+Cohesion: 0.50
+Nodes (4): Device names, Gateways and the firewall log, Sending blocked addresses to the router, What it does
 
-### Community 198 - ".start"
-Cohesion: 0.31
-Nodes (3): EtwSession, Props, stop_by_name()
-
-### Community 199 - "DnsEntry"
-Cohesion: 0.27
-Nodes (4): DnsState, DnsEntry, demo_dns(), demo_dns_log_has_ordered_sample_rows()
-
-### Community 200 - "run"
-Cohesion: 0.24
-Nodes (8): act(), cache_path(), hits(), home_assistant_urls(), kv(), kv_set(), run(), summary()
-
-### Community 201 - "ThreatAct"
-Cohesion: 0.29
-Nodes (5): ThreatAct, Block, Unblock, Unwhitelist, Whitelist
+### Community 198 - "NetEvent"
+Cohesion: 0.15
+Nodes (10): EtwSession, inject(), NetEvent, Data, Dns, PATHS, Props, sink() (+2 more)
 
 ### Community 202 - "plan-release.sh"
 Cohesion: 0.83
@@ -1042,21 +1027,9 @@ Nodes (3): section(), plan-release.sh script, skip()
 Cohesion: 0.29
 Nodes (4): anomaly_kinds_have_keys_and_switches(), new_alert_kinds_have_their_own_switch(), opts_override_defaults_and_old_configs_load(), AlertSwitches
 
-### Community 205 - ".alert"
-Cohesion: 0.33
-Nodes (4): a_mute_rule_records_the_alert_but_shows_nothing(), an_escalate_rule_makes_an_alert_important_with_a_popup(), raise_plugin_alert(), shared()
-
-### Community 207 - ".show"
-Cohesion: 0.33
-Nodes (3): Dialog, dialog(), toast()
-
 ### Community 210 - "plugin-sdk"
-Cohesion: 0.11
-Nodes (18): example-hello, plugin-cloudflare, plugin-discord, plugin-gotify, plugin-ha, plugin-ntfy, plugin-opnsense, plugin-ping (+10 more)
-
-### Community 212 - "with_reader"
-Cohesion: 0.40
-Nodes (3): open_demo_db(), query_samples(), with_reader()
+Cohesion: 0.10
+Nodes (20): example-hello, plugin-abuseipdb, plugin-cloudflare, plugin-discord, plugin-gotify, plugin-ha, plugin-ntfy, plugin-opnsense (+12 more)
 
 ### Community 213 - "install_elevated"
 Cohesion: 0.50
@@ -1066,29 +1039,25 @@ Nodes (4): ensure_recovery(), install_elevated(), remove_service(), set_recovery
 Cohesion: 0.40
 Nodes (5): DeviceEvent, MacChanged, MultiIp, New, Returned
 
-### Community 218 - "__call"
-Cohesion: 0.50
-Nodes (4): __alloc(), __call(), pack(), stash()
-
 ## Knowledge Gaps
-- **471 isolated node(s):** `rustwarden`, `System`, `Notification`, `Label`, `Heading` (+466 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 1828 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **26 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **478 isolated node(s):** `rustwarden`, `System`, `Notification`, `Label`, `Heading` (+473 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 1916 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **25 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `RustWarden` connect `RustWarden` to `Tab`, `dialogs.rs`, `notes.rs`, `connections.rs`, `update.rs`, `Backend`, `Settings`, `demo.rs`, `util.rs`, `StatusNote`, `popup.rs`, `AlertPeriod`, `.notify`, `driver.rs`, `ui/traffic.rs`, `FirewallInfo`, `Threat`, `tray_menu.rs`, `metrics.rs`, `DnsEntry`, `data.rs`, `ThreatAct`, `map.rs`, `Capabilities`, `live/geo.rs`, `shots.rs`, `picker.rs`, `protect.rs`, `Dialog`, `tray.rs`, `Theme`, `traffic_load.rs`, `Country`?**
-  _High betweenness centrality (0.075) - this node is a cross-community bridge._
+- **Why does `Settings` connect `Settings` to `LiveBackend`, `legacy.rs`, `toast.rs`, `MockBackend`, `pathbuf`, `QuotaStatus`, `.new`, `dialogs.rs`, `baseline.rs`, `settings.rs`, `update.rs`, `webview.rs`, `Backend`, `manager.rs`, `RustWarden`, `demo.rs`, `alerts.rs`, `AlertKind`, `RustWarden`, `rules_file.rs`, `asn.rs`, `NetInfoSource`, `PlanDirection`, `data.rs`, `Shared`, `AlertSwitches`, `report.rs`, `Outcome`, `protect.rs`, `Dialog`, `wizard.rs`, `store.rs`, `Theme`, `alertrules.rs`?**
+  _High betweenness centrality (0.052) - this node is a cross-community bridge._
 - **Are the 11 inferred relationships involving `Db` (e.g. with `.target_ranges()` and `.views()`) actually correct?**
   _`Db` has 11 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `rustwarden`, `System`, `Notification` to the rest of the system?**
-  _471 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _478 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `live/firewall.rs` be split into smaller, more focused modules?**
-  _Cohesion score 0.04 - nodes in this community are weakly interconnected._
-- **Why does `Db` connect `Db` to `UsageEntry`, `toast.rs`, `LiveBackend`, `QuotaStatus`, `notes.rs`, `baseline.rs`, `export.rs`, `live/apps.rs`, `FwController`, `vt.rs`, `Vt`, `HardwareSample`, `db.rs`, `dest.rs`, `lease.rs`, `.run`, `live/qos.rs`, `monitors.rs`, `live/mod.rs`, `Shared`, `tab`, `.alert`, `ui_tree.rs`, `quota.rs`, `live/geo.rs`, `domains.rs`, `Monitors`, `live/traffic.rs`, `live/dns.rs`, `.tick`, `store.rs`, `pcap.rs`, `AppRecord`?**
-  _High betweenness centrality (0.074) - this node is a cross-community bridge._
+  _Cohesion score 0.04066985645933014 - nodes in this community are weakly interconnected._
+- **Why does `RustWarden` connect `RustWarden` to `Tab`, `.new`, `dialogs.rs`, `connections.rs`, `tray_menu.rs`, `update.rs`, `Backend`, `Settings`, `row_in`, `demo.rs`, `util.rs`, `StatusNote`, `popup.rs`, `RustWarden`, `Report`, `db.rs`, `AlertPeriod`, `.notify`, `driver.rs`, `ui/traffic.rs`, `Threat`, `TrayAct`, `metrics.rs`, `DnsEntry`, `data.rs`, `picker.rs`, `map.rs`, `ConfirmAction`, `shots.rs`, `protect.rs`, `alert_rules.rs`, `Dialog`, `store.rs`, `tray.rs`, `Theme`, `traffic_load.rs`?**
+  _High betweenness centrality (0.051) - this node is a cross-community bridge._
 - **Are the 26 inferred relationships involving `RustWarden` (e.g. with `Alert` and `AlertCheck`) actually correct?**
   _`RustWarden` has 26 INFERRED edges - model-reasoned connections that need verification._
 - **Should `LiveBackend` be split into smaller, more focused modules?**
-  _Cohesion score 0.04632768361581921 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.03734567901234568 - nodes in this community are weakly interconnected._

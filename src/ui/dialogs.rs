@@ -1294,8 +1294,8 @@ fn alert_settings(ui: &mut Ui, s: &mut Settings) {
                     egui::ScrollArea::vertical().min_scrolled_height(410.0).max_height(410.0).show(ui, |ui| {
                         ui.spacing_mut().item_spacing.y = 2.0;
                         for (i, kind) in AlertKind::ALL.iter().enumerate() {
-                            // Needs the driver, so it only appears in Driver mode.
-                            if *kind == AlertKind::InboundScan && s.app_mode != crate::settings::AppMode::Driver {
+                            // Needs the driver, so it only appears in Driver mode with the driver installed.
+                            if matches!(*kind, AlertKind::InboundScan | AlertKind::RogueDhcp | AlertKind::TlsMismatch) && (s.app_mode != crate::settings::AppMode::Driver || !crate::driver::ready()) {
                                 continue;
                             }
                             let (name, on) = (kind.title(), kind.enabled(&s.alerts));
@@ -1513,11 +1513,35 @@ fn other_section(ui: &mut Ui, s: &mut Settings, out: &mut Outcome) {
                 ui.add(egui::DragValue::new(&mut s.line_down_mbps).range(0..=100_000).suffix(" down"));
             });
             c.row("Learn host names from the driver", "Reads the server name of new HTTPS connections and DNS answers on this PC (nothing leaves it), so the Connections tab shows names such as youtube.com, and the DNS Log also lists lookups made by programs with their own resolver, such as some browsers.", |ui| crate::widgets::small_toggle(ui, &mut s.driver_names));
+            if crate::driver::ready() {
+                c.row(
+                    "QUIC fallback (programs)",
+                    "Blocks QUIC (HTTP/3, UDP port 443) for these programs, separated by commas (for example chrome.exe, msedge.exe), so they use HTTPS over TCP. There the server name is in the open, which is what Block by domain and the host names read. Needs administrator rights.",
+                    |ui| {
+                        ui.add(egui::TextEdit::singleline(&mut s.quic_fallback).hint_text("chrome.exe, msedge.exe").desired_width(230.0));
+                    },
+                );
+            }
         }
         c.row(
             "Let RustWarden's own downloads through the firewall",
             "While RustWarden runs its own curl, PowerShell or speed test helper (updates, lookups, downloads), that helper is allowed online for a few minutes even if a rule blocks it. Any rule switched off is switched back on afterwards, when RustWarden closes, or by Restore firewall defaults. Needs administrator rights.",
             |ui| crate::widgets::small_toggle(ui, &mut s.allow_helper_tools),
+        );
+        c.row(
+            "VPN kill switch",
+            "While a VPN is connected, blocks everything except your local network and the VPN's own server on your real network cards, so nothing can leave outside the tunnel. If the VPN drops, the block stays and the internet is cut until it reconnects. It switches itself on the first time it sees a VPN connected (a VPN such as PIA only creates its adapter when you press Connect), and turning it off lifts it. Use \"Let the VPN connect\" for two minutes to reach a new server. Needs administrator rights.",
+            |ui| {
+                crate::widgets::small_toggle(ui, &mut s.vpn_kill_switch);
+                if ui.add_enabled(s.vpn_kill_switch, egui::Button::new("Let the VPN connect")).on_hover_text("Opens the network for two minutes").clicked() {
+                    crate::live::guard::release();
+                }
+            },
+        );
+        c.row(
+            "Block DNS-over-HTTPS resolvers",
+            "Blocks encrypted DNS (HTTPS and DNS-over-TLS, ports 443 and 853) to well-known public resolvers such as Google, Cloudflare, Quad9, OpenDNS, AdGuard and NextDNS, so browsers that bypass the system's DNS fall back to it, where domain blocks and the DNS log can see the lookups. Plain DNS is not touched. Needs administrator rights.",
+            |ui| crate::widgets::small_toggle(ui, &mut s.block_doh),
         );
     });
 }

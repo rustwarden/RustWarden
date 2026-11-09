@@ -67,6 +67,11 @@ pub fn state() -> DriverState {
     state_in(&dir())
 }
 
+/// The driver is installed and complete. Every feature that needs it stays out of the UI until this is true.
+pub fn ready() -> bool {
+    state() == DriverState::Ready
+}
+
 /// What an install or removal in progress is doing; empty when idle. Read by the Settings card.
 static PROGRESS: Mutex<String> = Mutex::new(String::new());
 
