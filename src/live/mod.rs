@@ -84,6 +84,7 @@ impl LiveBackend {
             }
         };
         let fw = Arc::new(FwController::new(shared.clone()));
+        firewall::migrate_legacy_state(elevated);
         // A Block All left behind by a crash is undone before anything else.
         // (unless the last exit left Prompt blocking on purpose, which `resume` carries on)
         if !firewall::kept_block(settings.keep_blocking_closed, elevated)

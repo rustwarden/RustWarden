@@ -73,7 +73,10 @@ fn harden_dll_search() {
 }
 
 fn main() -> eframe::Result {
-    harden_dll_search();
+    // Not in the WebView2 helper: the browser engine's loader finds its runtime DLLs by its own search rules.
+    if std::env::args().nth(1).as_deref() != Some("--tbb-browser") {
+        harden_dll_search();
+    }
     // Before any file is touched: an elevated run must not follow a junction a non-administrator made (see sys::redirection_guard).
     sys::redirection_guard();
     // A screenshot run (shots.rs) is a plain start: no elevation, service hand-off or single-instance check.

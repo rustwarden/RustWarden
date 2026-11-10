@@ -335,6 +335,27 @@ fn state_dir() -> PathBuf {
     if crate::sys::is_elevated() { crate::settings::admin_dir() } else { crate::settings::data_dir() }
 }
 
+/// Versions up to 1.21.3 kept the safety files in the user's folder. A Block All still in force from then is carried over,
+/// but only when Windows Firewall itself holds one of its exceptions (a program running as the user can't make those);
+/// otherwise the old files are just deleted, so a planted one is never acted on.
+pub fn migrate_legacy_state(elevated: bool) {
+    const FILES: [&str; 5] = ["blockall.marker", "ask.marker", "closed.marker", "audit.prev", "blockall.suspended"];
+    let (old, new) = (crate::settings::data_dir(), state_dir());
+    if !elevated || old == new || !FILES.iter().any(|f| old.join(f).exists()) {
+        return;
+    }
+    // Firewall unreadable: leave everything where it is and try at the next start.
+    let Ok((rules, _)) = firewall::rules_in_group(GROUP) else { return };
+    let real = rules.iter().any(|r| is_ours(&r.grouping, &r.name) && r.name.starts_with(BLOCK_ALL_PREFIX));
+    let _ = std::fs::create_dir_all(&new);
+    for f in FILES {
+        if real && !new.join(f).exists() {
+            let _ = std::fs::copy(old.join(f), new.join(f));
+        }
+        let _ = std::fs::remove_file(old.join(f));
+    }
+}
+
 fn marker_path() -> PathBuf {
     state_dir().join("blockall.marker")
 }

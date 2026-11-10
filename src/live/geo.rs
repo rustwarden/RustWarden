@@ -65,7 +65,17 @@ pub fn asn_networks(path: &std::path::Path, asn: u32) -> Result<Vec<(IpAddr, u8)
 pub fn download_dbip(dest: &std::path::Path, edition: &str, progress: &std::sync::atomic::AtomicU32) -> Result<(), String> {
     // Downloaded beside the real file and only swapped in once `verify` passes, so a bad file never replaces a good one.
     let part = dest.with_extension("mmdb.part");
-    let r = download_script(&part, edition, progress).and_then(|()| verify(&part, edition));
+    // Elevated, PowerShell works in a folder only administrators can write (it has no protection against links planted in the
+    // user's folder); this process then copies the result over, and checks it, as before.
+    let scratch = if crate::sys::is_elevated() { crate::settings::admin_dir().join("plugin-tmp").join(part.file_name().unwrap_or_default()) } else { part.clone() };
+    let copied = download_script(&scratch, edition, progress)
+        .and_then(|()| if scratch == part { Ok(()) } else { std::fs::copy(&scratch, &part).map(|_| ()).map_err(|e| format!("can't save {}: {e}", part.display())) });
+    if scratch != part {
+        for tail in ["", ".gz", ".tmp"] {
+            let _ = std::fs::remove_file(format!("{}{tail}", scratch.display()));
+        }
+    }
+    let r = copied.and_then(|()| verify(&part, edition));
     match r {
         Ok(()) => std::fs::rename(&part, dest).map_err(|e| format!("can't save {}: {e}", dest.display())),
         Err(e) => {
