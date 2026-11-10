@@ -48,7 +48,7 @@ Scan automatically (off), Time between scans (30 min), Time between probes (20 m
 | Blocking | Keep Prompt blocking when RustWarden is closed | [Prompt](firewall/index.md#prompt) |
 | Blocking | Remove block rules of uninstalled apps, after N days (7) | [Housekeeping](firewall/index.md#rule-housekeeping) |
 | Blocking | Import existing firewall rules / Import and rename | [Importing](firewall/index.md#importing-rules-from-another-firewall-app) |
-| Windows components | Block Windows components that don't need internet, Pause / Resume / Unblock per group, Repeat automatically (every 24 h) | [Housekeeping](firewall/index.md#rule-housekeeping) |
+| Windows components | Block Windows components that don't need internet, Pause / Resume / Unblock per group, Keep these components blocked (checks every 24 h) | [Housekeeping](firewall/index.md#rule-housekeeping) |
 | Rulesets | Switch, create, delete rulesets | [Rulesets](firewall/index.md#firewall-rulesets) |
 | Advanced | Let RustWarden's own downloads through the firewall (on) | [Helpers](firewall/index.md#letting-rustwardens-own-helpers-through) |
 | Advanced | Force DNS through my resolver *(Driver mode)* | [Force DNS](driver-mode.md#force-dns) |

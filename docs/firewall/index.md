@@ -130,7 +130,7 @@ Switching ruleset turns off Block All and Prompt. Rulesets need Live mode.
 **Settings > Firewall > Windows components** (Live mode):
 
 - **Block Windows components that don't need internet** creates block rules for background parts of Windows that don't need to be online. The page first explains exactly what is covered. Each group can then be **Paused** (rules kept, switched off), **Resumed**, or **Unblocked** (its rules deleted). Blocks you set yourself are never touched.
-- **Repeat that automatically** every **N hours** re-applies the blocks to programs that Windows Update has reinstalled. It starts after you have used the button once.
+- **Keep these components blocked** checks every **N hours** (Hours between repeats) for components Windows Update put back without their block, and blocks them again. It starts once you have pressed the Block button.
 
 ## Importing rules from another firewall app
 

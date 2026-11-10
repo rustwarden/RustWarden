@@ -2318,9 +2318,13 @@ fn firewall_section(ui: &mut Ui, s: &mut Settings, live: bool, profiles: &(Vec<S
                         }
                     });
                 }
-                c.row("Repeat that automatically", "Covers programs Windows Update reinstalled. Starts after you have used the button once.", |ui| {
-                    crate::widgets::small_toggle(ui, &mut s.block_windows_auto);
-                });
+                c.row(
+                    "Keep these components blocked",
+                    "Windows Update can put back a blocked component without its block. This checks every few hours and blocks it again. Starts once you have pressed the Block button above.",
+                    |ui| {
+                        crate::widgets::small_toggle(ui, &mut s.block_windows_auto);
+                    },
+                );
                 c.enable(s.block_windows_auto);
                 c.row("Hours between repeats", "24 suits most; 48 if you update rarely.", |ui| {
                     crate::widgets::num_field(ui, &mut s.block_windows_hours, 1..=720, " hours");
