@@ -95,3 +95,4 @@
 - [Norman] docs: the user guide's Map view section has a real Map view screenshot and explains the lines, numbered city bubbles, blocked markers, night shading, the Live Connections switch, zoom buttons and the VPN in use chip.
 - [Norman] docs: README has a Documentation link to the user guide right under the title.
 - [Norman] fix: the first-run wizard is wider (640) and every step has the same height, so it no longer scrolls or resizes and jumps back to the centre between steps.
+- [Norman] fix: dialog windows are capped at 90% of the screen while they size to their content. A dialog whose content kept pushing back could grow without limit and resize its OpenGL surface every frame; on some integrated GPUs (AMD Radeon 780M) that load is a suspect for a whole-machine freeze.

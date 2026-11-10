@@ -598,7 +598,9 @@ impl Dialog<'_> {
             // Content whose size depends on the window's (wrapping text, a grid still learning its column
             // widths, DPI rounding) can push back on every resize; after a run of them the window only grows,
             // which has to stop.
-            let target = if st.steps >= 8 { m.max(st.size.unwrap_or(m)) } else { m };
+            // Capped at the screen: unbounded growth resized the GL surface every frame, which can hang an iGPU driver.
+            let screen = ctx.input(|i| i.viewport().monitor_size).unwrap_or(vec2(4096.0, 4096.0)) * 0.9;
+            let target = if st.steps >= 8 { m.max(st.size.unwrap_or(m)) } else { m }.min(screen);
             if st.size.is_none_or(|s| (s - target).length() > 0.5) {
                 st.pos = Some(parent.center() - target / 2.0); // keep it centred as its content settles or changes
                 st.size = Some(target);
