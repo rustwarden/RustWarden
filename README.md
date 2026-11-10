@@ -22,7 +22,7 @@ A fast, native Windows network monitor and firewall front-end, written in Rust.
 
 **RustWarden** is a native Windows network monitor and firewall front-end in a single small exe, written in Rust. It shows which programs talk to the internet, where the traffic goes and how much of it there is, and lets you allow, block or ask about each one with the Windows Firewall. It needs no driver, sits happily in the system tray, and has a Demo mode so you can try everything without touching your system.
 
-> **How it was made:** by feel. I described what I wanted, a tireless pair programmer typed the Rust, and I kept steering until it compiled, looked right and behaved. It is a young project with more enthusiasm than ceremony, so try the firewall features in Demo mode first and keep the [rescue button](#rescue-remove-every-rustwarden-firewall-rule) in mind.
+> **How it was made:** AI was used heavily during development. We are experienced developers, and although the result isn't perfect, we have reviewed it and understand what it does. We built it to meet our own requirements and use it daily, and we hope others can benefit from it and contribute. Feel free to try the firewall features in Demo mode first, and keep the [rescue button](#rescue-remove-every-rustwarden-firewall-rule) in mind.
 
 ### What it does
 - **See what is happening:** a live traffic graph and world map per app, live connections, a DNS log and a network scanner.
