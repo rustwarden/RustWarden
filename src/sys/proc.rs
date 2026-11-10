@@ -332,6 +332,7 @@ fn spawn_with(cmd: &Command, pipes: Pipes, window: bool, limit: bool) -> io::Res
 mod tests {
     use super::*;
     use windows::Win32::Foundation::{HLOCAL, LocalFree};
+    use windows::Win32::Security::{TOKEN_ELEVATION, TokenElevation};
     use windows::Win32::UI::Shell::CommandLineToArgvW;
 
     /// What `CommandLineToArgvW` makes of a command line we built.
@@ -347,6 +348,12 @@ mod tests {
         let out = (0..n as usize).map(|i| unsafe { String::from_utf16_lossy(list.add(i).read().as_wide()) }).collect::<Vec<_>>();
         unsafe { LocalFree(Some(HLOCAL(list.cast()))) };
         out[1..].to_vec()
+    }
+
+    fn token_elevated(token: &OwnedHandle) -> bool {
+        let mut info = TOKEN_ELEVATION::default();
+        let mut len = 0u32;
+        unsafe { GetTokenInformation(raw(token), TokenElevation, Some((&raw mut info).cast()), size_of::<TOKEN_ELEVATION>() as u32, &mut len) }.is_ok() && info.TokenIsElevated != 0
     }
 
     #[test]
@@ -394,7 +401,12 @@ mod tests {
         assert!(child.limited, "Windows refused the shell's token: see rustwarden.log");
         let out = child.wait_with_output().unwrap();
         let text = String::from_utf8_lossy(&out.stdout).to_string();
-        assert!(out.status.success() && text.contains("Medium Mandatory Level") && !text.contains("High Mandatory Level"), "{:?} {text} {}", out.status, String::from_utf8_lossy(&out.stderr));
+        let detail = format!("{:?} {text} {}", out.status, String::from_utf8_lossy(&out.stderr));
+        assert!(out.status.success() && text.contains("Mandatory Level"), "{detail}");
+        // Where the shell itself is elevated (UAC off, as on a CI runner) there is nothing to take away; otherwise it must be medium.
+        if !token_elevated(&shell_token().unwrap()) {
+            assert!(text.contains("Medium Mandatory Level") && !text.contains("High Mandatory Level"), "{detail}");
+        }
 
         let mut c = Command::new(super::super::tool_path("curl"));
         c.arg("--version");
