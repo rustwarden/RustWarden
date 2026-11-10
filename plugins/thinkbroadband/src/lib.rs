@@ -313,9 +313,9 @@ fn poll_now() {
         Err(e) if e == NEED_LOGIN => {
             let first = !with(|s| s.needs_login);
             with(|s| s.needs_login = true);
-            guest::config_set("status", "thinkbroadband needs you to sign in again.");
+            guest::config_set("status", "ThinkBroadband Quality Monitor needs you to sign in again.");
             if first {
-                guest::notify_in_app("thinkbroadband needs you to sign in again (Network > Broadband Quality).");
+                guest::notify_in_app("ThinkBroadband Quality Monitor needs you to sign in again (Network > ThinkBroadband Quality Monitor).");
             }
         }
         Err(e) => guest::config_set("status", &format!("{e} Trying again in {} minutes.", interval_mins())),
@@ -406,13 +406,13 @@ fn chart() -> UiTree {
         range: if guest::config_get("range").is_empty() { 1 } else { num("range").clamp(0, 2) as usize },
         last_ok: if demo { guest::now() } else { num("synced") },
         refresh_hint: "Download the latest samples now".into(),
-        text_not_live: "thinkbroadband data is downloaded in Live mode.".into(),
-        text_no_lines: "No graphs chosen. Import them in Settings > Plugins > thinkbroadband > Settings.".into(),
-        text_no_data_day: "thinkbroadband has no data for this day.".into(),
+        text_not_live: "ThinkBroadband Quality Monitor data is downloaded in Live mode.".into(),
+        text_no_lines: "No graphs chosen. Import them in Settings > Plugins > ThinkBroadband Quality Monitor > Settings.".into(),
+        text_no_data_day: "ThinkBroadband has no data for this day.".into(),
         text_no_data: "No samples yet. Press Refresh to download them.".into(),
         refreshing,
         paused: needs_login,
-        signin_text: if needs_login { "Your thinkbroadband session has expired. Sign in again to keep these graphs up to date.".into() } else { String::new() },
+        signin_text: if needs_login { "Your ThinkBroadband session has expired. Sign in again to keep these graphs up to date.".into() } else { String::new() },
         signin_button: if needs_login { "Sign in".into() } else { String::new() },
         wants_missing: !demo,
         ..LatencyChart::default()
@@ -443,7 +443,7 @@ fn settings() -> UiTree {
         rows.push(UiTree::Switch { id: format!("mon:{}", m.id), text: format!("{} ({})", m.name, m.id), on: chosen.iter().any(|c| c.id == m.id) });
     }
     if chosen.is_empty() {
-        rows.push(UiTree::Label("Tick at least one graph; the Broadband Quality tab appears once one is chosen.".into()));
+        rows.push(UiTree::Label("Tick at least one graph; the ThinkBroadband Quality Monitor tab appears once one is chosen.".into()));
     }
     rows.push(UiTree::Row(vec![UiTree::Label("Alert at packet loss of (%)".into()), UiTree::Number { id: "alert_pct".into(), value: f64::from(alert_pct()), min: 0.0, max: 100.0 }]));
     rows.push(UiTree::Row(vec![UiTree::Label("Download every (minutes)".into()), UiTree::Number { id: "interval_mins".into(), value: interval_mins() as f64, min: 1.0, max: 1440.0 }]));
@@ -527,18 +527,19 @@ impl Guest for Tbb {
     fn manifest() -> Manifest {
         Manifest {
             id: "thinkbroadband".into(),
-            name: "thinkbroadband".into(),
+            name: "ThinkBroadband Quality Monitor".into(),
             version: "1.0.0".into(),
             author: "RustWarden".into(),
             api_version: API_VERSION,
             kind: Kind::System,
             icon: LOGO.to_vec(),
-            tabs: vec![TabDef { id: "broadband".into(), title: "Broadband Quality".into() }],
+            tabs: vec![TabDef { id: "broadband".into(), title: "ThinkBroadband Quality Monitor".into() }],
             settings_page: true,
             http_hosts: vec!["www.thinkbroadband.com".into()],
             permissions: vec!["browser.session".into(), "alerts.write".into()],
             tick_secs: 5,
             schema: SCHEMA.into(),
+            hidden: true,
             ..Manifest::default()
         }
     }

@@ -14,7 +14,7 @@ pub fn targets() -> Vec<(&'static str, PathBuf)> {
         ("ASN database", crate::live::geo::asn_db_path()),
         ("Malicious IP lists", crate::live::threat::cache_path()),
         ("Malicious domain list", crate::live::dns::cache_path()),
-        ("thinkbroadband sign-in", crate::sys::webview::profile_dir()),
+        ("ThinkBroadband Quality Monitor sign-in", crate::sys::webview::profile_dir()),
     ]
 }
 
@@ -32,7 +32,7 @@ pub fn warning() -> String {
     let found: Vec<String> = targets().into_iter().filter(|(_, p)| p.exists()).map(|(name, p)| format!("  • {name} ({})", fmt_bytes(size(&p) as f64))).collect();
     let list = if found.is_empty() { "Nothing has been downloaded, so there is nothing to delete.".to_owned() } else { format!("This deletes:\n{}", found.join("\n")) };
     format!(
-        "{list}\n\nIt also switches off what used them: the Speedtest plugin and its schedule, the city map and database updates, Malicious IP protection and the thinkbroadband plugin. You can turn them on again in Settings (and download again where needed).\n\nYour history, alerts, firewall rules and settings are kept. This cannot be undone."
+        "{list}\n\nIt also switches off what used them: the Speedtest plugin and its schedule, the city map and database updates, Malicious IP protection and the ThinkBroadband Quality Monitor plugin. You can turn them on again in Settings (and download again where needed).\n\nYour history, alerts, firewall rules and settings are kept. This cannot be undone."
     )
 }
 

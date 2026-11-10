@@ -2,7 +2,7 @@
 
 A plugin is one `.wasm` file. RustWarden runs it in a sandbox: it has no file or network access of its own and can only call the functions RustWarden gives it. Out of the box a plugin can add **tabs** and a **settings page**; anything more is an **opt-in permission** the user ticks when approving it.
 
-Start from [plugins/example-hello](plugins/example-hello) (about 60 lines). Your own private plugin can live anywhere; it only needs the `plugin-sdk` crate.
+New to this? Follow the step-by-step walkthrough in [plugin-sdk/CREATING_A_PLUGIN.md](plugin-sdk/CREATING_A_PLUGIN.md); this page is the reference. Start from [plugins/example-hello](plugins/example-hello) (about 50 lines). Your own private plugin can live anywhere; it only needs the `plugin-sdk` crate.
 
 ## Build
 
@@ -87,9 +87,9 @@ Permissions (list them in `Manifest.permissions`; the user ticks each one):
 | `metrics.serve` | marks a plugin as the settings half of RustWarden's Prometheus endpoint: while it runs, RustWarden serves its metrics on 127.0.0.1 at the plugin's `port` setting (only the bundled Prometheus plugin uses it) |
 | `upnp` | find the UPnP router with `upnp_discover()` (UDP discovery a plugin can't do itself; the answer is always a private-network address). The plugin then talks to the router over http with `http_raw` (the bundled UPnP Port Forwarding plugin) |
 | `programs.hash` | marks a plugin as the settings half of RustWarden's own VirusTotal lookups (only the bundled VirusTotal plugin uses it) |
-| `alerts.write` | raise a packet-loss alert with `raise_alert`, delivered like RustWarden's own (only the thinkbroadband plugin uses it today) |
+| `alerts.write` | raise a packet-loss alert with `raise_alert`, delivered like RustWarden's own (only the ThinkBroadband Quality Monitor plugin uses it today) |
 | `helper.exe` | download a helper program from an address in `http_hosts` (checked against a SHA-256 you declare), run it with arguments you give, and get each line it prints as `Call::HelperLine` (`helper_ready`, `helper_install`, `helper_start`, `helper_stop`). A download whose address ends in `.exe` is the program itself instead of a zip. With a timeout of 0 the program runs until `helper_stop` or until RustWarden closes, and the lines it prints to its error output come back as `HelperLine` too (the bundled Cloudflare Tunnel plugin) |
-| `browser.session` | use RustWarden's sign-in browser window and signed-in fetches for one site (only thinkbroadband today) |
+| `browser.session` | use RustWarden's sign-in browser window and signed-in fetches for one site (only ThinkBroadband Quality Monitor today) |
 | `firewall.blocks.read` | read the addresses RustWarden has blocked with `blocked_addresses()` (a JSON array of address strings) |
 | `devices.annotate` | read the scanned devices (`devices()`), and have RustWarden show what you store in `p_<id>__devices` (columns `mac`, `found`, `name`, `area`, `kind`, `model`, `url`) on the Scanner tab |
 

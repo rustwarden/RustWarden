@@ -29,13 +29,14 @@ pub struct DbInfo {
     /// The DB-IP edition: "country", "city" or "asn".
     pub edition: &'static str,
     pub used_for: &'static str,
-    pub size: &'static str,
+    /// Rough download size, which also weights the overall progress bar.
+    pub mb: u32,
 }
 
 pub const DATABASES: [DbInfo; 3] = [
-    DbInfo { name: "Country database", edition: "country", used_for: "flags and countries everywhere in the app", size: "about 5 MB" },
-    DbInfo { name: "City database", edition: "city", used_for: "placing connections at their city on the map", size: "about 120 MB" },
-    DbInfo { name: "ASN database", edition: "asn", used_for: "destination rules on an AS number", size: "about 8 MB" },
+    DbInfo { name: "Country database", edition: "country", used_for: "flags and countries", mb: 5 },
+    DbInfo { name: "City database", edition: "city", used_for: "the city map", mb: 120 },
+    DbInfo { name: "ASN database", edition: "asn", used_for: "AS number rules", mb: 8 },
 ];
 
 pub fn db_path(edition: &str) -> PathBuf {
@@ -44,11 +45,6 @@ pub fn db_path(edition: &str) -> PathBuf {
         "asn" => asn_db_path(),
         _ => default_db_path(),
     }
-}
-
-/// The address a database comes from; the month is the newest of the last three that exists.
-pub fn download_url(edition: &str) -> String {
-    format!("https://download.db-ip.com/free/dbip-{edition}-lite-YYYY-MM.mmdb.gz")
 }
 
 /// Every network the ASN database at `path` assigns to `asn`, as (address, prefix length).
@@ -150,8 +146,8 @@ exit 1
     }
 }
 
-/// Background check: every few hours, re-downloads each database already on disk that is over 28 days old
-/// (DB-IP publishes monthly), if the setting is still on. A loaded database is only swapped on restart.
+/// Background check: re-downloads each database already on disk once it is older than the update interval
+/// (Settings > Countries & Network), if the setting is still on. A loaded database is only swapped on restart.
 pub fn spawn_auto_update() {
     std::thread::spawn(|| {
         // Sleeps in one-second steps so exiting the app ends the thread (and starts no download).
@@ -168,15 +164,17 @@ pub fn spawn_auto_update() {
             return;
         }
         loop {
-            if crate::settings::Settings::load().geo_auto_update {
+            let s = crate::settings::Settings::load();
+            let every = u64::from(s.geo_update_hours.max(1)) * 3600;
+            if s.geo_auto_update {
                 for (path, edition) in [(default_db_path(), "country"), (city_db_path(), "city")] {
-                    let old = std::fs::metadata(&path).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age.as_secs() > 28 * 86_400);
+                    let old = std::fs::metadata(&path).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age.as_secs() >= every);
                     if old {
                         let _ = download_dbip(&path, edition, &Default::default());
                     }
                 }
             }
-            if !nap(6 * 3600) {
+            if !nap(every.min(6 * 3600)) {
                 return;
             }
         }

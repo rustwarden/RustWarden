@@ -62,7 +62,7 @@ pub fn run(args: &[String]) -> i32 {
     let js_urls = urls.iter().filter(|u| u.starts_with(HOST)).map(|u| format!("\"{}\"", u.replace(['\\', '"'], ""))).collect::<Vec<_>>().join(",");
 
     let event_loop = EventLoopBuilder::<Ev>::with_user_event().build();
-    let window = match WindowBuilder::new().with_title("thinkbroadband sign in").with_inner_size(LogicalSize::new(560.0, 760.0)).with_visible(login).build(&event_loop) {
+    let window = match WindowBuilder::new().with_title("ThinkBroadband Quality Monitor sign in").with_inner_size(LogicalSize::new(560.0, 760.0)).with_visible(login).build(&event_loop) {
         Ok(w) => w,
         Err(_) => return 3,
     };

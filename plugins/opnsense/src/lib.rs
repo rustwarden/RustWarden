@@ -713,6 +713,7 @@ impl Guest for Opnsense {
             permissions: vec!["devices.annotate".into(), "firewall.blocks.read".into()],
             tick_secs: 60,
             schema: SCHEMA.into(),
+            hidden: true,
             ..Manifest::default()
         }
     }

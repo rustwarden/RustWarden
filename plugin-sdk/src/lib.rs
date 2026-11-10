@@ -55,6 +55,8 @@ pub struct Manifest {
     pub allow_insecure_tls: bool,
     /// SQL creating this plugin's tables, which must all be named `p_<id>__*` (the id's dashes written as underscores).
     pub schema: String,
+    /// Beta: left off Settings > Plugins until the user types "beta" in its search box. Honoured for built-in plugins only.
+    pub hidden: bool,
 }
 
 /// What the host draws for a plugin. The plugin sends a new tree after each [`Event`].

@@ -24,9 +24,9 @@
     "semantic_hash": ""
   },
   "Cargo.toml": {
-    "mtime": 1794256313.6981187,
-    "seen": 1794256417.9666035,
-    "ast_hash": "20b658a40b3e542ef1f4fd3a7197e6ff",
+    "mtime": 1794259638.374384,
+    "seen": 1794311212.3280547,
+    "ast_hash": "0f21cc10004d32887f72855698cb686f",
     "semantic_hash": ""
   },
   "assets/about_graph.json": {
@@ -66,9 +66,9 @@
     "semantic_hash": ""
   },
   "src/cleanup.rs": {
-    "mtime": 1793971212.7923102,
-    "seen": 1793971490.0803642,
-    "ast_hash": "a670df23be66ee93670b168acb07d2bf",
+    "mtime": 1794310663.5939875,
+    "seen": 1794311212.3281355,
+    "ast_hash": "ac85a410ce2fa54a49f438df8e61c99c",
     "semantic_hash": ""
   },
   "src/clock.rs": {
@@ -138,9 +138,9 @@
     "semantic_hash": ""
   },
   "src/live/alerts.rs": {
-    "mtime": 1794258989.0773163,
-    "seen": 1794259428.3785481,
-    "ast_hash": "b4682159346dfe9dbd7e652762422095",
+    "mtime": 1794310663.4711611,
+    "seen": 1794311212.3281512,
+    "ast_hash": "deb356c3c6aa3361d94bd2566460a5a6",
     "semantic_hash": ""
   },
   "src/live/apps.rs": {
@@ -222,9 +222,9 @@
     "semantic_hash": ""
   },
   "src/live/geo.rs": {
-    "mtime": 1793981941.4124641,
-    "seen": 1793981954.5413094,
-    "ast_hash": "4816a29cc632748f3aa8c3464d4492d9",
+    "mtime": 1794310679.6985736,
+    "seen": 1794311212.3281739,
+    "ast_hash": "e365c71555e6779944680a7a01098e58",
     "semantic_hash": ""
   },
   "src/live/hardware.rs": {
@@ -408,9 +408,9 @@
     "semantic_hash": ""
   },
   "src/settings.rs": {
-    "mtime": 1794258527.5975697,
-    "seen": 1794259428.3786733,
-    "ast_hash": "d2fe91563655f8f79293cd53fdb76787",
+    "mtime": 1794310993.2472737,
+    "seen": 1794311212.3282328,
+    "ast_hash": "2660a9c12ad0c7653aa1f05037bf7cad",
     "semantic_hash": ""
   },
   "src/shots.rs": {
@@ -612,9 +612,9 @@
     "semantic_hash": ""
   },
   "src/ui/dialogs.rs": {
-    "mtime": 1794259186.3703992,
-    "seen": 1794259428.3787618,
-    "ast_hash": "cb7f508462444c8c816855f986bc0fd1",
+    "mtime": 1794310679.6996186,
+    "seen": 1794311212.3282888,
+    "ast_hash": "b1c90b4fb6f4bd6ae4ea9d2e920cc2fb",
     "semantic_hash": ""
   },
   "src/ui/dns.rs": {
@@ -630,9 +630,9 @@
     "semantic_hash": ""
   },
   "src/ui/hardware.rs": {
-    "mtime": 1793884060.896311,
-    "seen": 1793964015.0274985,
-    "ast_hash": "7f786cfd1e82ef71c2a6275eb3c482ea",
+    "mtime": 1794310480.8587165,
+    "seen": 1794311212.3282926,
+    "ast_hash": "b8dd43b25bf0f70d20b8be1ab9c1b94f",
     "semantic_hash": ""
   },
   "src/ui/log.rs": {
@@ -720,9 +720,9 @@
     "semantic_hash": ""
   },
   "FEATURES.md": {
-    "mtime": 1794258894.9055817,
-    "seen": 1794259428.378809,
-    "ast_hash": "674857c9b1b673e0c2e19cdc210ae888",
+    "mtime": 1794311203.980094,
+    "seen": 1794311212.3283195,
+    "ast_hash": "970cd2820e97dfa50ae9577af0b86f70",
     "semantic_hash": ""
   },
   "LICENCE.md": {
@@ -750,9 +750,9 @@
     "semantic_hash": ""
   },
   "changes.md": {
-    "mtime": 1794257742.8099246,
-    "seen": 1794259428.3788218,
-    "ast_hash": "c9931c8485be68f4f4939e91f9782d32",
+    "mtime": 1794311203.9789157,
+    "seen": 1794311212.3283281,
+    "ast_hash": "ae47dab5c32fb6cae628841fe3a8b209",
     "semantic_hash": ""
   },
   "assets/flags/ad.png": {
@@ -2382,9 +2382,9 @@
     "semantic_hash": ""
   },
   "plugin-sdk/src/lib.rs": {
-    "mtime": 1794249779.221058,
-    "seen": 1794250742.8852153,
-    "ast_hash": "dc39cab1a243688e9f669d603174fc4d",
+    "mtime": 1794310977.7368581,
+    "seen": 1794311212.328067,
+    "ast_hash": "1c8f4f94600abd1862c63e78326a2ba3",
     "semantic_hash": ""
   },
   "plugin-sdk/src/notify.rs": {
@@ -2574,15 +2574,15 @@
     "semantic_hash": ""
   },
   "src/ui/plugins.rs": {
-    "mtime": 1794249779.224211,
-    "seen": 1794250742.8854568,
-    "ast_hash": "332ffd9a04dd4e1e127fd6a9ab3b3fd7",
+    "mtime": 1794311126.6629732,
+    "seen": 1794311212.3282998,
+    "ast_hash": "91b3119ff9f3d55784613708850d0123",
     "semantic_hash": ""
   },
   "PLUGINS.md": {
-    "mtime": 1794250711.6514566,
-    "seen": 1794250742.8854795,
-    "ast_hash": "8c87c266565b38574025dc53b37ec12c",
+    "mtime": 1794311203.980094,
+    "seen": 1794311212.3283224,
+    "ast_hash": "88ee0f927263a40c3b223d9b80bc3441",
     "semantic_hash": ""
   },
   "plugins/ha/assets/home-assistant.png": {
@@ -2598,9 +2598,9 @@
     "semantic_hash": ""
   },
   "plugins/opnsense/src/lib.rs": {
-    "mtime": 1794250487.8170867,
-    "seen": 1794250742.885247,
-    "ast_hash": "d3dede6737468d34a63adb1200c153b4",
+    "mtime": 1794310985.803189,
+    "seen": 1794311212.328097,
+    "ast_hash": "2b1beb6b4032d2c838c4bc57ec49117d",
     "semantic_hash": ""
   },
   "plugins/speedtest/Cargo.toml": {
@@ -2622,9 +2622,9 @@
     "semantic_hash": ""
   },
   "plugins/thinkbroadband/src/lib.rs": {
-    "mtime": 1793973396.4920058,
-    "seen": 1793981954.5412414,
-    "ast_hash": "5391a5c20c08d44ef4810d030316c8fa",
+    "mtime": 1794310985.857173,
+    "seen": 1794311212.3281193,
+    "ast_hash": "50f3f86ea95156bd18c4d1f14c1e8c1b",
     "semantic_hash": ""
   },
   "src/sys/helper.rs": {
@@ -2634,9 +2634,9 @@
     "semantic_hash": ""
   },
   "src/sys/webview.rs": {
-    "mtime": 1794258668.470076,
-    "seen": 1794259428.3787413,
-    "ast_hash": "baae5ffbfb86eafbffb1061ab11391fd",
+    "mtime": 1794310663.6331208,
+    "seen": 1794311212.3282757,
+    "ast_hash": "a80dae0358ef245909d188b430fb0b47",
     "semantic_hash": ""
   },
   "src/ui/speed.rs": {
@@ -2769,6 +2769,12 @@
     "mtime": 1794250629.9014745,
     "seen": 1794250742.8854861,
     "ast_hash": "17b5c222d7a301b15d30321c26e2ffbe",
+    "semantic_hash": ""
+  },
+  "plugin-sdk/CREATING_A_PLUGIN.md": {
+    "mtime": 1794311110.691064,
+    "seen": 1794311212.3283312,
+    "ast_hash": "83db5b79361fe96dc07c7f9088ee4629",
     "semantic_hash": ""
   }
 }

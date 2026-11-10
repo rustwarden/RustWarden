@@ -126,6 +126,32 @@ fn perm_text(p: &str) -> &'static str {
     }
 }
 
+/// The plugin SDK walkthrough on GitHub (Settings > Plugins > Create a Plugin).
+const CREATE_URL: &str = "https://github.com/rustwarden/RustWarden/blob/main/plugin-sdk/CREATING_A_PLUGIN.md";
+
+fn beta_hidden(f: &Found) -> bool {
+    f.manifest.hidden && f.first_party()
+}
+
+/// Hidden (beta) plugins are listed once "beta" is typed; one already switched on stays listed so it can be managed.
+fn listed(f: &Found, s: &Settings) -> bool {
+    !beta_hidden(f) || s.beta_plugins || s.plugins.get(&f.manifest.id).is_some_and(|x| x.enabled)
+}
+
+/// "beta" + Enter in a search box: brings the hidden plugins back, or uninstalls and hides them again.
+fn toggle_beta(s: &mut Settings, found: &[Found]) {
+    s.beta_plugins = !s.beta_plugins;
+    let on = s.beta_plugins;
+    for f in found.iter().filter(|f| beta_hidden(f)) {
+        let e = s.plugins.entry(f.manifest.id.clone()).or_default();
+        if on {
+            e.removed = false;
+        } else {
+            (e.removed, e.enabled) = (true, false);
+        }
+    }
+}
+
 /// The `.wasm` plugins of one kind: the built-in ones, then files from the plugin folder.
 fn files(ui: &mut Ui, s: &mut Settings, kind: Kind) {
     let view = manager::view();
@@ -133,13 +159,19 @@ fn files(ui: &mut Ui, s: &mut Settings, kind: Kind) {
     let mut query: String = ui.data_mut(|d| d.get_temp(query_id).unwrap_or_default());
     let q = query.trim().to_lowercase();
     let gone = |f: &Found| s.plugins.get(&f.manifest.id).is_some_and(|x| x.removed);
-    let mut mine: Vec<&Found> = view.found.iter().filter(|f| f.manifest.kind == kind && !gone(f)).collect();
+    let mut mine: Vec<&Found> = view.found.iter().filter(|f| f.manifest.kind == kind && !gone(f) && listed(f, s)).collect();
     mine.sort_by_cached_key(|f| f.manifest.name.to_lowercase());
-    let removed: Vec<&Found> = view.found.iter().filter(|f| f.manifest.kind == kind && gone(f)).collect();
+    let removed: Vec<&Found> = view.found.iter().filter(|f| f.manifest.kind == kind && gone(f) && listed(f, s)).collect();
     let total = mine.len();
     mine.retain(|f| q.is_empty() || f.manifest.name.to_lowercase().contains(&q) || f.manifest.id.contains(&q));
     let mut open: Option<Modal> = None;
-    ui.add(egui::TextEdit::singleline(&mut query).hint_text("Search plugins").desired_width(260.0));
+    let resp = ui.add(egui::TextEdit::singleline(&mut query).hint_text("Search plugins").desired_width(260.0));
+    if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && query.trim().eq_ignore_ascii_case("beta") {
+        toggle_beta(s, &view.found);
+        manager::preview(&s.plugins);
+        query.clear();
+        ui.ctx().request_repaint();
+    }
     ui.data_mut(|d| d.insert_temp(query_id, query));
     ui.add_space(6.0);
     ui.horizontal(|ui| {
@@ -152,6 +184,9 @@ fn files(ui: &mut Ui, s: &mut Settings, kind: Kind) {
         }
         if ui.button("Install from file…").clicked() {
             open = Some(Modal::Install(String::new()));
+        }
+        if ui.button("Create a Plugin").on_hover_text(CREATE_URL).clicked() {
+            crate::sys::open_url(CREATE_URL);
         }
     });
     if !view.message.is_empty() {
@@ -509,7 +544,27 @@ fn modal(ctx: &egui::Context, s: &mut Settings) {
 
 #[cfg(test)]
 mod tests {
-    use super::perm_text;
+    use super::*;
+    use crate::plugins::wasm::manager::Source;
+
+    #[test]
+    fn beta_shows_hidden_plugins_and_locking_uninstalls_them() {
+        let found = |id: &str, hidden: bool, source: Source| Found { source, hash: String::new(), manifest: plugin_sdk::Manifest { id: id.into(), hidden, ..Default::default() } };
+        let tbb = found("tbb", true, Source::Bundled(&[]));
+        // A third-party file can't hide itself.
+        let file = found("x", true, Source::File("x.wasm".into()));
+        let mut s = Settings::default();
+        assert!(!listed(&tbb, &s) && listed(&file, &s));
+        toggle_beta(&mut s, std::slice::from_ref(&tbb));
+        assert!(listed(&tbb, &s) && !s.plugins["tbb"].removed);
+        s.plugins.get_mut("tbb").unwrap().enabled = true;
+        toggle_beta(&mut s, std::slice::from_ref(&tbb));
+        let e = &s.plugins["tbb"];
+        assert!(!s.beta_plugins && e.removed && !e.enabled && !listed(&tbb, &s));
+        // Switched on before it was hidden (an existing install): still listed so it can be managed.
+        s.plugins.get_mut("tbb").unwrap().enabled = true;
+        assert!(listed(&tbb, &s));
+    }
 
     #[test]
     fn every_permission_the_host_knows_has_a_description() {

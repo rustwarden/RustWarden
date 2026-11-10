@@ -3,6 +3,7 @@
 # Outputs (to $GITHUB_OUTPUT when set): skip, tag, version.
 # First release (no v* tag yet): the notes are README.md with its relative links made absolute.
 # Later releases: the commit subjects since the last tag, grouped by type. Subjects only, so no authors.
+# A hand-written .github/notes/<tag>.md, when present, is used instead.
 set -euo pipefail
 
 repo="${GITHUB_REPOSITORY:-rustwarden/RustWarden}"
@@ -49,6 +50,10 @@ else
     [ -n "$other" ] && printf '### Other\n\n%s\n\n' "$other"
     echo "Full feature log: [changes.md](https://github.com/$repo/blob/$sha/changes.md)"
   } > notes.md
+fi
+
+if [ -f ".github/notes/$tag.md" ]; then
+  cp ".github/notes/$tag.md" notes.md
 fi
 
 echo "Releasing $tag (previous: ${last:-none})."

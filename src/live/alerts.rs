@@ -196,7 +196,7 @@ impl AlertKind {
             Self::Unlock => "Computer unlock",
             Self::Threat => "Malicious IP protection",
             Self::DnsThreat => "Malicious domain alerts",
-            Self::ThinkBroadband => "thinkbroadband packet loss",
+            Self::ThinkBroadband => "ThinkBroadband Quality Monitor packet loss",
             Self::UserAccounts => "Windows user account monitor",
             Self::ScheduledTasks => "Scheduled task monitor",
             Self::RootCerts => "Root certificate store monitor",
@@ -280,7 +280,7 @@ impl AlertKind {
             Self::Unlock => "Record an alert whenever this computer is unlocked.",
             Self::Threat => "Notify me when a program connects to a known malicious or botnet IP address.",
             Self::DnsThreat => "Notify me when a program looks up a domain on a malicious-domain list (turn the lists on in Settings > Malicious IP protection).",
-            Self::ThinkBroadband => "Notify me when thinkbroadband's Broadband Quality Monitor sees packet loss (set the level in Settings > Plugins).",
+            Self::ThinkBroadband => "Notify me when the ThinkBroadband Quality Monitor sees packet loss (set the level in Settings > Plugins).",
             Self::UserAccounts => "Notify me if a Windows user account is created, activated, deactivated or deleted.",
             Self::ScheduledTasks => "Notify me if a new Windows Task Scheduler task is added (malware often uses one to survive a reboot).",
             Self::RootCerts => "Notify me if a trusted root certificate is added to Windows (malware and interception tools add them to read encrypted traffic).",
@@ -342,7 +342,14 @@ impl AlertKind {
     }
 
     pub fn opts(self, s: &Settings) -> AlertOpts {
-        s.alert_opts.get(self.key()).copied().unwrap_or_else(|| self.default_opts())
+        s.alert_opts.get(self.key()).copied().unwrap_or_else(|| self.defaults_in(s))
+    }
+
+    /// `default_opts`, minus the desktop popup on a new install (`Settings::quiet_alert_defaults`).
+    pub fn defaults_in(self, s: &Settings) -> AlertOpts {
+        let mut o = self.default_opts();
+        o.desktop &= !s.quiet_alert_defaults;
+        o
     }
 
     pub fn switch_mut(self, s: &mut AlertSwitches) -> &mut bool {
@@ -809,6 +816,20 @@ mod tests {
         assert!(!old.alerts.arp && old.alert_opts.is_empty());
         let round = Settings::from_toml(&toml::to_string_pretty(&s).unwrap()).unwrap();
         assert_eq!(AlertKind::Proxy.opts(&round).level, AlertLevel::Important);
+    }
+
+    #[test]
+    fn new_installs_default_to_no_desktop_popups_old_configs_keep_theirs() {
+        let old = Settings::from_toml("mode = \"live\"").unwrap();
+        assert!(AlertKind::Beaconing.opts(&old).desktop);
+        let mut new = Settings::default();
+        new.quiet_alert_defaults = true;
+        assert!(!AlertKind::Beaconing.opts(&new).desktop);
+        assert_eq!(AlertKind::Beaconing.opts(&new).level, AlertLevel::Important);
+        // The flag survives a save, and an alert the user turned popups on for keeps it.
+        new.alert_opts.insert("beaconing".into(), AlertOpts { desktop: true, ..AlertKind::Beaconing.default_opts() });
+        let round = Settings::from_toml(&toml::to_string_pretty(&new).unwrap()).unwrap();
+        assert!(round.quiet_alert_defaults && round.alert_opts["beaconing"].desktop && !AlertKind::Proxy.opts(&round).desktop);
     }
 
     fn row(ip: &str, mac: &str, last_seen: i64, online: bool, trusted: bool) -> DeviceRow {

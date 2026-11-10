@@ -413,8 +413,9 @@ pub struct Settings {
     pub map_blocked: bool,
     /// Use the downloaded city database for the map (specific places instead of country centres).
     pub geoip_city: bool,
-    /// Re-download the downloaded GeoIP databases when they are over a month old.
+    /// Re-download the downloaded GeoIP databases every `geo_update_hours`.
     pub geo_auto_update: bool,
+    pub geo_update_hours: u32,
     /// Alert types (as shown on the graph pins) hidden from the traffic graph.
     pub graph_hidden: Vec<String>,
     /// Scanner table columns (by title) the user hid.
@@ -485,6 +486,9 @@ pub struct Settings {
     pub alerts: AlertSwitches,
     /// Overrides of the per-kind defaults, keyed by `AlertKind::key`.
     pub alert_opts: BTreeMap<String, AlertOpts>,
+    /// Set only on a new install: alerts the user hasn't configured default to no desktop popup. Older configs
+    /// lack it (false) and keep the per-kind popup defaults they had.
+    pub quiet_alert_defaults: bool,
     /// Master switch for sending alerts to the Windows event log.
     pub event_log: bool,
     /// Idle time before "while you were away" starts counting, in minutes.
@@ -603,6 +607,8 @@ pub struct Settings {
     pub api_in_snooze: bool,
     /// What the user decided about each `.wasm` plugin, by plugin id (Settings > Plugins).
     pub plugins: std::collections::BTreeMap<String, PluginState>,
+    /// Hidden (beta) built-in plugins are listed: toggled by typing "beta" + Enter in a plugin search box.
+    pub beta_plugins: bool,
 }
 
 /// The user's decision on one `.wasm` plugin. Its own config and secrets live in a file of their own
@@ -674,6 +680,8 @@ impl Default for Settings {
             map_blocked: true,
             geoip_city: false,
             geo_auto_update: false,
+            // DB-IP publishes monthly.
+            geo_update_hours: 720,
             graph_hidden: Vec::new(),
             scanner_hidden: Vec::new(),
             scanner_sort: None,
@@ -714,6 +722,7 @@ impl Default for Settings {
             report_hour: 8,
             alerts: AlertSwitches::default(),
             alert_opts: BTreeMap::new(),
+            quiet_alert_defaults: false,
             event_log: false,
             away_after_minutes: 10,
             device_return_days: 14,
@@ -769,6 +778,7 @@ impl Default for Settings {
             prompt_minutes: 0,
             api_in_snooze: true,
             plugins: Default::default(),
+            beta_plugins: false,
             threat_update_hours: 24,
             threat_feeds: "https://feodotracker.abuse.ch/downloads/ipblocklist.txt
 https://raw.githubusercontent.com/stamparm/ipsum/master/levels/3.txt"
@@ -911,7 +921,7 @@ impl Settings {
             Ok(Some(s)) => s,
             // A new install starts with every alert off, so a new user isn't flooded; the wizard offers them.
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                let mut s = Self::default();
+                let mut s = Self { quiet_alert_defaults: true, ..Self::default() };
                 for kind in crate::live::alerts::AlertKind::ALL {
                     *kind.switch_mut(&mut s.alerts) = false;
                 }
@@ -1051,6 +1061,7 @@ impl Settings {
         self.device_return_days = self.device_return_days.clamp(1, 365);
         self.threat_update_hours = self.threat_update_hours.clamp(1, 24 * 30);
         self.dns_block_update_hours = self.dns_block_update_hours.clamp(1, 24 * 30);
+        self.geo_update_hours = self.geo_update_hours.clamp(1, 24 * 30);
         self.data_plan.limit_gb = self.data_plan.limit_gb.max(0.1);
         self.sanitize_quotas();
         self.sanitize_alert_rules();
