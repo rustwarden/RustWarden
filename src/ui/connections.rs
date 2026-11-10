@@ -132,7 +132,7 @@ impl RustWarden {
         let matched: Vec<&LiveConn> = self.conns.entries.iter().filter(|c| c.matches(&query)).collect();
         let n_shown = matched.len();
         let mut group = self.conns.group;
-        let driver = self.settings.app_mode == crate::settings::AppMode::Driver;
+        let driver = crate::driver::in_use(&self.settings);
         let capture = if driver { self.backend.capture_status() } else { None };
         let mut stop_capture = false;
         row_in(ui, bar.shrink2(vec2(14.0, 0.0)), |ui| {

@@ -20,7 +20,67 @@ const PALETTE: [[f32; 3]; 10] = [
     [186.0, 176.0, 172.0],
 ];
 
+/// The first-party plugins embedded in the exe (plugin id, crate name). Keep in step with `src/plugins/wasm/bundled.rs`.
+const PLUGINS: &[(&str, &str)] = &[
+    ("discord", "plugin-discord"),
+    ("slack", "plugin-slack"),
+    ("pushbullet", "plugin-pushbullet"),
+    ("ntfy", "plugin-ntfy"),
+    ("gotify", "plugin-gotify"),
+    ("webhook", "plugin-webhook"),
+    ("ping", "plugin-ping"),
+    ("ha", "plugin-ha"),
+    ("virustotal", "plugin-virustotal"),
+    ("opnsense", "plugin-opnsense"),
+    ("speedtest", "plugin-speedtest"),
+    ("thinkbroadband", "plugin-thinkbroadband"),
+    ("prometheus", "plugin-prometheus"),
+    ("upnp", "plugin-upnp"),
+    ("cloudflare", "plugin-cloudflare"),
+    ("shodan", "plugin-shodan"),
+    ("abuseipdb", "plugin-abuseipdb"),
+];
+
+/// Builds the plugins for wasm32-wasip1 into OUT_DIR/plugins/<id>.wasm so `bundled.rs` can embed them.
+/// If that can't be done (no wasm target installed, say) empty files are written and a warning is printed:
+/// RustWarden still builds, it just ships without those plugins.
+fn bundle_plugins() {
+    println!("cargo:rerun-if-changed=plugins");
+    println!("cargo:rerun-if-changed=plugin-sdk");
+    let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    let dest = out.join("plugins");
+    std::fs::create_dir_all(&dest).expect("create plugins dir");
+    let target_dir = out.join("plugin-target");
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+    let mut cmd = std::process::Command::new(cargo);
+    cmd.args(["build", "--release", "--locked", "--target", "wasm32-wasip1"]).current_dir(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    for (_, krate) in PLUGINS {
+        cmd.args(["-p", krate]);
+    }
+    cmd.env("CARGO_TARGET_DIR", &target_dir)
+        // Small plugins: they are embedded in the exe.
+        .env("CARGO_PROFILE_RELEASE_OPT_LEVEL", "s")
+        .env("CARGO_PROFILE_RELEASE_LTO", "true")
+        .env("CARGO_PROFILE_RELEASE_CODEGEN_UNITS", "1")
+        .env("CARGO_PROFILE_RELEASE_STRIP", "true")
+        // The release workflow sets flags meant for the Windows exe (+crt-static); wasm must not get them.
+        .env_remove("RUSTFLAGS")
+        .env_remove("CARGO_ENCODED_RUSTFLAGS")
+        .env_remove("RUSTC_WRAPPER");
+    let built = cmd.status().map(|s| s.success()).unwrap_or(false);
+    if !built {
+        println!("cargo:warning=the first-party plugins were not built (rustup target add wasm32-wasip1); this build ships without them");
+    }
+    for (id, krate) in PLUGINS {
+        let from = target_dir.join("wasm32-wasip1").join("release").join(format!("{}.wasm", id));
+        let bytes = if built { std::fs::read(&from).unwrap_or_default() } else { Vec::new() };
+        let _ = krate;
+        std::fs::write(dest.join(format!("{id}.wasm")), bytes).expect("write plugin");
+    }
+}
+
 fn main() {
+    bundle_plugins();
     println!("cargo:rerun-if-changed=assets/icon.ico");
     println!("cargo:rerun-if-changed=assets/about_graph.json");
     println!("cargo:rerun-if-changed=build.rs");

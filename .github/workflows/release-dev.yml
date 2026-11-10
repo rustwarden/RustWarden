@@ -1,0 +1,78 @@
+name: Release (dev)
+
+# Dev builds: every push to dev publishes a pre-release tagged vX.Y.Z-dev (bump Cargo.toml's -dev version to release again).
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Decide and write notes
+        id: plan
+        env:
+          TAG_MATCH: "v*-dev"
+        run: bash .github/scripts/plan-release.sh
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.plan.outputs.skip != 'true'
+        with:
+          targets: wasm32-wasip1
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.plan.outputs.skip != 'true'
+
+      - name: Test
+        if: steps.plan.outputs.skip != 'true'
+        run: cargo test --locked
+
+      - name: Build (release, C runtime linked in)
+        if: steps.plan.outputs.skip != 'true'
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: cargo build --release --locked
+
+      - name: Check the exe needs no extra DLLs
+        if: steps.plan.outputs.skip != 'true'
+        run: |
+          bad="$(grep -aoiE '(vcruntime|msvcp|concrt|ucrtbase|api-ms-win-crt)[a-z0-9_.-]*\.dll' target/release/rustwarden.exe | sort -u || true)"
+          if [ -n "$bad" ]; then echo "::error::exe depends on redistributable DLLs: $bad"; exit 1; fi
+
+      - name: Package
+        if: steps.plan.outputs.skip != 'true'
+        run: |
+          cp target/release/rustwarden.exe RustWarden.exe
+          # The version is signed with the hash, so a server can't relabel an old build as a new release.
+          tag="${{ steps.plan.outputs.tag }}"
+          { sha256sum RustWarden.exe | awk '{print $1}'; echo "version=${tag#v}"; } > RustWarden.exe.sha256
+
+      - name: Sign the checksum (ECDSA P-256; the app refuses updates without a valid signature)
+        if: steps.plan.outputs.skip != 'true'
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          if [ -z "$UPDATE_SIGNING_KEY" ]; then echo "::error::repo secret UPDATE_SIGNING_KEY is not set"; exit 1; fi
+          printf '%s\n' "$UPDATE_SIGNING_KEY" > "$RUNNER_TEMP/key.pem"
+          openssl dgst -sha256 -sign "$RUNNER_TEMP/key.pem" -out RustWarden.exe.sha256.sig RustWarden.exe.sha256
+          rm -f "$RUNNER_TEMP/key.pem"
+
+      - name: Publish release
+        if: steps.plan.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.plan.outputs.tag }}" RustWarden.exe RustWarden.exe.sha256 RustWarden.exe.sha256.sig \
+            --title "RustWarden ${{ steps.plan.outputs.version }}" \
+            --notes-file notes.md --target "$GITHUB_SHA" --prerelease

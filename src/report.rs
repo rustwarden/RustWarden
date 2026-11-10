@@ -76,6 +76,46 @@ pub(crate) fn new_line(title: &str, items: &Option<Vec<String>>) -> String {
 }
 
 /// Mean of the finite averages and losses, or `None` without samples.
+/// The hosts the ping plugin keeps in its settings (`id<TAB>address<TAB>name` per line) as (id, label).
+fn ping_hosts(config: &std::collections::BTreeMap<String, String>) -> Vec<(u32, String)> {
+    config
+        .get("hosts")
+        .map(|h| h.as_str())
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| {
+            let mut p = l.splitn(3, '\t');
+            let (id, address, name) = (p.next()?.parse().ok()?, p.next()?, p.next().unwrap_or(""));
+            Some((id, if name.is_empty() { address } else { name }.to_owned()))
+        })
+        .collect()
+}
+
+/// The graphs the thinkbroadband plugin keeps in its settings (`id<TAB>name` per line) as (id, name).
+fn tbb_monitors(config: &std::collections::BTreeMap<String, String>) -> Vec<(u32, String)> {
+    config.get("monitors").map(|m| m.as_str()).unwrap_or_default().lines().filter_map(|l| l.split_once('\t').and_then(|(id, name)| Some((id.parse().ok()?, name.to_owned())))).collect()
+}
+
+/// The thinkbroadband plugin's stored samples for one graph since `since`; empty when the plugin never ran.
+fn tbb_samples(db: &crate::live::db::Db, monitor: u32, since: i64) -> Vec<crate::plugins::core::latency::Sample> {
+    use crate::plugins::core::latency::Sample;
+    let read = || -> rusqlite::Result<Vec<Sample>> {
+        let mut stmt = db.conn.prepare("SELECT ts, min, avg, max, loss FROM p_thinkbroadband__samples WHERE monitor = ?1 AND ts >= ?2 ORDER BY ts")?;
+        stmt.query_map(rusqlite::params![monitor, since], |r| Ok(Sample { ts: r.get(0)?, min: r.get(1)?, avg: r.get(2)?, max: r.get(3)?, loss: r.get(4)? }))?.collect()
+    };
+    read().unwrap_or_default()
+}
+
+/// The ping plugin's stored rounds for one host since `since`; empty when the plugin never ran.
+fn ping_samples(db: &crate::live::db::Db, host: u32, since: i64) -> Vec<crate::plugins::core::latency::Sample> {
+    use crate::plugins::core::latency::Sample;
+    let read = || -> rusqlite::Result<Vec<Sample>> {
+        let mut stmt = db.conn.prepare("SELECT ts, min, avg, max, loss FROM p_ping__samples WHERE host = ?1 AND ts >= ?2 ORDER BY ts")?;
+        stmt.query_map(rusqlite::params![host, since], |r| Ok(Sample { ts: r.get(0)?, min: r.get(1)?, avg: r.get(2)?, max: r.get(3)?, loss: r.get(4)? }))?.collect()
+    };
+    read().unwrap_or_default()
+}
+
 fn mean(samples: &[crate::plugins::core::latency::Sample]) -> Option<(f32, f32)> {
     let good: Vec<_> = samples.iter().filter(|s| s.avg.is_finite() && s.loss.is_finite()).collect();
     if good.is_empty() {
@@ -93,7 +133,7 @@ fn country_of(geo: &Geo, ip: &str) -> Option<String> {
 }
 
 /// Builds the report for the seven days up to `now`. Reads the database and the geo database, so callers run it off the UI thread.
-pub fn build(db: &Db, geo: &Geo, s: &Settings, now: i64) -> rusqlite::Result<Report> {
+pub fn build(db: &Db, geo: &Geo, _s: &Settings, now: i64) -> rusqlite::Result<Report> {
     let (t0, t1) = (now - WEEK, now + 1);
     let names: HashMap<String, String> = db.apps()?.into_iter().map(|a| (a.id.to_string(), a.name)).collect();
     // usage_by_app is already busiest first.
@@ -120,15 +160,15 @@ pub fn build(db: &Db, geo: &Geo, s: &Settings, now: i64) -> rusqlite::Result<Rep
     let blocked = db.blocked_by_remote(t0, t1)?.iter().map(|(_, n)| u64::from(*n)).sum();
 
     let mut ping = Vec::new();
-    for h in &s.ping.hosts {
-        if let Some((avg, loss)) = mean(&db.ping_since(h.id, t0)?) {
-            ping.push((h.label().to_owned(), avg, loss));
+    for (id, label) in ping_hosts(&crate::plugins::wasm::manager::saved_config("ping")) {
+        if let Some((avg, loss)) = mean(&ping_samples(db, id, t0)) {
+            ping.push((label, avg, loss));
         }
     }
     let mut broadband = Vec::new();
-    for m in s.thinkbroadband.iter().flat_map(|i| &i.monitors) {
-        if let Some((avg, loss)) = mean(&db.tbb_since(m.id, t0)?) {
-            broadband.push((m.name.clone(), avg, loss));
+    for (id, name) in tbb_monitors(&crate::plugins::wasm::manager::saved_config("thinkbroadband")) {
+        if let Some((avg, loss)) = mean(&tbb_samples(db, id, t0)) {
+            broadband.push((name, avg, loss));
         }
     }
     let mut daily = Vec::new();
@@ -183,7 +223,7 @@ pub fn run(shared: Arc<Shared>) {
         }
         match build(&db, &geo, &s, now) {
             Ok(report) => {
-                crate::plugins::external_notifications::send_all(&s, false, "RustWarden weekly summary", &report.to_text());
+                crate::plugins::wasm::manager::broadcast_alert(false, "RustWarden weekly summary", &report.to_text());
                 let _ = db.kv_set(KV_LAST, &now.to_string());
                 shared.set_note("report", None);
             }

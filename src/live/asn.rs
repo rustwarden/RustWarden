@@ -1,5 +1,5 @@
 //! "AS15169 · Google LLC" for remote addresses, from a free service chosen in Settings:
-//! Team Cymru's DNS interface (via `nslookup`) or any JSON web API (via `curl.exe`).
+//! Team Cymru's DNS interface (a DNS TXT lookup made by Windows) or any JSON web API (via `curl.exe`).
 //! Lookups run on one background thread; the UI only reads the cache.
 
 use super::net::{Locality, classify};
@@ -118,7 +118,7 @@ fn run_in(program: &str, args: &[&str], input: Option<&str>) -> Option<String> {
         // Dropped at the end of the block, so curl sees the end of its config.
         child.stdin.take()?.write_all(input.as_bytes()).ok()?;
     }
-    // A hung nslookup must not stall the lookup thread for good.
+    // A hung helper must not stall the lookup thread for good.
     let deadline = std::time::Instant::now() + Duration::from_secs(15);
     while child.try_wait().ok()?.is_none() {
         if std::time::Instant::now() > deadline {
@@ -145,17 +145,35 @@ fn cymru_name(ip: IpAddr) -> String {
     }
 }
 
-/// The first quoted string of an `nslookup -type=TXT` answer.
-fn txt(out: &str) -> Option<&str> {
-    let rest = &out[out.find('"')? + 1..];
-    Some(&rest[..rest.find('"')?])
+/// The first string of a TXT record, asked of Windows in this process (no helper program that Block All would have to let out).
+fn txt_lookup(name: &str) -> Option<String> {
+    use windows::Win32::NetworkManagement::Dns::{DNS_QUERY_STANDARD, DNS_RECORDA, DNS_TYPE_TEXT, DnsFree, DnsFreeRecordList, DnsQuery_A};
+    use windows::core::PCSTR;
+    let name = std::ffi::CString::new(name).ok()?;
+    let mut records: *mut DNS_RECORDA = std::ptr::null_mut();
+    unsafe {
+        if DnsQuery_A(PCSTR(name.as_ptr().cast()), DNS_TYPE_TEXT, DNS_QUERY_STANDARD, None, &mut records, None).0 != 0 || records.is_null() {
+            return None;
+        }
+        let mut found = None;
+        let mut at = records;
+        while !at.is_null() && found.is_none() {
+            let rec = &*at;
+            if rec.wType == DNS_TYPE_TEXT.0 && rec.Data.TXT.dwStringCount > 0 {
+                found = rec.Data.TXT.pStringArray[0].to_string().ok();
+            }
+            at = rec.pNext;
+        }
+        DnsFree(Some(records as *const _), DnsFreeRecordList);
+        found
+    }
 }
 
 fn cymru(ip: IpAddr) -> Option<String> {
-    let out = run("nslookup", &["-type=TXT", &cymru_name(ip)])?;
+    let line = txt_lookup(&cymru_name(ip))?;
     // "15169 | 8.8.8.0/24 | US | arin | 2023-12-28"; announced by several ASes: "15169 36040 | ..."
-    let asn = txt(&out)?.split('|').next()?.split_whitespace().next()?.to_owned();
-    let org = run("nslookup", &["-type=TXT", &format!("AS{asn}.asn.cymru.com")]).and_then(|o| txt(&o).and_then(|t| t.rsplit('|').next()).map(|s| s.trim().to_owned()));
+    let asn = line.split('|').next()?.split_whitespace().next()?.to_owned();
+    let org = txt_lookup(&format!("AS{asn}.asn.cymru.com")).and_then(|t| t.rsplit('|').next().map(|s| s.trim().to_owned()));
     format_info(Some(&asn), org.as_deref())
 }
 
@@ -185,15 +203,39 @@ fn http(ip: IpAddr, template: &str) -> Option<String> {
     from_json(&curl_url(&["-s", "--max-time", "5"], &url)?)
 }
 
-/// Value of the first `"key": value` in `text`, without parsing the document.
-/// shortcut: first match wins and nesting is ignored, so switch to a JSON parser if a service needs it.
+/// The value of `key` nearest the top of the JSON document `text` (breadth first, so a top-level field beats one of
+/// the same name nested deeper), as text: a string as it is, a number or boolean written out. `None` for invalid
+/// JSON, a missing key, or a value that is null, an object or an array.
 pub(super) fn json_val(text: &str, key: &str) -> Option<String> {
-    let k = format!("\"{key}\"");
-    let rest = text[text.find(&k)? + k.len()..].trim_start().strip_prefix(':')?.trim_start();
-    match rest.strip_prefix('"') {
-        Some(s) => Some(s[..s.find('"')?].to_owned()),
-        None => Some(rest.split([',', '}', ' ', '\n']).next()?.to_owned()),
+    let doc: serde_json::Value = serde_json::from_str(text).ok()?;
+    json_find(&doc, key).and_then(|v| match v {
+        serde_json::Value::String(s) => Some(s.clone()),
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        serde_json::Value::Bool(b) => Some(b.to_string()),
+        _ => None,
+    })
+}
+
+/// The value of `key` nearest the top of `doc`, breadth first through objects and arrays.
+pub(super) fn json_find<'a>(doc: &'a serde_json::Value, key: &str) -> Option<&'a serde_json::Value> {
+    let mut level = vec![doc];
+    while !level.is_empty() {
+        let mut next = Vec::new();
+        for v in level {
+            match v {
+                serde_json::Value::Object(map) => {
+                    if let Some(found) = map.get(key) {
+                        return Some(found);
+                    }
+                    next.extend(map.values());
+                }
+                serde_json::Value::Array(items) => next.extend(items),
+                _ => {}
+            }
+        }
+        level = next;
     }
+    None
 }
 
 fn from_json(text: &str) -> Option<String> {
@@ -228,18 +270,27 @@ mod tests {
     }
 
     #[test]
-    fn nslookup_txt_and_cymru_fields() {
-        let out = "Non-authoritative answer:\r\nx.origin.asn.cymru.com\ttext =\r\n\r\n\t\"15169 | 8.8.8.0/24 | US | arin | 2023-12-28\"\r\n";
-        assert_eq!(txt(out).unwrap().split('|').next().unwrap().trim(), "15169");
-        assert_eq!(txt("no quotes"), None);
-    }
-
-    #[test]
     fn json_shapes() {
         assert_eq!(from_json(r#"{"ip":"8.8.8.8","org": "AS15169 Google LLC"}"#).unwrap(), "AS15169 · Google LLC");
         assert_eq!(from_json(r#"{"as":"AS15169 Google LLC","isp":"Google"}"#).unwrap(), "AS15169 · Google LLC");
         assert_eq!(from_json(r#"{"connection":{"asn":15169,"org":"Google LLC"}}"#).unwrap(), "AS15169 · Google LLC");
         assert_eq!(from_json(r#"{"asn":"AS15169","as_name":"Google LLC"}"#).unwrap(), "AS15169 · Google LLC");
         assert_eq!(from_json(r#"{"error":"nope"}"#), None);
+        assert_eq!(from_json("not json"), None);
+    }
+
+    #[test]
+    fn json_values_are_read_properly() {
+        // A nested field of the same name listed first in the text doesn't beat the top-level one (RDAP's entities).
+        let rdap = r#"{"entities":[{"handle":"ABUSE-1","roles":["abuse"]}],"handle":"NET-8-8-8-0-1","name":"GOGL"}"#;
+        assert_eq!(json_val(rdap, "handle").as_deref(), Some("NET-8-8-8-0-1"));
+        // Escaped quotes, commas and braces inside a string don't cut it short.
+        assert_eq!(json_val(r#"{"org":"A \"B\", {C}"}"#, "org").as_deref(), Some("A \"B\", {C}"));
+        assert_eq!(json_val(r#"{"n": 7, "b": true, "z": null, "o": {}}"#, "n").as_deref(), Some("7"));
+        assert_eq!(json_val(r#"{"b": true}"#, "b").as_deref(), Some("true"));
+        assert_eq!(json_val(r#"{"z": null}"#, "z"), None);
+        assert_eq!(json_val(r#"{"o": {}}"#, "o"), None);
+        // A key inside a string value is not a key.
+        assert_eq!(json_val(r#"{"note":"\"asn\": 1"}"#, "asn"), None);
     }
 }

@@ -9,7 +9,6 @@ use super::net::{Locality, classify};
 use super::store::Shared;
 use crate::applog;
 use crate::data::{StatusNote, Threat, ThreatAct};
-use crate::plugins::ha::Integration;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, ToSocketAddrs};
 use std::path::Path;
@@ -75,16 +74,21 @@ pub fn is_protected(ip: IpAddr, protected: &HashSet<IpAddr>) -> bool {
 
 /// The gateways and DNS servers of this machine, and the Home Assistant hosts given as addresses. No lookups:
 /// the Block button calls this on the UI thread.
-pub fn protected_addrs(integrations: &[Integration]) -> HashSet<IpAddr> {
+pub fn protected_addrs(ha_urls: &[String]) -> HashSet<IpAddr> {
     let adapters = crate::sys::netinfo::adapters().unwrap_or_default();
     let mut set: HashSet<IpAddr> = adapters.iter().flat_map(|a| a.gateways.iter().chain(&a.dns)).copied().collect();
-    set.extend(integrations.iter().filter_map(|it| ha_host(&it.url)?.parse::<IpAddr>().ok()));
+    set.extend(ha_urls.iter().filter_map(|u| ha_host(u)?.parse::<IpAddr>().ok()));
     set
 }
 
 /// The Home Assistant host names, resolved. Slow (a DNS lookup each), so only the download thread calls it.
-fn resolve_hosts(integrations: &[Integration]) -> HashSet<IpAddr> {
-    integrations.iter().filter_map(|it| (ha_host(&it.url)?, 0).to_socket_addrs().ok()).flatten().map(|a| a.ip()).collect()
+fn resolve_hosts(ha_urls: &[String]) -> HashSet<IpAddr> {
+    ha_urls.iter().filter_map(|u| (ha_host(u)?, 0).to_socket_addrs().ok()).flatten().map(|a| a.ip()).collect()
+}
+
+/// The address of the Home Assistant plugin, while it runs: its host must never be blocked by a list.
+pub fn home_assistant_urls() -> Vec<String> {
+    crate::plugins::wasm::manager::plugin_config("ha").and_then(|c| c.get("url").cloned()).filter(|u| !u.is_empty()).into_iter().collect()
 }
 
 /// The host of an address such as "http://homeassistant.local:8123/" (no port).
@@ -152,7 +156,7 @@ pub(super) fn fetch(feeds: &str) -> Vec<(String, Result<String, String>)> {
             let name = feed_name(url);
             let body = if !url.starts_with("https://") {
                 Err("it is not an https address".into())
-            } else if !crate::plugins::external_notifications::valid(url, &[]) {
+            } else if !crate::util::valid_url(url, &[]) {
                 Err("it is not a valid address".into())
             } else {
                 super::asn::curl_url(&["-sfL", "--max-time", "60", "--max-filesize", MAX_FEED_BYTES], url).ok_or_else(|| "the download failed, or it is over 20 MB".into())
@@ -165,9 +169,9 @@ pub(super) fn fetch(feeds: &str) -> Vec<(String, Result<String, String>)> {
 /// Every address with the names of the lists carrying it, or `None` when no list could be used. A list that fails
 /// or is refused keeps its addresses from the last good copy (`previous`). Addresses this machine depends on are
 /// never added: they are logged and left out.
-fn download(feeds: &str, previous: &HashMap<IpAddr, String>, integrations: &[Integration]) -> Option<HashMap<IpAddr, String>> {
-    let mut protected = protected_addrs(integrations);
-    protected.extend(resolve_hosts(integrations));
+fn download(feeds: &str, previous: &HashMap<IpAddr, String>, ha_urls: &[String]) -> Option<HashMap<IpAddr, String>> {
+    let mut protected = protected_addrs(ha_urls);
+    protected.extend(resolve_hosts(ha_urls));
     let feeds = fetch(feeds);
     let total = feeds.len();
     let mut all: HashMap<IpAddr, String> = HashMap::new();
@@ -266,7 +270,7 @@ pub fn run(shared: Arc<Shared>, fw: Arc<FwController>) {
         let retry = last_try.elapsed().is_ok_and(|e| e > Duration::from_secs(3600));
         if stale && retry && job.as_ref().is_none_or(|j| j.is_finished()) {
             last_try = SystemTime::now();
-            let (shared, feeds, integrations) = (shared.clone(), s.threat_feeds.clone(), s.integrations.clone());
+            let (shared, feeds, integrations) = (shared.clone(), s.threat_feeds.clone(), home_assistant_urls());
             job = Some(std::thread::spawn(move || {
                 let previous = shared.state().threat_ips.clone();
                 let Some(ips) = download(&feeds, &previous, &integrations) else {
@@ -422,8 +426,7 @@ mod tests {
     fn home_assistant_host_comes_out_of_its_address() {
         assert_eq!(ha_host("http://homeassistant.local:8123/"), Some("homeassistant.local"));
         assert_eq!(ha_host("https://192.168.1.5"), Some("192.168.1.5"));
-        let it = Integration { url: "http://203.0.113.7:8123".into(), ..Default::default() };
-        assert!(protected_addrs(&[it]).contains(&ip("203.0.113.7")));
+        assert!(protected_addrs(&["http://203.0.113.7:8123".to_owned()]).contains(&ip("203.0.113.7")));
     }
 
     #[test]

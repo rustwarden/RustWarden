@@ -94,7 +94,7 @@ pub struct State {
     pub snooze_until: i64,
     /// Desktop notifications waiting for the UI to show them as popups.
     pub popups: Vec<Alert>,
-    /// The UI is visible and polling `popups`; otherwise alerts fall back to a tray balloon.
+    /// The UI shows `popups` (even from the tray); when false, alerts fall back to a tray balloon.
     pub popups_ok: bool,
     /// Prompt prompts waiting for the UI to take them.
     pub asks: Vec<ConnectAsk>,
@@ -156,7 +156,8 @@ impl Shared {
             scan_cancel: AtomicBool::new(false),
             elevated,
             db_path,
-            state: Mutex::new(State::default()),
+            // Popups are always the UI's own: a hidden window still runs `logic`, which shows what is queued here (a tray balloon is only a fallback).
+            state: Mutex::new(State { popups_ok: true, ..State::default() }),
             notes: Mutex::new(BTreeMap::new()),
             rule_seen: Mutex::new(HashMap::new()),
         }
@@ -227,7 +228,7 @@ impl Shared {
             crate::sys::eventlog::write(important, &format!("{title}: {line}"));
         }
         if opts.api {
-            crate::plugins::external_notifications::send_all(s, important, title, line);
+            crate::plugins::wasm::manager::broadcast_alert(important, title, line);
         }
         let mut st = self.state();
         if st.popups_ok {
@@ -287,7 +288,7 @@ impl Shared {
             crate::sys::eventlog::write(important, &format!("{}: {} {} {}", kind.title(), app, text, target).replace("  ", " "));
         }
         if opts.api && (!snoozed || settings.api_in_snooze) {
-            crate::plugins::external_notifications::send_all(&settings, important, kind.title(), &format!("{app} {text} {target}").replace("  ", " "));
+            crate::plugins::wasm::manager::broadcast_alert(important, kind.title(), &format!("{app} {text} {target}").replace("  ", " "));
         }
         let alert = NewAlert { ts: now, kind: kind.key().into(), important, app: app.into(), text: text.into(), target: target.into(), country: country.into(), unread: important && !snoozed };
         let id = match db.insert_alert(&alert) {
@@ -323,6 +324,26 @@ impl Shared {
             self.repaint();
         }
         Some(id)
+    }
+}
+
+/// The live backend's shared state, so a plugin can raise an alert. Set once at start; Demo mode has none.
+static ALERT_SINK: std::sync::OnceLock<std::sync::Arc<Shared>> = std::sync::OnceLock::new();
+
+pub fn install_alert_sink(shared: std::sync::Arc<Shared>) {
+    let _ = ALERT_SINK.set(shared);
+}
+
+/// The addresses blocked by the malicious-address list or by hand, for plugins with "firewall.blocks.read".
+pub fn blocked_addresses() -> Vec<String> {
+    ALERT_SINK.get().map(|s| s.state().fw.threat_blocked.clone()).unwrap_or_default()
+}
+
+/// A packet-loss alert from the thinkbroadband plugin, with the user's settings for that alert kind applied.
+pub fn raise_plugin_alert(who: &str, text: &str) {
+    let Some(shared) = ALERT_SINK.get() else { return };
+    if let Ok(db) = shared.open_db() {
+        shared.alert(&db, super::alerts::AlertKind::ThinkBroadband, who, text, "", "");
     }
 }
 

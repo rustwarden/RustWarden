@@ -246,7 +246,6 @@ impl RangeSet {
         merge(&mut self.v6);
     }
 
-    #[cfg(test)]
     pub fn contains(&self, ip: IpAddr) -> bool {
         let (list, n) = match ip.to_canonical() {
             IpAddr::V4(a) => (&self.v4, u128::from(u32::from(a))),

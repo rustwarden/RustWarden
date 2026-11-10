@@ -19,7 +19,7 @@ pub enum RuleAction {
     Mute,
     /// Make it Important and show the desktop popup, whatever the alert's own settings say.
     Escalate,
-    /// Don't send it to External Notifications (Discord, ntfy and the rest); everything else stays.
+    /// Don't send it to Notification Plugins (Discord, ntfy and the rest); everything else stays.
     KeepLocal,
     /// Notify at most once per `limit_min` minutes for the same alert kind and app; the rest are muted.
     Limit,
@@ -41,7 +41,7 @@ impl RuleAction {
         match self {
             Self::Mute => "Still recorded in the Alerts log, but no popup, event log entry or push message.",
             Self::Escalate => "Becomes Important and shows a desktop popup, whatever the alert's own settings say.",
-            Self::KeepLocal => "Not sent to External Notifications (Discord, ntfy and the rest); popups and the log stay as they are.",
+            Self::KeepLocal => "Not sent to Notification Plugins (Discord, ntfy and the rest); popups and the log stay as they are.",
             Self::Limit => "Notifies at most once in the time you set for the same alert kind and app; repeats inside it are muted.",
         }
     }

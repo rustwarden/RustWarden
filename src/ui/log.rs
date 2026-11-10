@@ -287,7 +287,15 @@ impl RustWarden {
                         }
                     }
                     x = put(x, ly, &alert.app, true);
-                    x = put(x, ly, &alert.text, false);
+                    // A text too long for the card is cut short (the full text shows on hover) rather than run under the side panel.
+                    let room = (wall - x).max(0.0);
+                    if width(&alert.text, false) > room {
+                        widgets::text_fit(&p, pos2(x, ly), Align2::LEFT_CENTER, &alert.text, theme::font(15.0), theme::text(), room);
+                        ui.interact(Rect::from_min_size(pos2(x, ly - 10.0), vec2(room, 20.0)), ui.scope_id().with(("full", alert.id)), Sense::hover()).on_hover_text(&alert.text);
+                        x = wall;
+                    } else {
+                        x = put(x, ly, &alert.text, false);
+                    }
                     let ly = if wrapped {
                         x = left;
                         ly + 22.0
@@ -352,7 +360,7 @@ impl RustWarden {
             self.protect.selected = Some((key, pos));
             self.protect.show_alerts = false;
         }
-        let can_scan = self.caps.live && !self.settings.virustotal_key.is_empty();
+        let can_scan = self.caps.live && !crate::live::vt::key().is_empty();
         self.app_popup(ui.ctx(), can_scan, opened);
         if let Some(ip) = whois {
             self.open_whois(ui.ctx(), &ip);
@@ -427,7 +435,7 @@ impl RustWarden {
 
     /// The tab an alert is about, or `None` when there is nowhere to go (so the card isn't drawn as a link).
     pub(super) fn alert_source(&self, alert: &Alert) -> Option<Tab> {
-        source_tab(&alert.kind, self.protect.apps.iter().any(|a| a.name == alert.app), crate::plugins::thinkbroadband::tab_visible(&self.settings))
+        source_tab(&alert.kind, self.protect.apps.iter().any(|a| a.name == alert.app), crate::plugins::wasm::manager::tab_index("thinkbroadband"))
     }
 
     /// Jump to the part of the UI an alert is about, flashing the app, graph or device; alerts with nowhere to go do nothing.
@@ -440,7 +448,7 @@ impl RustWarden {
                 self.protect.open_groups = [true; 4];
                 self.protect.flash = Some((alert.app.clone(), std::time::Instant::now(), true));
             }
-            Tab::Broadband => self.tbb.show(crate::plugins::thinkbroadband::client::unescape(&alert.app)),
+            Tab::Plugin(_) => crate::plugins::wasm::ui_tree::flash_chart("thinkbroadband/broadband", &alert.app),
             // The target reads "<ip> (<mac>) – <name>"; the search box matches the address.
             Tab::Scanner => self.scanner.search = alert.target.split_whitespace().next().unwrap_or_default().to_owned(),
             _ => {}
@@ -449,11 +457,11 @@ impl RustWarden {
 }
 
 /// Where an alert of this kind leads: app alerts only when the app is known, packet loss only while the Broadband tab shows.
-fn source_tab(kind: &str, app_known: bool, broadband: bool) -> Option<Tab> {
+fn source_tab(kind: &str, app_known: bool, broadband: Option<usize>) -> Option<Tab> {
     match kind {
         "First network activity" | "App info changed" | "Malicious IP" | "New country or network" | "Traffic spike" | "Unusual hour" if app_known => Some(Tab::Protect),
         "Firewall rules" => Some(Tab::Protect),
-        "Packet loss" if broadband => Some(Tab::Broadband),
+        "Packet loss" => broadband.map(Tab::Plugin),
         "New device" | "Device spoofing" | "Device returned" => Some(Tab::Scanner),
         "Malicious domain" => Some(Tab::Dns),
         "Data plan" | "Data quota" => Some(Tab::Traffic),
@@ -467,11 +475,11 @@ mod tests {
 
     #[test]
     fn alert_source_only_for_kinds_with_somewhere_to_go() {
-        assert!(matches!(source_tab("New device", false, false), Some(Tab::Scanner)));
-        assert!(matches!(source_tab("Traffic spike", true, false), Some(Tab::Protect)));
-        assert!(source_tab("Traffic spike", false, false).is_none());
-        assert!(source_tab("Packet loss", false, false).is_none());
-        assert!(source_tab("Hosts file", true, true).is_none());
+        assert!(matches!(source_tab("New device", false, None), Some(Tab::Scanner)));
+        assert!(matches!(source_tab("Traffic spike", true, None), Some(Tab::Protect)));
+        assert!(source_tab("Traffic spike", false, None).is_none());
+        assert!(source_tab("Packet loss", false, None).is_none());
+        assert!(source_tab("Hosts file", true, Some(0)).is_none());
     }
 
     fn alert(app: &str, unread: bool, important: bool, ts: i64) -> Alert {

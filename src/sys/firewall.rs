@@ -55,6 +55,8 @@ pub struct RuleSpec {
     pub remote_addrs: Option<String>,
     /// Service short name the rule is limited to; needs the service's own SID (see [`service_has_sid`]).
     pub service: Option<String>,
+    /// Friendly names of the network adapters the rule is limited to; `None` means all of them.
+    pub interfaces: Option<Vec<String>>,
 }
 
 fn err(what: &str, e: windows::core::Error) -> String {
@@ -173,8 +175,33 @@ pub fn add_rule(spec: &RuleSpec) -> Result<(), String> {
         if let Some(service) = &spec.service {
             rule.SetServiceName(&BSTR::from(service.as_str())).map_err(e("set service"))?;
         }
+        if let Some(names) = &spec.interfaces {
+            rule.SetInterfaces(&interfaces_variant(names)?).map_err(e("set adapters"))?;
+        }
         rule.SetEnabled(bool_variant(spec.enabled)).map_err(e("enable"))?;
         rules.Add(&rule).map_err(|e| err("Can't add the firewall rule", e))
+    }
+}
+
+/// A SAFEARRAY of BSTR variants, which is what a rule's adapter list is.
+fn interfaces_variant(names: &[String]) -> Result<VARIANT, String> {
+    use windows::Win32::System::Ole::{SafeArrayCreateVector, SafeArrayPutElement};
+    use windows::Win32::System::Variant::{VARENUM, VT_ARRAY, VT_VARIANT};
+    unsafe {
+        let array = SafeArrayCreateVector(VT_VARIANT, 0, names.len() as u32);
+        if array.is_null() {
+            return Err("Can't build the adapter list".into());
+        }
+        let mut out = VARIANT::default();
+        // The variant owns the array from here and frees it with itself.
+        let inner = &mut *out.Anonymous.Anonymous;
+        inner.vt = VARENUM(VT_ARRAY.0 | VT_VARIANT.0);
+        inner.Anonymous.parray = array;
+        for (i, name) in names.iter().enumerate() {
+            let item = VARIANT::from(BSTR::from(name.as_str()));
+            SafeArrayPutElement(array, &(i as i32), (&item as *const VARIANT).cast()).map_err(|e| err("Can't build the adapter list", e))?;
+        }
+        Ok(out)
     }
 }
 

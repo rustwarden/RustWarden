@@ -30,7 +30,6 @@ pub enum Icon {
     Laptop,
     Raspberry,
     House,
-    Plus,
     Bulb,
     Plug,
     Sensor,
@@ -315,10 +314,6 @@ pub fn paint(p: &Painter, icon: Icon, rect: Rect, color: Color32) {
             line(vec![u(0.1, 0.5), u(0.5, 0.15), u(0.9, 0.5)]);
             line(vec![u(0.22, 0.42), u(0.22, 0.85), u(0.78, 0.85), u(0.78, 0.42)]);
             p.rect_stroke(Rect::from_min_max(u(0.42, 0.58), u(0.58, 0.85)), 0.0, st, StrokeKind::Middle);
-        }
-        Icon::Plus => {
-            line(vec![u(0.5, 0.2), u(0.5, 0.8)]);
-            line(vec![u(0.2, 0.5), u(0.8, 0.5)]);
         }
         Icon::Bulb => {
             line(arc_points(u(0.5, 0.4), s * 0.27, -50.0, 230.0, 16));

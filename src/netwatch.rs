@@ -1,0 +1,297 @@
+//! Two watchers for Driver mode's listener, as plain bookkeeping the listener feeds: a second DHCP server answering on
+//! the network, and a program that names itself like a web browser but speaks TLS like a command-line tool.
+
+use std::collections::{HashMap, HashSet};
+use std::net::Ipv4Addr;
+
+// ---- DHCP ----
+
+/// A DHCP reply, reduced to what the watcher needs.
+#[derive(Debug, PartialEq)]
+pub struct Dhcp {
+    /// 2 = OFFER, 5 = ACK, 6 = NAK.
+    pub msg_type: u8,
+    /// The server's own identifier (option 54), when it sent one.
+    pub server: Option<Ipv4Addr>,
+    /// The first default gateway (option 3) and DNS server (option 6) it hands out.
+    pub gateway: Option<Ipv4Addr>,
+    pub dns: Option<Ipv4Addr>,
+}
+
+/// Reads a DHCP/BOOTP reply (the UDP payload of a packet from port 67 to 68). `None` for requests and anything else.
+pub fn dhcp_reply(d: &[u8]) -> Option<Dhcp> {
+    if d.len() < 241 || d[0] != 2 || d[236..240] != [99, 130, 83, 99] {
+        return None;
+    }
+    let (mut at, mut msg_type, mut server, mut gateway, mut dns) = (240, 0, None, None, None);
+    let first = |body: &[u8]| (body.len() >= 4).then(|| Ipv4Addr::new(body[0], body[1], body[2], body[3]));
+    while at < d.len() {
+        match d[at] {
+            0 => at += 1,
+            255 => break,
+            code => {
+                let len = usize::from(*d.get(at + 1)?);
+                let body = d.get(at + 2..at + 2 + len)?;
+                match (code, len) {
+                    (53, 1) => msg_type = body[0],
+                    (54, 4) => server = first(body),
+                    (3, _) => gateway = first(body),
+                    (6, _) => dns = first(body),
+                    _ => {}
+                }
+                at += 2 + len;
+            }
+        }
+    }
+    (msg_type != 0).then_some(Dhcp { msg_type, server, gateway, dns })
+}
+
+/// How long a server stays "recently seen".
+const SERVER_WINDOW: i64 = 900;
+/// A second server is reported at most this often.
+const REPORT_EVERY: i64 = 3600;
+
+/// What one DHCP server told a client.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Offer {
+    pub server: Ipv4Addr,
+    pub gateway: Option<Ipv4Addr>,
+    pub dns: Option<Ipv4Addr>,
+}
+
+impl Offer {
+    /// "192.168.2.1 (gateway 192.168.2.1, DNS 192.168.2.1)".
+    pub fn describe(&self) -> String {
+        let f = |v: Option<Ipv4Addr>| v.map_or("none".to_owned(), |a| a.to_string());
+        format!("{} (gateway {}, DNS {})", self.server, f(self.gateway), f(self.dns))
+    }
+}
+
+/// Two or more servers answering on one interface. `critical` when a later one hands out a different gateway or DNS server
+/// than the established (first seen) one.
+#[derive(Debug, PartialEq)]
+pub struct Finding {
+    pub offers: Vec<Offer>,
+    pub critical: bool,
+}
+
+/// Whether `list` (comma, semicolon or line separated) trusts `server` on the interface called `iface`. An entry is a bare
+/// address (any interface) or `interface name=address`. This is the DHCP allowlist: Settings > Alerts > Second DHCP server.
+pub fn trusted(list: &str, iface: &str, server: Ipv4Addr) -> bool {
+    list.split([',', ';', '\n']).any(|e| match e.trim().split_once('=') {
+        Some((name, ip)) => name.trim().eq_ignore_ascii_case(iface) && ip.trim().parse() == Ok(server),
+        None => e.trim().parse() == Ok(server),
+    })
+}
+
+/// Servers that answered DHCP lately, per interface (by index): a router and a VM host's own DHCP service on different
+/// adapters are not rivals. Two on one interface are unusual at home; a rogue one can hand out a wrong gateway or DNS server.
+#[derive(Default)]
+pub struct DhcpWatch {
+    /// Per interface: each server's latest offer, when it was first seen and when last.
+    seen: HashMap<u32, HashMap<Ipv4Addr, (Offer, i64, i64)>>,
+    reported: HashMap<u32, i64>,
+}
+
+impl DhcpWatch {
+    /// Notes an OFFER or ACK on interface `iface` at `now`; returns the findings when two or more servers answered there.
+    pub fn note(&mut self, iface: u32, offer: Offer, now: i64) -> Option<Finding> {
+        let servers = self.seen.entry(iface).or_default();
+        servers.retain(|_, (_, _, last)| now - *last < SERVER_WINDOW);
+        let first = servers.get(&offer.server).map_or(now, |(_, first, _)| *first);
+        servers.insert(offer.server, (offer, first, now));
+        let last_report = self.reported.get(&iface).copied().unwrap_or(0);
+        if servers.len() < 2 || (last_report != 0 && now - last_report < REPORT_EVERY) {
+            return None;
+        }
+        self.reported.insert(iface, now);
+        let mut all: Vec<_> = servers.values().copied().collect();
+        all.sort_by_key(|(o, first, _)| (*first, o.server));
+        let est = all[0].0;
+        let critical = all[1..].iter().any(|(o, _, _)| (o.gateway.is_some() && o.gateway != est.gateway) || (o.dns.is_some() && o.dns != est.dns));
+        Some(Finding { offers: all.into_iter().map(|(o, _, _)| o).collect(), critical })
+    }
+}
+
+// ---- TLS fingerprints ----
+
+/// Programs people call a web browser.
+const BROWSERS: &[&str] = &["chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe", "vivaldi.exe", "iexplore.exe", "browser.exe", "arc.exe"];
+/// Command-line tools and runtimes whose TLS hello is not a browser's. (Electron apps share Chrome's, so they are not here.)
+const TOOLS: &[&str] = &[
+    "curl.exe",
+    "wget.exe",
+    "python.exe",
+    "pythonw.exe",
+    "py.exe",
+    "powershell.exe",
+    "pwsh.exe",
+    "node.exe",
+    "java.exe",
+    "javaw.exe",
+    "ruby.exe",
+    "perl.exe",
+    "certutil.exe",
+    "bitsadmin.exe",
+    "git-remote-https.exe",
+];
+
+pub fn is_browser(program: &str) -> bool {
+    BROWSERS.contains(&program.to_ascii_lowercase().as_str())
+}
+
+/// A browser-named program whose fingerprint a command-line tool also uses.
+#[derive(Debug, PartialEq)]
+pub struct Mismatch {
+    pub program: String,
+    pub print: String,
+    pub looks_like: String,
+}
+
+const MAX_PRINTS: usize = 5000;
+
+/// Which tools have been seen with which fingerprints, and which browser/tool pairs were already reported.
+#[derive(Default)]
+pub struct Prints {
+    tools: HashMap<String, HashSet<String>>,
+    browsers: HashMap<String, HashSet<String>>,
+    reported: HashSet<(String, String)>,
+}
+
+impl Prints {
+    /// Notes that `program` opened a TLS connection with `print`. Returns a mismatch the first time one is clear.
+    pub fn note(&mut self, program: &str, print: &str) -> Option<Mismatch> {
+        let program = program.to_ascii_lowercase();
+        if self.tools.len() + self.browsers.len() > MAX_PRINTS {
+            *self = Self::default();
+        }
+        if TOOLS.contains(&program.as_str()) {
+            self.tools.entry(print.to_owned()).or_default().insert(program.clone());
+            // A browser that was seen first with this print is judged now that the tool has shown up.
+            let browser = self.browsers.get(print)?.iter().find(|b| !self.reported.contains(&((*b).clone(), program.clone())))?.clone();
+            return self.flag(&browser, print, &program);
+        }
+        if !is_browser(&program) {
+            return None;
+        }
+        self.browsers.entry(print.to_owned()).or_default().insert(program.clone());
+        let tool = self.tools.get(print)?.iter().next()?.clone();
+        self.flag(&program, print, &tool)
+    }
+
+    fn flag(&mut self, browser: &str, print: &str, tool: &str) -> Option<Mismatch> {
+        self.reported.insert((browser.to_owned(), tool.to_owned())).then(|| Mismatch { program: browser.to_owned(), print: print.to_owned(), looks_like: tool.to_owned() })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn reply(msg_type: u8, server: Option<[u8; 4]>) -> Vec<u8> {
+        let mut p = vec![0u8; 240];
+        p[0] = 2;
+        p[236..240].copy_from_slice(&[99, 130, 83, 99]);
+        p.extend([53, 1, msg_type]);
+        if let Some(s) = server {
+            p.extend([54, 4]);
+            p.extend(s);
+        }
+        p.extend([0, 255]);
+        p
+    }
+
+    #[test]
+    fn reads_the_server_of_an_offer_and_refuses_requests() {
+        assert_eq!(dhcp_reply(&reply(2, Some([192, 168, 1, 1]))), Some(Dhcp { msg_type: 2, server: Some(Ipv4Addr::new(192, 168, 1, 1)), gateway: None, dns: None }));
+        assert_eq!(dhcp_reply(&reply(5, None)).unwrap().server, None);
+        let mut request = reply(1, None);
+        request[0] = 1;
+        assert_eq!(dhcp_reply(&request), None);
+        let mut no_cookie = reply(2, None);
+        no_cookie[236] = 0;
+        assert_eq!(dhcp_reply(&no_cookie), None);
+        let full = reply(2, Some([10, 0, 0, 1]));
+        for cut in 0..full.len() {
+            let _ = dhcp_reply(&full[..cut]);
+        }
+    }
+
+    fn offer(server: [u8; 4], gateway: Option<[u8; 4]>, dns: Option<[u8; 4]>) -> Offer {
+        Offer { server: server.into(), gateway: gateway.map(Into::into), dns: dns.map(Into::into) }
+    }
+
+    #[test]
+    fn reads_gateway_and_dns_options() {
+        let mut p = reply(2, Some([10, 0, 0, 1]));
+        p.truncate(p.len() - 2);
+        p.extend([3, 4, 10, 0, 0, 254, 6, 8, 1, 1, 1, 1, 8, 8, 8, 8, 255]);
+        let d = dhcp_reply(&p).unwrap();
+        assert_eq!((d.gateway, d.dns), (Some(Ipv4Addr::new(10, 0, 0, 254)), Some(Ipv4Addr::new(1, 1, 1, 1))));
+    }
+
+    #[test]
+    fn vmware_services_on_their_own_adapters_are_not_rivals() {
+        let mut w = DhcpWatch::default();
+        assert_eq!(w.note(10, offer([192, 168, 2, 1], Some([192, 168, 2, 1]), Some([192, 168, 2, 1])), 100), None);
+        assert_eq!(w.note(11, offer([192, 168, 135, 254], None, None), 110), None);
+        assert_eq!(w.note(12, offer([192, 168, 148, 254], None, None), 120), None);
+    }
+
+    #[test]
+    fn a_second_server_with_another_gateway_is_critical() {
+        let mut w = DhcpWatch::default();
+        assert_eq!(w.note(10, offer([192, 168, 2, 1], Some([192, 168, 2, 1]), None), 100), None);
+        let f = w.note(10, offer([192, 168, 2, 77], Some([192, 168, 2, 77]), None), 200).unwrap();
+        assert!(f.critical);
+        assert_eq!(f.offers[0].server, Ipv4Addr::new(192, 168, 2, 1));
+        assert_eq!(w.note(10, offer([192, 168, 2, 77], Some([192, 168, 2, 77]), None), 300), None, "reported already");
+    }
+
+    #[test]
+    fn a_second_server_offering_nothing_is_a_warning() {
+        let mut w = DhcpWatch::default();
+        w.note(10, offer([192, 168, 2, 1], Some([192, 168, 2, 1]), Some([192, 168, 2, 1])), 100);
+        assert!(!w.note(10, offer([192, 168, 2, 9], None, None), 200).unwrap().critical);
+    }
+
+    #[test]
+    fn a_renewal_from_the_same_server_is_quiet() {
+        let mut w = DhcpWatch::default();
+        let o = offer([192, 168, 2, 1], Some([192, 168, 2, 1]), None);
+        assert_eq!(w.note(10, o, 100), None);
+        assert_eq!(w.note(10, o, 200), None);
+        assert_eq!(w.note(10, offer([192, 168, 2, 1], Some([192, 168, 2, 254]), None), 300), None, "one server whose answer changed");
+    }
+
+    #[test]
+    fn the_allowlist_takes_bare_and_per_interface_entries() {
+        let s = Ipv4Addr::new(192, 168, 2, 9);
+        assert!(trusted("192.168.2.9", "Ethernet", s));
+        assert!(trusted("10.0.0.1; ethernet = 192.168.2.9", "Ethernet", s));
+        assert!(!trusted("Wi-Fi=192.168.2.9", "Ethernet", s));
+        assert!(!trusted("", "Ethernet", s));
+    }
+
+    #[test]
+    fn a_browser_using_a_tools_fingerprint_is_flagged_either_way_round() {
+        let mut p = Prints::default();
+        assert!(p.note("curl.exe", "t13d").is_none());
+        let m = p.note("Chrome.exe", "t13d").expect("same print as curl");
+        assert_eq!((m.program.as_str(), m.looks_like.as_str()), ("chrome.exe", "curl.exe"));
+        assert!(p.note("chrome.exe", "t13d").is_none(), "once is enough");
+        let mut p = Prints::default();
+        assert!(p.note("msedge.exe", "abc").is_none());
+        assert!(p.note("python.exe", "abc").is_some(), "the tool turning up later still counts");
+    }
+
+    #[test]
+    fn electron_apps_and_other_prints_are_left_alone() {
+        let mut p = Prints::default();
+        assert!(p.note("slack.exe", "t13d").is_none());
+        assert!(p.note("chrome.exe", "t13d").is_none(), "an app that shares Chrome's library is not a tool");
+        assert!(p.note("curl.exe", "other").is_none());
+        assert!(p.note("firefox.exe", "t13d").is_none());
+        assert!(is_browser("MSEdge.exe") && !is_browser("curl.exe"));
+    }
+}

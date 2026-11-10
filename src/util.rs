@@ -136,18 +136,10 @@ fn scale_in(bytes: f64, bits: bool) -> (f64, &'static str) {
 }
 
 /// `s` as the inside of a JSON string.
-pub fn json_escape(s: &str) -> String {
-    let mut o = String::new();
-    for c in s.chars() {
-        match c {
-            '"' => o.push_str("\\\""),
-            '\\' => o.push_str("\\\\"),
-            '\n' => o.push_str("\\n"),
-            c if (c as u32) < 0x20 => o.push_str(&format!("\\u{:04x}", c as u32)),
-            c => o.push(c),
-        }
-    }
-    o
+/// A URL a service would take: it starts with one of `prefixes`, or with http(s):// when `prefixes` is empty.
+/// Either way it can't be `file://` and the like (these addresses are handed to curl).
+pub fn valid_url(url: &str, prefixes: &[&str]) -> bool {
+    if prefixes.is_empty() { url.starts_with("https://") || url.starts_with("http://") } else { prefixes.iter().any(|p| url.starts_with(p)) }
 }
 
 /// "101.4 KB", "175 B".

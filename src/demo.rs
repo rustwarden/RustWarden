@@ -28,9 +28,6 @@ struct DemoState {
     filter: TrafficFilter,
     dest: Vec<crate::destrules::DestRule>,
     qos: Vec<crate::qos::QosLimit>,
-    /// Sample speed tests and when the running one (if any) started.
-    speed: Vec<crate::plugins::speedtest::SpeedResult>,
-    speed_run: Option<Instant>,
     /// Settings > General > "Split NT Kernel & System by service".
     split_kernel: bool,
     /// Driver mode, which is what lets a limit cover downloads.
@@ -44,6 +41,8 @@ struct DemoState {
     /// The sample Prompt prompt and malicious-IP warning are raised once per run.
     ask_raised: bool,
     threat_raised: bool,
+    /// Programs whose "Scan with VirusTotal" was pressed: they get a made-up clean result.
+    vt_scanned: Vec<String>,
 }
 
 /// Replaces the sample "NT Kernel & System" row with one row per kernel service, as Live mode shows them.
@@ -97,8 +96,6 @@ impl MockBackend {
                 filter: TrafficFilter::default(),
                 dest: demo_dest_rules(),
                 qos: demo_qos_limits(),
-                speed: demo_speed_tests(),
-                speed_run: None,
                 split_kernel: true,
                 driver_mode: false,
                 domain_rules: vec![crate::domainblock::DomainRule { id: 1, enabled: true, pattern: "ads.tracker-demo.example".into() }],
@@ -108,6 +105,7 @@ impl MockBackend {
                 profile: "Default".into(),
                 ask_raised: false,
                 threat_raised: false,
+                vt_scanned: Vec::new(),
             }),
         }
     }
@@ -176,7 +174,7 @@ fn demo_dest_status(r: &crate::destrules::DestRule) -> String {
 /// Made-up open connections for the Live connections tab. Byte counts grow with `now`; the last row is IPv6.
 fn demo_connections(now: i64) -> Vec<LiveConn> {
     #[allow(clippy::type_complexity)]
-    let rows: [(u32, &str, &str, &str, &str, &str, u64, Country, i64); 7] = [
+    let rows: [(u32, &str, &str, &str, &str, &str, u64, Country, i64); 8] = [
         (4120, "chrome.exe", "Established", "192.168.1.20:51522", "208.80.154.224:443", "www.wikipedia.org", 900, Country::UnitedStates, 1260),
         (5310, "Spotify.exe", "Established", "192.168.1.20:51801", "35.186.224.25:443", "spclient.wg.spotify.com", 5200, Country::Sweden, 5400),
         (8844, "Steam.exe", "Established", "192.168.1.20:52010", "104.18.20.54:443", "cdn.cloudflare.steamstatic.com", 48_000, Country::UnitedStates, 310),
@@ -184,6 +182,7 @@ fn demo_connections(now: i64) -> Vec<LiveConn> {
         (7720, "curl.exe", "Connecting", "192.168.1.20:52200", "203.0.113.66:80", "cdn.badhost-demo.example", 0, Country::Other, 3),
         (2210, "OneDrive.exe", "Established", "192.168.1.20:52240", "13.107.42.12:443", "storage.live.com", 2300, Country::Ireland, 86_400),
         (4120, "chrome.exe", "Established", "[fd00::20]:52300", "[2620:0:861:ed1a::1]:443", "www.wikipedia.org", 400, Country::UnitedStates, 1260),
+        (4120, "chrome.exe", "UDP", "192.168.1.20:60123", "142.250.179.110:443", "www.youtube.com", 0, Country::UnitedStates, 600),
     ];
     let killed = DEMO_KILLED.lock().unwrap_or_else(|e| e.into_inner());
     let mut out: Vec<LiveConn> = rows
@@ -200,7 +199,7 @@ fn demo_connections(now: i64) -> Vec<LiveConn> {
                 remote,
                 host: host.into(),
                 bytes: up.then(|| ((now as u64 % 100_000) * rate, (now as u64 % 100_000) * rate / 8)),
-                killable: up && remote.is_ipv4(),
+                killable: (up && remote.is_ipv4()) || state == "UDP",
                 country: Some(country),
                 since: Some(now - age),
             }
@@ -436,7 +435,7 @@ fn demo_devices() -> Vec<Device> {
         first_seen: seen,
         seen_count: 1,
         ports: if system.is_empty() { vec![80, 443] } else { vec![8008, 8443] },
-        ha: None,
+        note: None,
         trusted: true,
     };
     let mut devices = vec![
@@ -462,80 +461,10 @@ fn demo_networks() -> Vec<(String, Vec<Device>)> {
     vec![("HomeNET".into(), all.clone()), ("HomeNET-5G".into(), pick(&[0, 2, 3])), ("Ethernet".into(), pick(&[0, 4]))]
 }
 
-/// A week of made-up speed tests, a few a day.
-fn demo_speed_tests() -> Vec<crate::plugins::speedtest::SpeedResult> {
-    let now = crate::clock::now_unix();
-    (0..21).map(|i| demo_speed_test(now - (21 - i) * 8 * 3600, i as f32)).collect()
-}
-
-fn demo_speed_test(ts: i64, k: f32) -> crate::plugins::speedtest::SpeedResult {
-    crate::plugins::speedtest::SpeedResult {
-        ts,
-        ping_ms: 11.0 + (k * 1.7).sin().abs() * 6.0,
-        jitter_ms: 0.8 + (k * 2.3).cos().abs(),
-        down_mbps: 880.0 + (k * 0.9).sin() * 40.0,
-        up_mbps: 92.0 + (k * 1.3).cos() * 6.0,
-        loss: 0.0,
-        server: "Demo Net, London".into(),
-        isp: "Demo ISP".into(),
-        url: String::new(),
-        server_ip: "203.0.113.9".into(),
-        client_ip: "198.51.100.7".into(),
-    }
-}
-
-/// How long a demo speed test takes.
-const DEMO_TEST_SECS: u64 = 9;
-
-/// The readings a demo test would have produced `frac` (0 to 1) of the way through: a ping, then a download
-/// that ramps up to about 880 Mbps, then an upload that ramps up to about 92.
-fn demo_live(frac: f32) -> Vec<crate::plugins::speedtest::Progress> {
-    use crate::plugins::speedtest::{Phase, Progress};
-    let mut out = Vec::new();
-    let mut at = 0.0;
-    while at <= frac {
-        let (phase, top, p) = match at {
-            a if a < 0.1 => (Phase::Ping, 0.0, a / 0.1),
-            a if a < 0.55 => (Phase::Download, 880.0, (a - 0.1) / 0.45),
-            a => (Phase::Upload, 92.0, (a - 0.55) / 0.45),
-        };
-        let wobble = 1.0 + ((at * 90.0).sin() * 0.05);
-        out.push(Progress { phase, mbps: top * (1.0 - (-6.0 * p).exp()) * wobble, progress: p.min(1.0) });
-        at += 0.01;
-    }
-    out
-}
-
 impl Backend for MockBackend {
-    fn speedtest_status(&self) -> crate::plugins::speedtest::SpeedStatus {
-        let st = self.state();
-        let elapsed = st.speed_run.map(|t| t.elapsed().as_secs_f32());
-        crate::plugins::speedtest::SpeedStatus {
-            cli_ready: true,
-            live: elapsed.map_or_else(Vec::new, |e| demo_live(e / DEMO_TEST_SECS as f32)),
-            running: elapsed.is_some_and(|e| e < DEMO_TEST_SECS as f32),
-            last_ok: st.speed.last().map_or(0, |r| r.ts),
-            ..Default::default()
-        }
-    }
-
-    fn speedtest_results(&self, since: i64) -> Vec<crate::plugins::speedtest::SpeedResult> {
-        let mut st = self.state();
-        if st.speed_run.is_some_and(|t| t.elapsed().as_secs() >= DEMO_TEST_SECS) {
-            st.speed_run = None;
-            let k = st.speed.len() as f32;
-            st.speed.push(demo_speed_test(crate::clock::now_unix(), k));
-        }
-        st.speed.iter().filter(|r| r.ts >= since).cloned().collect()
-    }
-
-    fn speedtest_route(&self, _server_ip: &str, _client_ip: &str) -> Option<crate::plugins::speedtest::SpeedRoute> {
+    fn speedtest_route(&self, _server_ip: &str, _client_ip: &str) -> Option<crate::ui::speed::SpeedRoute> {
         // Northampton to London.
-        Some(crate::plugins::speedtest::SpeedRoute { home: (-0.9, 52.24), server: (-0.13, 51.51) })
-    }
-
-    fn speedtest_run(&self) {
-        self.state().speed_run.get_or_insert_with(Instant::now);
+        Some(crate::ui::speed::SpeedRoute { home: (-0.9, 52.24), server: (-0.13, 51.51) })
     }
 
     fn capabilities(&self) -> Capabilities {
@@ -708,6 +637,18 @@ impl Backend for MockBackend {
         }
     }
 
+    fn scan_virustotal(&self, key: &str) {
+        self.state().vt_scanned.push(key.to_owned());
+    }
+
+    fn upload_virustotal(&self, key: &str) {
+        self.scan_virustotal(key);
+    }
+
+    fn virustotal(&self, who: &str) -> Vt {
+        demo_vt(who)
+    }
+
     fn firewall_apps(&self) -> Vec<FirewallApp> {
         // Sample VirusTotal verdicts, so the banner and the Firewall column show in Demo.
         let st = self.state();
@@ -715,6 +656,9 @@ impl Backend for MockBackend {
         apps.into_iter()
             .map(|mut a| {
                 a.virustotal = demo_vt(&a.name);
+                if a.virustotal == Vt::None && st.vt_scanned.contains(&a.key) {
+                    a.virustotal = Vt::Result { bad: 0, total: 72 };
+                }
                 a
             })
             .collect()
@@ -744,6 +688,10 @@ impl Backend for MockBackend {
                 QuotaStatus { quota, name, used, limit, level, blocked, throttled }
             })
             .collect()
+    }
+
+    fn block_program(&self, path: &str) -> Result<String, String> {
+        Ok(format!("Demo: {} would be blocked", path.rsplit(['\\', '/']).next().unwrap_or(path)))
     }
 
     fn set_verdict(&self, key: &str, direction: Direction, verdict: Verdict) -> Result<(), String> {
@@ -1366,6 +1314,10 @@ mod tests {
         assert!(!b.alerts_snoozed());
         assert!(b.net_info("192.168.1.1").is_empty() && b.net_info("claude.ai").starts_with("AS"));
         assert!(b.firewall_apps().iter().any(|a| a.virustotal != Vt::None));
+        let unknown = b.firewall_apps().into_iter().find(|a| a.virustotal == Vt::None).unwrap();
+        b.scan_virustotal(&unknown.key);
+        assert_eq!(b.firewall_apps().into_iter().find(|a| a.key == unknown.key).unwrap().virustotal, Vt::Result { bad: 0, total: 72 });
+        assert_eq!(b.virustotal("RustDesk Remote Desktop"), Vt::Result { bad: 5, total: 72 });
     }
 
     #[test]

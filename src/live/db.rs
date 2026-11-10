@@ -151,6 +151,7 @@ CREATE TABLE IF NOT EXISTS traffic (
     proto TEXT NOT NULL, kind INTEGER NOT NULL, down INTEGER NOT NULL, up INTEGER NOT NULL,
     PRIMARY KEY (scale, ts, app_id, remote, proto, kind)) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS hostnames (ip TEXT PRIMARY KEY, name TEXT NOT NULL, seen INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS app_hostnames (app_id INTEGER NOT NULL, ip TEXT NOT NULL, name TEXT NOT NULL, seen INTEGER NOT NULL, PRIMARY KEY (app_id, ip)) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS alerts (
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, kind TEXT NOT NULL, important INTEGER NOT NULL,
     app TEXT NOT NULL, text TEXT NOT NULL, target TEXT NOT NULL, country TEXT NOT NULL, unread INTEGER NOT NULL,
@@ -204,14 +205,7 @@ impl Db {
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch(SCHEMA)?;
-        conn.execute_batch(crate::plugins::ha::store::SCHEMA)?;
-        conn.execute_batch(crate::plugins::thinkbroadband::store::SCHEMA)?;
-        conn.execute_batch(crate::plugins::ping::store::SCHEMA)?;
-        conn.execute_batch(crate::plugins::speedtest::store::SCHEMA)?;
-        // Databases created before seen_count existed; fails harmlessly when the column is already there.
-        for sql in crate::plugins::speedtest::store::MIGRATIONS {
-            add_column(&conn, sql)?;
-        }
+        crate::plugins::legacy::migrate_tables(&conn)?;
         add_column(&conn, "ALTER TABLE devices ADD COLUMN seen_count INTEGER NOT NULL DEFAULT 1")?;
         // NULL = never port-scanned, which also marks devices stored before port scanning existed.
         add_column(&conn, "ALTER TABLE devices ADD COLUMN ports TEXT")?;
@@ -220,10 +214,6 @@ impl Db {
         // Alert log chain (see verify_alerts); older rows keep an empty hash.
         add_column(&conn, "ALTER TABLE alerts ADD COLUMN prev_hash TEXT NOT NULL DEFAULT ''")?;
         add_column(&conn, "ALTER TABLE alerts ADD COLUMN hash TEXT NOT NULL DEFAULT ''")?;
-        // Matches stored before device_id existed have none; look them up again so they get one.
-        if add_column(&conn, "ALTER TABLE ha_devices ADD COLUMN device_id TEXT NOT NULL DEFAULT ''")? {
-            let _ = conn.execute("UPDATE ha_devices SET checked = 0", []);
-        }
         let db = Self { conn };
         db.set_filter(&TrafficFilter::default(), None)?;
         Ok(db)
@@ -233,13 +223,28 @@ impl Db {
     pub fn memory() -> Self {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(SCHEMA).unwrap();
-        conn.execute_batch(crate::plugins::ha::store::SCHEMA).unwrap();
-        conn.execute_batch(crate::plugins::thinkbroadband::store::SCHEMA).unwrap();
-        conn.execute_batch(crate::plugins::ping::store::SCHEMA).unwrap();
-        conn.execute_batch(crate::plugins::speedtest::store::SCHEMA).unwrap();
         let db = Self { conn };
         db.set_filter(&TrafficFilter::default(), None).unwrap();
         db
+    }
+
+    /// The matched devices by MAC, from the table each annotating plugin keeps (`p_<id>__devices`). A plugin that
+    /// hasn't made its table yet simply has none.
+    pub fn device_notes(&self, plugins: &[String]) -> rusqlite::Result<std::collections::HashMap<String, crate::data::DeviceNote>> {
+        let mut out = std::collections::HashMap::new();
+        for id in plugins {
+            let table = format!("{}devices", crate::plugins::wasm::host::table_prefix(id));
+            if self.conn.query_row("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1", [&table], |_| Ok(())).is_err() {
+                continue;
+            }
+            let mut stmt = self.conn.prepare_cached(&format!("SELECT mac, name, area, model, kind, url FROM {table} WHERE found = 1"))?;
+            let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, crate::data::DeviceNote { name: r.get(1)?, area: r.get(2)?, model: r.get(3)?, kind: r.get(4)?, url: r.get(5)? })))?;
+            for row in rows {
+                let (mac, note) = row?;
+                out.entry(mac).or_insert(note);
+            }
+        }
+        Ok(out)
     }
 
     /// Points the read queries (temp view `t`) at the matching slice of `traffic`.
@@ -296,6 +301,7 @@ impl Db {
         }
         // Names not seen in the retention period are only kept for traffic that is gone by now.
         self.conn.execute("DELETE FROM hostnames WHERE seen < ?1", params![now - i64::from(retention_days) * 86_400])?;
+        self.conn.execute("DELETE FROM app_hostnames WHERE seen < ?1", params![now - i64::from(retention_days) * 86_400])?;
         self.conn.execute("DELETE FROM blocked WHERE ts < ?1", params![now - i64::from(retention_days) * 86_400])?;
         Ok(())
     }
@@ -556,6 +562,26 @@ impl Db {
     pub fn set_hostname(&self, ip: &str, name: &str, now: i64) -> rusqlite::Result<()> {
         self.conn.execute("INSERT INTO hostnames (ip, name, seen) VALUES (?1,?2,?3) ON CONFLICT(ip) DO UPDATE SET name=excluded.name, seen=excluded.seen", params![ip, name, now])?;
         Ok(())
+    }
+
+    /// The name one program used for an address (shared CDN addresses serve different names to different programs).
+    pub fn set_app_hostname(&self, app_id: i64, ip: &str, name: &str, now: i64) -> rusqlite::Result<()> {
+        self.conn.execute(
+            "INSERT INTO app_hostnames (app_id, ip, name, seen) VALUES (?1,?2,?3,?4) ON CONFLICT(app_id, ip) DO UPDATE SET name=excluded.name, seen=excluded.seen",
+            params![app_id, ip, name, now],
+        )?;
+        Ok(())
+    }
+
+    pub fn app_hostnames(&self) -> rusqlite::Result<Vec<(i64, String, String)>> {
+        let mut stmt = self.conn.prepare("SELECT app_id, ip, name FROM app_hostnames")?;
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect()
+    }
+
+    /// Usage per (program, remote address): `(app_id, remote, down, up)`.
+    pub fn usage_by_app_remote(&self, scale: Scale, t0: i64, t1: i64) -> rusqlite::Result<Vec<(i64, String, f64, f64)>> {
+        let mut stmt = self.conn.prepare_cached("SELECT app_id, remote, SUM(down), SUM(up) FROM t WHERE scale=?1 AND ts>=?2 AND ts<?3 AND remote <> '' GROUP BY app_id, remote")?;
+        stmt.query_map(params![scale.secs(), t0, t1], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?.collect()
     }
 
     pub fn hostnames(&self) -> rusqlite::Result<Vec<(String, String)>> {

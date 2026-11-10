@@ -5,7 +5,8 @@ use super::{from_wide, wide};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use windows::Win32::Foundation::{ERROR_BUFFER_OVERFLOW, NO_ERROR};
 use windows::Win32::NetworkManagement::IpHelper::{
-    FreeMibTable, GAA_FLAG_INCLUDE_GATEWAYS, GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_MULTICAST, GetAdaptersAddresses, GetIpNetTable2, IP_ADAPTER_ADDRESSES_LH, MIB_IPNET_TABLE2,
+    FreeMibTable, GAA_FLAG_INCLUDE_GATEWAYS, GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_MULTICAST, GetAdaptersAddresses, GetIpForwardTable2, GetIpNetTable2, IP_ADAPTER_ADDRESSES_LH, MIB_IPFORWARD_TABLE2,
+    MIB_IPNET_TABLE2,
 };
 use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6, AF_UNSPEC, SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6, SOCKET_ADDRESS};
 use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, RegGetValueW};
@@ -24,6 +25,16 @@ pub struct Adapter {
     pub loopback: bool,
     /// A VPN / tunnel interface (traffic on it is the apps' own, before the VPN client encrypts it).
     pub tunnel: bool,
+    /// A VM host's or container's virtual adapter (VMware, Hyper-V / WSL, VirtualBox), or a tunnel.
+    pub virtual_nic: bool,
+}
+
+/// Whether an adapter is virtual: a VM vendor's MAC prefix (VMware 00:50:56, 00:0C:29, 00:05:69; Hyper-V 00:15:5D; VirtualBox
+/// 0A:00:27, 08:00:27) or a name / description that says so.
+pub fn is_virtual(mac: &[u8; 6], tunnel: bool, text: &str) -> bool {
+    const OUIS: &[[u8; 3]] = &[[0x00, 0x50, 0x56], [0x00, 0x0C, 0x29], [0x00, 0x05, 0x69], [0x00, 0x15, 0x5D], [0x0A, 0x00, 0x27], [0x08, 0x00, 0x27]];
+    let t = text.to_lowercase();
+    tunnel || OUIS.contains(&[mac[0], mac[1], mac[2]]) || ["virtual", "vmware", "vmnet", "hyper-v", "vethernet", "virtualbox", "tap-", "wintun", "wireguard"].iter().any(|h| t.contains(h))
 }
 
 /// IfType 131 is a tunnel and 53 a proprietary virtual adapter; the description catches the rest (TAP, Wintun, WireGuard...).
@@ -95,6 +106,7 @@ pub fn adapters() -> Result<Vec<Adapter>, String> {
             ad.tunnel = is_tunnel(a.IfType, &format!("{} {desc}", ad.name));
             let len = (a.PhysicalAddressLength as usize).min(6);
             ad.mac[..len].copy_from_slice(&a.PhysicalAddress[..len]);
+            ad.virtual_nic = is_virtual(&ad.mac, ad.tunnel, &format!("{} {desc}", ad.name));
             let mut u = a.FirstUnicastAddress;
             while !u.is_null() {
                 if let Some(ip) = socket_ip(&(*u).Address) {
@@ -149,6 +161,30 @@ pub fn neighbors() -> Result<Vec<Neighbor>, String> {
             mac[..len].copy_from_slice(&r.PhysicalAddress[..len]);
             // NlnsUnreachable = 0, Incomplete = 1; everything above has a MAC.
             out.push(Neighbor { if_index: r.InterfaceIndex, ip, mac, resolved: r.State.0 >= 2 && len == 6 });
+        }
+        FreeMibTable(table as *const _);
+    }
+    Ok(out)
+}
+
+/// Single-address routes that go through a gateway: the way a VPN client keeps the packets to its own server outside the
+/// tunnel. Each is (address, adapter index).
+pub fn host_routes() -> Result<Vec<(IpAddr, u32)>, String> {
+    let mut table: *mut MIB_IPFORWARD_TABLE2 = std::ptr::null_mut();
+    let mut out = Vec::new();
+    unsafe {
+        GetIpForwardTable2(AF_UNSPEC, &mut table).ok().map_err(|e| format!("GetIpForwardTable2 failed: {e}"))?;
+        let rows = std::slice::from_raw_parts((*table).Table.as_ptr(), (*table).NumEntries as usize);
+        for r in rows {
+            let prefix = &r.DestinationPrefix;
+            let (dest, next, whole) = match prefix.Prefix.si_family {
+                f if f == AF_INET => (IpAddr::V4(Ipv4Addr::from(prefix.Prefix.Ipv4.sin_addr.S_un.S_addr.to_le_bytes())), r.NextHop.Ipv4.sin_addr.S_un.S_addr != 0, prefix.PrefixLength == 32),
+                f if f == AF_INET6 => (IpAddr::V6(Ipv6Addr::from(prefix.Prefix.Ipv6.sin6_addr.u.Byte)), r.NextHop.Ipv6.sin6_addr.u.Byte != [0; 16], prefix.PrefixLength == 128),
+                _ => continue,
+            };
+            if whole && next {
+                out.push((dest, r.InterfaceIndex));
+            }
         }
         FreeMibTable(table as *const _);
     }
@@ -239,6 +275,14 @@ pub fn internet_connected() -> Option<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn virtual_adapters_are_told_by_mac_or_name() {
+        assert!(is_virtual(&[0x00, 0x50, 0x56, 0xC0, 0, 1], false, "VMnet1"));
+        assert!(is_virtual(&[0x00, 0x15, 0x5D, 1, 2, 3], false, "vEthernet (WSL)"));
+        assert!(is_virtual(&[0x24, 0x4B, 0xFE, 1, 2, 3], true, "WireGuard Tunnel"));
+        assert!(!is_virtual(&[0x24, 0x4B, 0xFE, 1, 2, 3], false, "Ethernet Realtek PCIe GbE Family Controller"));
+    }
 
     #[test]
     fn mac_helpers() {

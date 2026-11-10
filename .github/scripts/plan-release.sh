@@ -3,6 +3,7 @@
 # Outputs (to $GITHUB_OUTPUT when set): skip, tag, version.
 # First release (no v* tag yet): the notes are README.md with its relative links made absolute.
 # Later releases: the commit subjects since the last tag, grouped by type. Subjects only, so no authors.
+# A hand-written .github/notes/<tag>.md, when present, is used instead.
 set -euo pipefail
 
 repo="${GITHUB_REPOSITORY:-rustwarden/RustWarden}"
@@ -11,6 +12,9 @@ version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)"
 tag="v$version"
 out="${GITHUB_OUTPUT:-/dev/stdout}"
 last="$(git describe --tags --abbrev=0 --match "${TAG_MATCH:-v*}" 2>/dev/null || true)"
+# The first release of a series (no earlier tag of this kind): the notes cover everything since the last stable release.
+base="$last"
+[ -z "$base" ] && base="$(git describe --tags --abbrev=0 --match 'v*' --exclude 'v*-*' 2>/dev/null || true)"
 
 skip() { echo "$1"; echo "skip=true" >> "$out"; exit 0; }
 
@@ -23,14 +27,14 @@ if [ -n "$last" ]; then
   fi
 fi
 
-if [ -z "$last" ]; then
+if [ -z "$base" ]; then
   # Relative src="..." and ](...) links point into the repo at this commit.
   sed -E \
     -e "s#src=\"([^\":]+)\"#src=\"https://github.com/$repo/raw/$sha/\1\"#g" \
     -e "s#\]\(([^)#:][^):]*)\)#](https://github.com/$repo/blob/$sha/\1)#g" \
     README.md > notes.md
 else
-  subjects="$(git log "$last"..HEAD --no-merges --format=%s)"
+  subjects="$(git log "$base"..HEAD --no-merges --format=%s)"
   section() { # title, grep pattern for the type prefix
     local lines
     lines="$(printf '%s\n' "$subjects" | grep -E "^($2)(\(.+\))?!?: " | sed -E 's/^[a-z]+(\([^)]*\))?!?: /- /' || true)"
@@ -38,7 +42,7 @@ else
     return 0
   }
   {
-    echo "## Changes since $last"
+    echo "## Changes since $base"
     echo
     section "New features" "feat"
     section "Fixes" "fix"
@@ -46,6 +50,10 @@ else
     [ -n "$other" ] && printf '### Other\n\n%s\n\n' "$other"
     echo "Full feature log: [changes.md](https://github.com/$repo/blob/$sha/changes.md)"
   } > notes.md
+fi
+
+if [ -f ".github/notes/$tag.md" ]; then
+  cp ".github/notes/$tag.md" notes.md
 fi
 
 echo "Releasing $tag (previous: ${last:-none})."

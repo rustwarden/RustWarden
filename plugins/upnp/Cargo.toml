@@ -1,0 +1,11 @@
+[package]
+name = "plugin-upnp"
+version = "1.0.0"
+edition = "2024"
+
+[lib]
+name = "upnp"
+crate-type = ["cdylib"]
+
+[dependencies]
+plugin-sdk = { path = "../../plugin-sdk" }

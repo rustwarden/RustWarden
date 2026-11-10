@@ -54,7 +54,8 @@ impl RustWarden {
             }
         }
 
-        let ha_on = crate::plugins::ha::active(&self.settings).is_some();
+        let note_src = crate::plugins::wasm::manager::annotator();
+        let ha_on = note_src.is_some();
         row_in(ui, bar.shrink2(vec2(14.0, 0.0)), |ui| {
             let names = self.scanner.networks.clone();
             let ids: Vec<usize> = (0..names.len()).collect();
@@ -266,17 +267,17 @@ impl RustWarden {
                     };
                     icons::paint(&p, icon, Rect::from_center_size(pos2((col(1) + col(2)) / 2.0, cy), vec2(30.0, 30.0)), tint);
                     let mut over_btn = false;
-                    if ha_on
-                        && let Some(mark) = crate::plugins::ha::ui::paint_badges(&p, d, &self.settings, pos2((col(2) + col(3)) / 2.0, cy))
-                        && let Some(url) = crate::plugins::ha::ui::device_url(d, &self.settings)
+                    if let Some(src) = &note_src
+                        && let Some(mark) = crate::ui::notes::paint_badges(&p, d, src, pos2((col(2) + col(3)) / 2.0, cy))
+                        && let Some(url) = crate::ui::notes::device_url(d)
                     {
-                        let b = ui.interact(mark, ui.scope_id().with(("ha", &d.mac)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Open in Home Assistant");
+                        let b = ui.interact(mark, ui.scope_id().with(("ha", &d.mac)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(format!("Open in {}", src.name));
                         over_btn = b.hovered();
                         if b.clicked() {
                             crate::sys::open_url(&url);
                         }
                     }
-                    let ha_name = crate::plugins::ha::ui::display_name(d, &self.settings);
+                    let ha_name = note_src.as_ref().and_then(|src| crate::ui::notes::display_name(d, src));
                     let name = ha_name.as_deref().unwrap_or(if d.name.is_empty() { d.kind.label() } else { d.name.as_str() });
                     let seen_count = d.seen_count.to_string();
                     let (last_seen, first_seen) = (crate::clock::fmt_stamp(d.last_seen), crate::clock::fmt_stamp(d.first_seen));
@@ -314,8 +315,8 @@ impl RustWarden {
                         p.text(btn.center(), Align2::CENTER_CENTER, "Open", theme::font(14.0), theme::text());
                         egui::Popup::menu(&b).show(|ui| {
                             ui.set_min_width(220.0);
-                            if let Some(url) = crate::plugins::ha::ui::device_url(d, &self.settings)
-                                && ui.button("Home Assistant – open entity page").clicked()
+                            if let Some(url) = crate::ui::notes::device_url(d)
+                                && ui.button(format!("{} – open entity page", note_src.as_ref().map_or("Home Assistant", |s| s.name.as_str()))).clicked()
                             {
                                 crate::sys::open_url(&url);
                                 ui.close();

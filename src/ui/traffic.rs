@@ -16,16 +16,16 @@ pub(super) fn command_card_id(ui: &Ui, rtl: bool) -> egui::Id {
 /// The icon inside a graph pin for an alert that has no app icon, chosen by the monitor's label.
 fn kind_icon(label: &str) -> Icon {
     match label {
-        "Malicious IP" | "Malicious domain" | "Port scan or flood" => Icon::ShieldAlert,
-        "Internet access" | "DNS server settings" | "DNS leak" | "Public IP address" | "Proxy settings" | "New country or network" => Icon::Globe,
-        "New device" | "Device spoofing" | "Device returned" | "ARP table" => Icon::Wifi,
+        "Malicious IP" | "Malicious domain" | "Port scan or flood" | "Program fingerprint mismatch" => Icon::ShieldAlert,
+        "Internet access" | "DNS server settings" | "DNS leak" | "Public IP address" | "Proxy settings" | "New country or network" | "DNS tunnelling" => Icon::Globe,
+        "New device" | "Device spoofing" | "Device returned" | "ARP table" | "Second DHCP server" => Icon::Wifi,
         "Firewall rules" | "Computer unlocked" | "User account" | "Root certificate" => Icon::Lock,
         "Packet loss" => Icon::Wave,
         "Data plan" | "Data quota" | "Traffic spike" => Icon::Traffic,
         "Microphone or camera" => Icon::Camera,
         "Remote Desktop" => Icon::Laptop,
         "Startup entry" | "New service" => Icon::Chip,
-        "Scheduled task" | "Unusual hour" | "While you were away" => Icon::Hourglass,
+        "Scheduled task" | "Unusual hour" | "While you were away" | "Regular check-ins" => Icon::Hourglass,
         "New listening port" => Icon::Plug,
         "Hosts file" => Icon::Alerts,
         "First network activity" | "App info changed" => Icon::Info,

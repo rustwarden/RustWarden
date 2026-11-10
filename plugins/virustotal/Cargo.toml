@@ -1,0 +1,11 @@
+[package]
+name = "plugin-virustotal"
+version = "1.0.0"
+edition = "2024"
+
+[lib]
+name = "virustotal"
+crate-type = ["cdylib"]
+
+[dependencies]
+plugin-sdk = { path = "../../plugin-sdk" }

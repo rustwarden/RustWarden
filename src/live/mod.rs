@@ -10,16 +10,19 @@ pub mod apps;
 pub mod ask;
 pub mod asn;
 pub mod baseline;
+pub mod beacon;
 pub mod bucket;
 pub mod capture;
 pub mod db;
 pub mod dest;
 pub mod dns;
 pub mod dnsguard;
+pub mod dnstunnel;
 pub mod domains;
 pub mod engine;
 pub mod firewall;
 pub mod geo;
+pub mod guard;
 pub mod hardware;
 pub mod lease;
 pub mod monitors;
@@ -109,6 +112,7 @@ impl LiveBackend {
             threads: Mutex::new(Vec::new()),
         };
         lease::install(backend.shared.clone(), backend.fw.clone());
+        store::install_alert_sink(backend.shared.clone());
         backend.spawn("asn", move |_| asn.run(asn_rx));
         backend.spawn("virustotal", move |shared| vt.run(shared));
         backend.spawn("traffic", traffic::run);
@@ -128,6 +132,8 @@ impl LiveBackend {
         let (shared, fw) = (backend.shared.clone(), backend.fw.clone());
         backend.spawn("p2p", move |_| p2p::run(shared, fw));
         let (shared, fw) = (backend.shared.clone(), backend.fw.clone());
+        backend.spawn("guard", move |_| guard::run(shared, fw));
+        let (shared, fw) = (backend.shared.clone(), backend.fw.clone());
         backend.spawn("ask", move |_| ask::run(shared, fw));
         let (shared, fw) = (backend.shared.clone(), backend.fw.clone());
         backend.spawn("threat", move |_| threat::run(shared, fw));
@@ -138,10 +144,6 @@ impl LiveBackend {
         let asn = backend.asn.clone();
         backend.spawn("baseline", move |shared| baseline::run(shared, asn));
         backend.spawn("report", crate::report::run);
-        backend.spawn("homeassistant", crate::plugins::ha::worker::run);
-        backend.spawn("ping", crate::plugins::ping::worker::run);
-        backend.spawn("speedtest", crate::plugins::speedtest::worker::run);
-        backend.spawn("thinkbroadband", crate::plugins::thinkbroadband::worker::run);
         if elevated {
             let (qos, domains, guard, sniffer) = (backend.qos.clone(), backend.domains.clone(), backend.dnsguard.clone(), backend.sniffer.clone());
             backend.spawn("driver-move", move |shared| {
@@ -214,6 +216,27 @@ impl LiveBackend {
     fn host_label(&self, ip: &str) -> String {
         ip.parse::<IpAddr>().ok().and_then(|ip| self.shared.state().hostnames.get(&ip).cloned()).unwrap_or_else(|| ip.to_owned())
     }
+}
+
+/// Folds `(label, remote, down, up)` rows into one entry per label, biggest first. `key` is the
+/// remote that carried the most, so a merged row still opens a detail view.
+fn merge_hosts(rows: Vec<(String, String, f64, f64)>) -> Vec<(String, db::UsageEntry)> {
+    let mut out: Vec<(String, db::UsageEntry, f64)> = Vec::new();
+    for (label, key, down, up) in rows {
+        match out.iter_mut().find(|(l, ..)| *l == label) {
+            Some((_, e, best)) => {
+                e.down += down;
+                e.up += up;
+                if down + up > *best {
+                    *best = down + up;
+                    e.key = key;
+                }
+            }
+            None => out.push((label, db::UsageEntry { key, down, up }, down + up)),
+        }
+    }
+    out.sort_by(|a, b| (b.1.down + b.1.up).total_cmp(&(a.1.down + a.1.up)));
+    out.into_iter().map(|(l, e, _)| (l, e)).collect()
 }
 
 /// Fraction of `part` in `whole`, 0 when `whole` is 0.
@@ -331,8 +354,18 @@ impl Backend for LiveBackend {
     fn breakdown(&self, range: TimeRange, window: (f32, f32)) -> UsageBreakdown {
         let (scale, first, n) = range_buckets(crate::clock::now_unix(), range);
         let (t0, t1) = selection_interval(first, n, scale, window);
-        let (by_app, by_remote, by_proto, apps, top_hosts) =
-            self.with_db(|db| Ok((db.usage_by_app(scale, t0, t1)?, db.usage_by_remote(scale, t0, t1)?, db.usage_by_proto(scale, t0, t1)?, db.apps()?, db.hosts_by_app(scale, t0, t1)?)));
+        let (by_app, by_remote, by_proto, apps, top_hosts, app_remote, app_names) = self.with_db(|db| {
+            Ok((
+                db.usage_by_app(scale, t0, t1)?,
+                db.usage_by_remote(scale, t0, t1)?,
+                db.usage_by_proto(scale, t0, t1)?,
+                db.apps()?,
+                db.hosts_by_app(scale, t0, t1)?,
+                db.usage_by_app_remote(scale, t0, t1)?,
+                db.app_hostnames()?,
+            ))
+        });
+        let app_names: HashMap<(i64, String), String> = app_names.into_iter().map(|(id, ip, n)| ((id, ip), n)).collect();
         let apps_by_id: HashMap<String, &AppRecord> = apps.iter().map(|a| (a.id.to_string(), a)).collect();
         let mut main_host: HashMap<i64, String> = HashMap::new();
         for (id, ip, _) in &top_hosts {
@@ -352,10 +385,13 @@ impl Backend for LiveBackend {
             })
             .collect();
 
-        let mut host_rows: Vec<UsageRow> = by_remote.iter().take(MAX_HOSTS).map(|e| row(self.host_label(&e.key), e, Glyph::Flag(self.place_of(&e.key).country()), Some(Glyph::Window))).collect();
-        if by_remote.len() > MAX_HOSTS {
-            let rest = &by_remote[MAX_HOSTS..];
-            let (down, up) = rest.iter().fold((0.0, 0.0), |a, e| (a.0 + e.down, a.1 + e.up));
+        // Named per program where known, so a shared CDN address isn't one arbitrary name for everyone.
+        let merged =
+            merge_hosts(app_remote.into_iter().map(|(id, remote, down, up)| (app_names.get(&(id, remote.clone())).cloned().unwrap_or_else(|| self.host_label(&remote)), remote, down, up)).collect());
+        let mut host_rows: Vec<UsageRow> = merged.iter().take(MAX_HOSTS).map(|(label, e)| row(label.clone(), e, Glyph::Flag(self.place_of(&e.key).country()), Some(Glyph::Window))).collect();
+        if merged.len() > MAX_HOSTS {
+            let rest = &merged[MAX_HOSTS..];
+            let (down, up) = rest.iter().fold((0.0, 0.0), |a, (_, e)| (a.0 + e.down, a.1 + e.up));
             host_rows.push(row(format!("+{} more", rest.len()), &db::UsageEntry { key: String::new(), down, up }, Glyph::More, Some(Glyph::Window)));
         }
 
@@ -502,7 +538,7 @@ impl Backend for LiveBackend {
         let hostnames = st.hostnames.clone();
         drop(st);
         let own_exe = std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
-        let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into()).to_lowercase();
+        let root = apps::system_root();
         let blocked = |key: &str, outbound: bool| rules.iter().any(|r| r.block && firewall::row_key(&r.program, &r.service) == key && r.outbound == outbound && !firewall::is_lan(&r.name));
         let local_blocked = |key: &str| rules.iter().any(|r| r.block && firewall::row_key(&r.program, &r.service) == key && firewall::is_lan(&r.name));
         // Prompt denies by default: an app with no rules yet (just removed, or new) is denied until answered.
@@ -599,6 +635,10 @@ impl Backend for LiveBackend {
 
     fn set_verdict(&self, key: &str, direction: Direction, verdict: Verdict) -> Result<(), String> {
         self.fw.set_verdict(key, direction, verdict)
+    }
+
+    fn block_program(&self, path: &str) -> Result<String, String> {
+        self.fw.block_path(path)
     }
 
     fn remove_app(&self, key: &str) -> Result<(), String> {
@@ -786,6 +826,18 @@ impl Backend for LiveBackend {
                 }
             })
             .collect();
+        // UDP flows come from the driver's flow events, so they appear only with the driver installed and in use.
+        if self.shared.settings().app_mode == crate::settings::AppMode::Driver && crate::driver::ready() {
+            for (pid, local, remote) in self.sniffer.udp_flows() {
+                let app =
+                    names.entry(pid).or_insert_with(|| crate::sys::apps::pid_path(pid).and_then(|p| p.rsplit(['\\', '/']).next().map(str::to_owned)).unwrap_or_else(|| format!("PID {pid}"))).clone();
+                let country = match self.place_of(&remote.ip().to_string()) {
+                    geo::Place::Unknown => None,
+                    p => Some(p.country()),
+                };
+                out.push(LiveConn { pid, app, state: "UDP".into(), local, remote, host: hostnames.get(&remote.ip()).cloned().unwrap_or_default(), bytes: None, killable: true, country, since: None });
+            }
+        }
         out.sort_by(|a, b| b.bytes.map_or(0, |(i, o)| i + o).cmp(&a.bytes.map_or(0, |(i, o)| i + o)).then(a.app.to_lowercase().cmp(&b.app.to_lowercase())).then(a.remote.cmp(&b.remote)));
         out
     }
@@ -793,6 +845,9 @@ impl Backend for LiveBackend {
     fn kill_connection(&self, c: &LiveConn) -> Result<String, String> {
         if !self.shared.elevated {
             return Err("Ending a connection needs administrator rights. Use \"Restart as administrator\".".into());
+        }
+        if c.state == "UDP" {
+            return sniff::kill_udp(c.local, c.remote);
         }
         let state = crate::sys::conns::TcpState::Established;
         crate::sys::conns::kill(&crate::sys::conns::ConnRow { pid: c.pid, local: c.local, remote: c.remote, state, bytes: c.bytes, started: c.since })?;
@@ -845,7 +900,7 @@ impl Backend for LiveBackend {
     }
 
     fn virustotal(&self, who: &str) -> Vt {
-        if self.shared.settings().virustotal_key.trim().is_empty() {
+        if vt::key().is_empty() {
             return Vt::None;
         }
         // shortcut: a name can match several programs, the first with a hash wins; pass the hash when it is known.
@@ -924,11 +979,12 @@ impl Backend for LiveBackend {
 
     fn devices(&self, network: &str) -> Vec<Device> {
         let Some(key) = self.network_key(network) else { return Vec::new() };
-        let ha = self.with_db(|db| db.ha_all());
+        let annotators = crate::plugins::wasm::manager::annotator_ids();
+        let notes = self.with_db(|db| db.device_notes(&annotators));
         self.with_db(|db| db.devices(&key))
             .into_iter()
             .map(|d| Device {
-                ha: ha.get(&d.mac).cloned(),
+                note: notes.get(&d.mac).cloned(),
                 name: d.name,
                 online: d.online,
                 kind: scanner::kind_from_i64(d.kind),
@@ -997,30 +1053,14 @@ impl Backend for LiveBackend {
         }
     }
 
-    fn speedtest_status(&self) -> crate::plugins::speedtest::SpeedStatus {
-        crate::plugins::speedtest::worker::status()
-    }
-
-    fn speedtest_results(&self, since: i64) -> Vec<crate::plugins::speedtest::SpeedResult> {
-        self.with_db(|db| db.speedtest_since(since))
-    }
-
-    fn speedtest_route(&self, server_ip: &str, client_ip: &str) -> Option<crate::plugins::speedtest::SpeedRoute> {
+    fn speedtest_route(&self, server_ip: &str, client_ip: &str) -> Option<crate::ui::speed::SpeedRoute> {
         let geo = lock(&self.geo);
         let at = |s: &str| {
             let ip = s.parse::<IpAddr>().ok()?;
             geo.position(ip, geo.place(ip))
         };
         let home = at(client_ip).or_else(|| crate::sys::home_region().and_then(crate::countries::by_a2).map(|e| (e.lon, e.lat)))?;
-        Some(crate::plugins::speedtest::SpeedRoute { home, server: at(server_ip)? })
-    }
-
-    fn speedtest_run(&self) {
-        crate::plugins::speedtest::worker::RUN_NOW.store(true, std::sync::atomic::Ordering::Relaxed);
-    }
-
-    fn speedtest_install(&self) -> Result<(), String> {
-        crate::plugins::speedtest::worker::install()
+        Some(crate::ui::speed::SpeedRoute { home, server: at(server_ip)? })
     }
 
     fn hardware_apps(&self, window_secs: i64) -> Vec<String> {
@@ -1059,9 +1099,6 @@ impl Backend for LiveBackend {
         let path_changed = old.geo_path() != settings.geo_path();
         if (old.net_info, &old.net_info_url) != (settings.net_info, &settings.net_info_url) {
             self.asn.clear();
-        }
-        if old.virustotal_key != settings.virustotal_key {
-            self.vt.forget_failures();
         }
         *self.shared.settings.write().unwrap_or_else(|e| e.into_inner()) = settings.clone();
         // Switching between Normal and Driver mode moves the limits between QoS policies and the driver engine.
@@ -1187,6 +1224,16 @@ fn verdict_shown(blocked: bool) -> Verdict {
 #[cfg(test)]
 mod verdict_tests {
     use super::*;
+
+    #[test]
+    fn hosts_with_the_same_label_merge_into_one_row() {
+        let r = |l: &str, k: &str, d: f64| (l.to_owned(), k.to_owned(), d, 1.0);
+        let m = merge_hosts(vec![r("cf", "1.1.1.1", 5.0), r("other", "9.9.9.9", 3.0), r("cf", "2.2.2.2", 20.0)]);
+        assert_eq!(m.len(), 2);
+        assert_eq!(m[0].0, "cf");
+        assert_eq!((m[0].1.down, m[0].1.up), (25.0, 2.0));
+        assert_eq!(m[0].1.key, "2.2.2.2");
+    }
 
     #[test]
     fn a_chip_is_blocked_only_when_something_blocks_it() {

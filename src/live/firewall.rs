@@ -143,6 +143,7 @@ fn lan_specs(path: &str, service: &str, enabled: bool) -> Vec<RuleSpec> {
     [(6, "tcp"), (17, "udp")]
         .into_iter()
         .map(|(proto, tag)| RuleSpec {
+            interfaces: None,
             name: tagged_name(&format!("{LAN_TAG} {tag}"), path, service),
             protocol: Some(proto),
             remote_ports: Some(LAN_PORTS.into()),
@@ -185,6 +186,7 @@ fn tagged_name(what: &str, path: &str, service: &str) -> String {
 /// What Prompt creates when a program is allowed (or is critical and so always allowed).
 fn allow_spec(path: &str, service: &str) -> RuleSpec {
     RuleSpec {
+        interfaces: None,
         name: tagged_name("allow out", path, service),
         description: "Created by RustWarden for Prompt. Use \"Restore firewall defaults\" in RustWarden to remove all such rules.".into(),
         grouping: GROUP.into(),
@@ -202,6 +204,7 @@ fn allow_spec(path: &str, service: &str) -> RuleSpec {
 
 fn block_spec(direction: Direction, path: &str, service: &str, enabled: bool) -> RuleSpec {
     RuleSpec {
+        interfaces: None,
         name: rule_name(direction, path, service),
         description: "Created by RustWarden. Use \"Restore firewall defaults\" in RustWarden to remove all such rules.".into(),
         grouping: GROUP.into(),
@@ -225,6 +228,9 @@ pub const DEST_PREFIX: &str = "RustWarden dest ";
 /// Per-program blocks of the peer-to-peer guard (no VPN, so no peer-to-peer); also hidden from the Firewall tab. See `super::p2p`.
 pub const P2P_PREFIX: &str = "RustWarden p2p ";
 
+/// Rules of the VPN kill switch and the DNS-over-HTTPS block; hidden from the Firewall tab like the other aux rules. See `super::guard`.
+pub const GUARD_PREFIX: &str = "RustWarden guard ";
+
 /// The ping allow rules Prompt creates; hidden from the Firewall tab like the other aux rules.
 const ICMP_PREFIX: &str = "RustWarden icmp ";
 /// Stands in for a program path in the prompt about pings, which Windows doesn't attribute to a program.
@@ -235,6 +241,7 @@ fn icmp_specs() -> Vec<RuleSpec> {
     [(1, "v4"), (58, "v6")]
         .into_iter()
         .map(|(proto, v)| RuleSpec {
+            interfaces: None,
             name: format!("{ICMP_PREFIX}allow out {v}"),
             description: "Created by RustWarden for Prompt: lets ping work. Use \"Restore firewall defaults\" in RustWarden to remove all such rules.".into(),
             grouping: GROUP.into(),
@@ -257,6 +264,7 @@ const ENGINE_RULE: &str = "RustWarden engine allow out: System";
 
 fn engine_spec() -> RuleSpec {
     RuleSpec {
+        interfaces: None,
         name: ENGINE_RULE.into(),
         description:
             "Created by RustWarden while bandwidth limits are active, so the packets its driver sends on are not blocked. Use \"Restore firewall defaults\" in RustWarden to remove all such rules."
@@ -286,13 +294,14 @@ pub fn allow_engine_traffic(on: bool) -> Result<(), String> {
 
 /// Rules that belong to no program row, profile or on/off toggle.
 fn is_aux(name: &str) -> bool {
-    name.starts_with(THREAT_PREFIX) || name.starts_with(DEST_PREFIX) || name.starts_with(P2P_PREFIX) || name.starts_with(ICMP_PREFIX) || name == ENGINE_RULE
+    name.starts_with(THREAT_PREFIX) || name.starts_with(DEST_PREFIX) || name.starts_with(P2P_PREFIX) || name.starts_with(GUARD_PREFIX) || name.starts_with(ICMP_PREFIX) || name == ENGINE_RULE
 }
 const BLOCK_ALL_PREFIX: &str = "RustWarden block-all exception";
 
-/// What Block All keeps open: RustWarden itself, the Windows tools it runs for lookups, and DHCP renewals (so leases survive the undo).
+/// What Block All keeps open: RustWarden itself and DHCP renewals (so leases survive the undo).
 fn block_all_exceptions(own_exe: &str) -> Vec<RuleSpec> {
     let base = |name: &str, desc: &str| RuleSpec {
+        interfaces: None,
         name: format!("{BLOCK_ALL_PREFIX}: {name}"),
         description: format!("Created by RustWarden while Block All is on. {desc}"),
         grouping: GROUP.into(),
@@ -306,16 +315,18 @@ fn block_all_exceptions(own_exe: &str) -> Vec<RuleSpec> {
         remote_addrs: None,
         service: None,
     };
-    let win = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
-    let mut rules = vec![
+    let rules = vec![
         RuleSpec { program: Some(own_exe.to_owned()), ..base("RustWarden", "Keeps RustWarden itself connected.") },
         RuleSpec { protocol: Some(17), local_ports: Some("68".into()), remote_ports: Some("67".into()), ..base("DHCP", "Lets the network lease be renewed.") },
     ];
-    // All of RustWarden's web lookups (threat feeds, VirusTotal, ASN, webhooks) go through these helpers.
-    for (name, rel) in [("curl", r"System32\curl.exe"), ("nslookup", r"System32\nslookup.exe"), ("PowerShell", r"System32\WindowsPowerShell\v1.0\powershell.exe")] {
-        rules.push(RuleSpec { program: Some(format!(r"{win}\{rel}")), ..base(name, "Lets RustWarden's lookups work.") });
-    }
+    // curl and PowerShell get no standing exception: a rule on the program lets any caller out. `lease` opens them for the few
+    // minutes after RustWarden itself starts one.
     rules
+}
+
+/// Block All exception rules of ours that the current version no longer makes.
+fn stale_exceptions(rules: &[Rule], wanted: &[RuleSpec]) -> Vec<String> {
+    rules.iter().filter(|r| is_ours(&r.grouping, &r.name) && r.name.starts_with(BLOCK_ALL_PREFIX) && !wanted.iter().any(|w| w.name == r.name)).map(|r| r.name.clone()).collect()
 }
 
 fn marker_path() -> PathBuf {
@@ -682,6 +693,18 @@ impl FwController {
         self.apply_verdict(key, &path, direction, verdict)
     }
 
+    /// Blocks the program at `path` in both directions (its rules are RustWarden's own, so they show on the Firewall tab
+    /// and go with "Restore firewall defaults").
+    pub fn block_path(&self, path: &str) -> Result<String, String> {
+        self.need_admin()?;
+        let _g = self.lock_op();
+        let key = super::apps::key_for_path(path);
+        for direction in [Direction::Out, Direction::In] {
+            self.apply_verdict(&key, path, direction, Verdict::Blocked)?;
+        }
+        Ok(format!("Blocked {}", super::apps::file_name(path)))
+    }
+
     /// Adds or removes the block rule for `path`, or for one service inside it when `key` is a service row.
     /// The caller holds the op lock.
     fn apply_verdict(&self, key: &str, path: &str, direction: Direction, verdict: Verdict) -> Result<(), String> {
@@ -751,7 +774,7 @@ impl FwController {
     /// Blocks (or lifts the block on) one remote address in both directions, for any program.
     pub fn block_ip(&self, ip: std::net::IpAddr, on: bool) -> Result<(), String> {
         self.need_admin()?;
-        if on && super::threat::is_protected(ip, &super::threat::protected_addrs(&self.shared.settings().integrations)) {
+        if on && super::threat::is_protected(ip, &super::threat::protected_addrs(&super::threat::home_assistant_urls())) {
             return Err(format!("{ip} is on your own network, or is a gateway, DNS server or Home Assistant host, so it can't be blocked."));
         }
         let _g = self.lock_op();
@@ -760,6 +783,7 @@ impl FwController {
             let _ = firewall::remove_rule(&name); // absent is fine; also avoids duplicates
             if on {
                 let added = firewall::add_rule(&RuleSpec {
+                    interfaces: None,
                     name,
                     description: "Created by RustWarden: address is on a malicious-IP list. Use \"Restore firewall defaults\" in RustWarden to remove all such rules.".into(),
                     grouping: GROUP.into(),
@@ -795,6 +819,21 @@ impl FwController {
     /// Like [`Self::apply_dest`] for the peer-to-peer guard's rules ([`P2P_PREFIX`]).
     pub fn apply_p2p(&self, remove: &[String], add: &[RuleSpec]) -> Result<(), String> {
         self.apply_owned(P2P_PREFIX, remove, add)
+    }
+
+    /// Like [`Self::apply_dest`] for the VPN kill switch and DNS-over-HTTPS block ([`GUARD_PREFIX`]).
+    pub fn apply_guard(&self, remove: &[String], add: &[RuleSpec]) -> Result<(), String> {
+        self.apply_owned(GUARD_PREFIX, remove, add)
+    }
+
+    /// Removes the kill switch's block (the DNS-over-HTTPS block is a standing policy and stays).
+    fn drop_kill_switch(&self) {
+        if !self.shared.elevated {
+            return;
+        }
+        for r in firewall::rules_named(super::guard::KILL_PREFIX).unwrap_or_default() {
+            let _ = firewall::remove_rule(&r.name);
+        }
     }
 
     fn apply_owned(&self, prefix: &str, remove: &[String], add: &[RuleSpec]) -> Result<(), String> {
@@ -1012,7 +1051,12 @@ impl FwController {
     fn heal_kept_block(&self) -> Result<(), String> {
         let _g = self.lock_op();
         let (rules, _) = firewall::rules_in_group(GROUP)?;
-        for spec in block_all_exceptions(&self.own_exe) {
+        let wanted = block_all_exceptions(&self.own_exe);
+        // A block kept by an older version still has the curl / nslookup / PowerShell exceptions it made then.
+        for name in stale_exceptions(&rules, &wanted) {
+            let _ = firewall::remove_rule(&name);
+        }
+        for spec in wanted {
             if !rules.iter().any(|r| r.name == spec.name) {
                 firewall::add_rule(&spec)?;
             }
@@ -1353,6 +1397,8 @@ impl FwController {
         if let Err(e) = self.end_block_all() {
             eprintln!("RustWarden: {e}");
         }
+        // Nothing would lift the kill switch's block once RustWarden is gone, which could leave the PC without internet.
+        self.drop_kill_switch();
     }
 }
 
@@ -1567,13 +1613,25 @@ mod tests {
     }
 
     #[test]
+    fn exceptions_an_older_version_made_are_stale() {
+        let wanted = block_all_exceptions(r"C:\RustWarden.exe");
+        let mut rules: Vec<Rule> = wanted.iter().map(|w| named(GROUP, &w.name)).collect();
+        for old in ["curl", "nslookup", "PowerShell"] {
+            rules.push(named(GROUP, &format!("{BLOCK_ALL_PREFIX}: {old}")));
+        }
+        rules.push(named("Other firewall", &format!("{BLOCK_ALL_PREFIX}: PowerShell")));
+        rules.push(named(GROUP, "RustWarden allow out: x"));
+        assert_eq!(stale_exceptions(&rules, &wanted), [format!("{BLOCK_ALL_PREFIX}: curl"), format!("{BLOCK_ALL_PREFIX}: nslookup"), format!("{BLOCK_ALL_PREFIX}: PowerShell")]);
+    }
+
+    #[test]
     fn block_all_exceptions_are_ours_and_allow() {
         let ex = block_all_exceptions(r"C:\RustWarden.exe");
         assert!(ex.iter().all(|r| !r.block && r.grouping == GROUP && is_ours(&r.grouping, &r.name) && r.name.starts_with(BLOCK_ALL_PREFIX)));
         assert_eq!(ex[0].program.as_deref(), Some(r"C:\RustWarden.exe"));
-        // The lookup helpers stay reachable too.
+        // No standing way out for the Windows tools any program can run.
         for tool in ["curl.exe", "nslookup.exe", "powershell.exe"] {
-            assert!(ex.iter().any(|r| r.program.as_deref().is_some_and(|p| p.to_lowercase().ends_with(tool))));
+            assert!(!ex.iter().any(|r| r.program.as_deref().is_some_and(|p| p.to_lowercase().ends_with(tool))));
         }
     }
 

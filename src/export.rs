@@ -26,9 +26,11 @@ pub struct AlertRow {
     pub important: bool,
 }
 
-/// Quoted so values with commas, quotes or line breaks stay one cell.
+/// Quoted so values with commas, quotes or line breaks stay one cell. A value that starts like a spreadsheet formula
+/// (device and host names come from the network) gets a `'` in front so Excel shows it as text.
 fn cell(s: &str) -> String {
-    format!("\"{}\"", s.replace('"', "\"\""))
+    let guard = if s.starts_with(['=', '+', '-', '@', '\t', '\r']) { "'" } else { "" };
+    format!("\"{guard}{}\"", s.replace('"', "\"\""))
 }
 
 pub fn traffic_csv(rows: &[TrafficRow]) -> String {
@@ -62,6 +64,13 @@ mod tests {
         let csv = alerts_csv(&rows);
         assert!(csv.starts_with('\u{feff}'));
         assert!(csv.contains("5,\"arp\",\"a, \"\"b\"\"\",\"line\nbreak\",\"\",\"US\",true\r\n"));
+    }
+
+    #[test]
+    fn a_value_that_looks_like_a_formula_is_made_text() {
+        let rows = [TrafficRow { app: "=HYPERLINK(\"http://x\")".into(), host: "-1+1".into(), ..Default::default() }];
+        let csv = traffic_csv(&rows);
+        assert!(csv.contains("\"'=HYPERLINK(\"\"http://x\"\")\",\"\",\"'-1+1\""), "{csv}");
     }
 
     #[test]

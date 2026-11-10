@@ -96,7 +96,7 @@ fn before_spawn(shared: &Shared, fw: &FwController, program: &Path) {
     if !shared.elevated || !shared.settings().allow_helper_tools {
         return;
     }
-    let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+    let root = crate::settings::windows_dir();
     let Some(exe) = helper_path(program, &root) else { return };
     if !due(&exe, crate::clock::now_unix()) {
         return;
@@ -134,6 +134,7 @@ fn before_spawn(shared: &Shared, fw: &FwController, program: &Path) {
     }
     if p.add_allow {
         let spec = RuleSpec {
+            interfaces: None,
             name: rule_name(&exe),
             description: "Created by RustWarden so one of its own downloads can run. Removed automatically.".into(),
             grouping: GROUP.into(),

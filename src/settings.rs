@@ -27,6 +27,9 @@ impl AppMode {
     }
 }
 
+/// Bump to show the first-run wizard again to everyone on the next start (after it gains steps).
+pub const WIZARD_VERSION: u32 = 1;
+
 /// Which builds the updater follows.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -34,8 +37,9 @@ pub enum UpdateChannel {
     /// Full releases.
     #[default]
     Release,
-    /// Alpha builds (pre-releases from the playground branch).
-    Playground,
+    /// Alpha builds (pre-releases from the dev branch). Called "playground" before the wizard release.
+    #[serde(alias = "playground")]
+    Dev,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
@@ -276,6 +280,10 @@ pub struct AlertSwitches {
     pub anomaly_volume: bool,
     pub anomaly_hour: bool,
     pub inbound_scan: bool,
+    pub beaconing: bool,
+    pub dns_tunnel: bool,
+    pub rogue_dhcp: bool,
+    pub tls_mismatch: bool,
 }
 
 impl Default for AlertSwitches {
@@ -313,6 +321,10 @@ impl Default for AlertSwitches {
             anomaly_volume: true,
             anomaly_hour: true,
             inbound_scan: true,
+            beaconing: true,
+            dns_tunnel: true,
+            rogue_dhcp: true,
+            tls_mismatch: true,
         }
     }
 }
@@ -401,8 +413,9 @@ pub struct Settings {
     pub map_blocked: bool,
     /// Use the downloaded city database for the map (specific places instead of country centres).
     pub geoip_city: bool,
-    /// Re-download the downloaded GeoIP databases when they are over a month old.
+    /// Re-download the downloaded GeoIP databases every `geo_update_hours`.
     pub geo_auto_update: bool,
+    pub geo_update_hours: u32,
     /// Alert types (as shown on the graph pins) hidden from the traffic graph.
     pub graph_hidden: Vec<String>,
     /// Scanner table columns (by title) the user hid.
@@ -473,23 +486,11 @@ pub struct Settings {
     pub alerts: AlertSwitches,
     /// Overrides of the per-kind defaults, keyed by `AlertKind::key`.
     pub alert_opts: BTreeMap<String, AlertOpts>,
+    /// Set only on a new install: alerts the user hasn't configured default to no desktop popup. Older configs
+    /// lack it (false) and keep the per-kind popup defaults they had.
+    pub quiet_alert_defaults: bool,
     /// Master switch for sending alerts to the Windows event log.
     pub event_log: bool,
-    /// Discord webhook URL alerts are posted to; empty turns it off.
-    #[serde(with = "secret")]
-    pub discord_webhook: String,
-    #[serde(with = "secret")]
-    pub slack_webhook: String,
-    #[serde(with = "secret")]
-    pub pushbullet_token: String,
-    #[serde(with = "secret")]
-    pub generic_webhook: String,
-    /// ntfy topic URL, e.g. https://ntfy.sh/my-topic
-    #[serde(with = "secret")]
-    pub ntfy_url: String,
-    pub gotify_url: String,
-    #[serde(with = "secret")]
-    pub gotify_token: String,
     /// Idle time before "while you were away" starts counting, in minutes.
     pub away_after_minutes: u32,
     /// A known device back after this many days away raises the "device returned" alert.
@@ -535,18 +536,31 @@ pub struct Settings {
     pub public_ip_check: bool,
     /// Adapters the VPN DNS leak check skips: names or parts of names, separated by commas (bridged VM adapters never use the VPN).
     pub dns_leak_ignore: String,
+    /// Blocks the internet on the real network cards while a VPN is up or has dropped (see `live::guard`). Off by default.
+    pub vpn_kill_switch: bool,
+    /// Blocks HTTPS and DNS-over-TLS to well-known public DNS resolvers. Off by default.
+    pub block_doh: bool,
+    /// Programs (file names, e.g. `chrome.exe`) whose QUIC / HTTP/3 traffic (UDP 443) is blocked, so they use HTTPS over TCP.
+    pub quic_fallback: String,
+    /// Programs the beaconing alert skips: names or parts of a path, comma separated (see `live::beacon::ignored`).
+    pub beacon_ignore: String,
+    /// Beaconing: seconds the contacts must span, the largest jitter (fraction of the interval) and the score needed to report.
+    pub beacon_min_window: u32,
+    pub beacon_max_jitter: f64,
+    pub beacon_threshold: i32,
+    /// Beaconing: domain suffixes of media / CDN / telemetry hosts that lower the score.
+    pub beacon_cdn_suffixes: String,
+    /// DHCP servers the second-server alert trusts: addresses, or `interface name=address`, comma separated.
+    pub dhcp_trusted: String,
+    /// Also alert about a second DHCP server on a virtual adapter (VMware, Hyper-V, VirtualBox, tunnels). Off: those only get a note.
+    pub dhcp_virtual_alert: bool,
     /// Service that answers with just the caller's address; must be https.
     pub public_ip_url: String,
     /// Whois icon: show the answer in RustWarden (rdap.org) instead of opening Shodan in the browser.
     pub whois_internal: bool,
-    /// VirusTotal API key; lookups are available only while this is set.
-    #[serde(with = "secret")]
-    pub virustotal_key: String,
-    /// Look up new programs automatically (needs the key).
-    pub virustotal_auto: bool,
     /// Address of the update server script; no automatic checks without it.
     pub update_url: String,
-    /// Release (stable) or Playground (alpha) builds.
+    /// Release (stable) or Dev (alpha) builds.
     pub update_channel: UpdateChannel,
     /// Normal, or Driver (needs the WinDivert driver downloaded in Settings).
     pub app_mode: AppMode,
@@ -563,16 +577,14 @@ pub struct Settings {
     pub allow_helper_tools: bool,
     /// The tab (and sub-tab) the app was on, as `Tab::key`, reopened at the next start.
     pub last_tab: String,
+    /// The first-run wizard version the user has seen (0 = never); the wizard opens when this is below `WIZARD_VERSION`.
+    pub wizard_seen: u32,
     /// The Traffic tab's view (0 graph, 1 usage, 2 map) when it was last used.
     pub traffic_view: usize,
     /// The main window's last position and size (x, y, width, height in pixels), restored at the next start.
     pub window: Option<[i32; 4]>,
     /// The Traffic tab's totals and timeline card is folded into a compact bar (graph view; other views always fold it).
     pub traffic_footer_collapsed: bool,
-    /// VirusTotal was added in Settings > Integrations (it also shows whenever a key is saved).
-    pub virustotal_added: bool,
-    /// External Notification services added in Settings > Integrations (ids; see `Service::id`).
-    pub notify_added: Vec<String>,
     /// Download malicious-IP lists and warn when a program reaches one.
     pub threat_protect: bool,
     /// Block such addresses in the firewall straight away (otherwise only warn).
@@ -593,16 +605,24 @@ pub struct Settings {
     pub dns_block_feeds: String,
     /// Alerts are posted to the API services even while snoozed.
     pub api_in_snooze: bool,
-    /// Connected systems (Settings > Integrations).
-    pub integrations: Vec<crate::plugins::ha::Integration>,
-    /// The thinkbroadband Broadband Quality Monitor integration, when added.
-    pub thinkbroadband: Option<crate::plugins::thinkbroadband::Integration>,
-    /// The OPNsense router integration, when added.
-    pub opnsense: Option<crate::plugins::opnsense::Integration>,
-    /// The ICMP ping monitor (Network > Ping).
-    pub ping: crate::plugins::ping::Config,
-    /// The Speedtest tab (Network > Speedtest).
-    pub speedtest: crate::plugins::speedtest::Config,
+    /// What the user decided about each `.wasm` plugin, by plugin id (Settings > Plugins).
+    pub plugins: std::collections::BTreeMap<String, PluginState>,
+    /// Hidden (beta) built-in plugins are listed: toggled by typing "beta" + Enter in a plugin search box.
+    pub beta_plugins: bool,
+}
+
+/// The user's decision on one `.wasm` plugin. Its own config and secrets live in a file of their own
+/// (`plugins::wasm::manager`), because a plugin's worker saves them and a worker can't write `Settings`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PluginState {
+    pub enabled: bool,
+    /// SHA-256 of the file the user approved; a different file must be approved again.
+    pub approved_hash: String,
+    /// The opt-in permissions the user allowed.
+    pub granted: Vec<String>,
+    /// A built-in plugin the user uninstalled: hidden from the list and not run until restored.
+    pub removed: bool,
 }
 
 impl Settings {
@@ -660,6 +680,8 @@ impl Default for Settings {
             map_blocked: true,
             geoip_city: false,
             geo_auto_update: false,
+            // DB-IP publishes monthly.
+            geo_update_hours: 720,
             graph_hidden: Vec::new(),
             scanner_hidden: Vec::new(),
             scanner_sort: None,
@@ -667,6 +689,7 @@ impl Default for Settings {
             text_scale: 1.0,
             theme: Theme::Light,
             last_tab: "traffic".into(),
+            wizard_seen: 0,
             traffic_view: 0,
             follow_windows_theme: true,
             acrylic: 0.4,
@@ -699,14 +722,8 @@ impl Default for Settings {
             report_hour: 8,
             alerts: AlertSwitches::default(),
             alert_opts: BTreeMap::new(),
+            quiet_alert_defaults: false,
             event_log: false,
-            discord_webhook: String::new(),
-            slack_webhook: String::new(),
-            pushbullet_token: String::new(),
-            generic_webhook: String::new(),
-            ntfy_url: String::new(),
-            gotify_url: String::new(),
-            gotify_token: String::new(),
             away_after_minutes: 10,
             device_return_days: 14,
             auto_scan: false,
@@ -732,10 +749,18 @@ impl Default for Settings {
             net_info_url: "https://ipinfo.io/{ip}/json".into(),
             public_ip_check: false,
             dns_leak_ignore: "VMware, VirtualBox, vEthernet".into(),
+            vpn_kill_switch: false,
+            block_doh: false,
+            quic_fallback: String::new(),
+            beacon_ignore: String::new(),
+            beacon_min_window: 300,
+            beacon_max_jitter: 0.08,
+            beacon_threshold: 60,
+            beacon_cdn_suffixes: crate::live::beacon::DEFAULT_CDN.into(),
+            dhcp_trusted: String::new(),
+            dhcp_virtual_alert: false,
             public_ip_url: "https://api.ipify.org".into(),
             whois_internal: false,
-            virustotal_key: String::new(),
-            virustotal_auto: false,
             update_url: String::new(),
             update_channel: UpdateChannel::Release,
             app_mode: AppMode::Normal,
@@ -747,18 +772,13 @@ impl Default for Settings {
             allow_helper_tools: true,
             window: None,
             traffic_footer_collapsed: false,
-            virustotal_added: false,
-            notify_added: Vec::new(),
             threat_protect: false,
             threat_block: true,
             keep_blocking_closed: false,
             prompt_minutes: 0,
             api_in_snooze: true,
-            integrations: Vec::new(),
-            thinkbroadband: None,
-            opnsense: None,
-            ping: Default::default(),
-            speedtest: Default::default(),
+            plugins: Default::default(),
+            beta_plugins: false,
             threat_update_hours: 24,
             threat_feeds: "https://feodotracker.abuse.ch/downloads/ipblocklist.txt
 https://raw.githubusercontent.com/stamparm/ipsum/master/levels/3.txt"
@@ -792,16 +812,28 @@ pub fn legacy_admin_dir() -> PathBuf {
 /// `Program Files\RustWarden`: only administrators can write here, so elevated code may load or run what it holds.
 /// Windows is asked, not `%ProgramFiles%`, because a user can override environment variables.
 pub fn admin_dir() -> PathBuf {
+    use windows::Win32::UI::Shell::FOLDERID_ProgramFiles;
+    PathBuf::from(known_folder(&FOLDERID_ProgramFiles).unwrap_or_else(|| r"C:\Program Files".to_owned())).join("RustWarden")
+}
+
+/// A folder Windows names (not an environment variable, which any program running as the user can override).
+pub fn known_folder(id: &windows::core::GUID) -> Option<String> {
     use windows::Win32::System::Com::CoTaskMemFree;
-    use windows::Win32::UI::Shell::{FOLDERID_ProgramFiles, KF_FLAG_DEFAULT, SHGetKnownFolderPath};
-    let known = unsafe {
-        SHGetKnownFolderPath(&FOLDERID_ProgramFiles, KF_FLAG_DEFAULT, None).ok().and_then(|p| {
+    use windows::Win32::UI::Shell::{KF_FLAG_DEFAULT, SHGetKnownFolderPath};
+    unsafe {
+        SHGetKnownFolderPath(id, KF_FLAG_DEFAULT, None).ok().and_then(|p| {
             let path = p.to_string().ok();
             CoTaskMemFree(Some(p.0 as *const _));
             path
         })
-    };
-    PathBuf::from(known.unwrap_or_else(|| r"C:\Program Files".to_owned())).join("RustWarden")
+    }
+}
+
+/// The Windows folder, asked of Windows (`%SystemRoot%` can be overridden by the user's own programs).
+pub fn windows_dir() -> String {
+    let mut buf = [0u16; 260];
+    let n = unsafe { windows::Win32::System::SystemInformation::GetSystemWindowsDirectoryW(Some(&mut buf)) } as usize;
+    if n > 0 && n < buf.len() { String::from_utf16_lossy(&buf[..n]) } else { r"C:\Windows".to_owned() }
 }
 
 /// Tokens and webhook addresses are written to the config encrypted for the current Windows user
@@ -816,18 +848,27 @@ pub mod secret {
         if value.is_empty() || value.starts_with(PREFIX) {
             return s.serialize_str(value);
         }
-        match crate::sys::dpapi::protect(value.as_bytes()) {
-            Some(sealed) => s.serialize_str(&format!("{PREFIX}{}", sealed.iter().map(|b| format!("{b:02x}")).collect::<String>())),
+        match seal(value) {
+            Some(sealed) => s.serialize_str(&sealed),
             // Never written as plain text: the save fails (and says so) until Windows can encrypt it.
             None => Err(serde::ser::Error::custom("Windows couldn't encrypt a saved token or webhook address, so nothing was written")),
         }
     }
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<String, D::Error> {
-        let raw = String::deserialize(d)?;
-        let Some(hex) = raw.strip_prefix(PREFIX) else { return Ok(raw) };
+        Ok(open(&String::deserialize(d)?))
+    }
+
+    /// `dpapi:<hex>` for `value`, encrypted for the current Windows user.
+    pub fn seal(value: &str) -> Option<String> {
+        crate::sys::dpapi::protect(value.as_bytes()).map(|sealed| format!("{PREFIX}{}", sealed.iter().map(|b| format!("{b:02x}")).collect::<String>()))
+    }
+
+    /// The text behind a stored value: decrypted when it is `dpapi:<hex>`, else as it is.
+    pub fn open(raw: &str) -> String {
+        let Some(hex) = raw.strip_prefix(PREFIX) else { return raw.to_owned() };
         let bytes: Option<Vec<u8>> = (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok()).collect();
-        Ok(bytes.and_then(|b| crate::sys::dpapi::unprotect(&b)).and_then(|b| String::from_utf8(b).ok()).unwrap_or(raw))
+        bytes.and_then(|b| crate::sys::dpapi::unprotect(&b)).and_then(|b| String::from_utf8(b).ok()).unwrap_or_else(|| raw.to_owned())
     }
 }
 
@@ -853,9 +894,20 @@ impl Settings {
     /// Reads the config (defaults when missing or broken), then applies `RUSTWARDEN_MODE`.
     pub fn load() -> Self {
         let mut s = Self::load_from(&config_path());
+        // The old integration fields are no longer in `Settings`; carry their values into plugins before a save drops them.
+        if let Some(raw) = std::fs::read_to_string(config_path()).ok().and_then(|t| toml::from_str::<toml::Table>(&t).ok()) {
+            crate::plugins::legacy::run(&mut s, &raw);
+        }
         if let Some(mode) = std::env::var("RUSTWARDEN_MODE").ok().and_then(|v| Mode::parse(&v)) {
             s.env_mode = Some((mode, s.mode));
             s.mode = mode;
+        }
+        // config.toml is writable by any program running as the user, so the copy an elevated run keeps where only
+        // administrators can write wins: deleting the password line, or replacing it with a hash of a password the
+        // other program knows, must not unlock Settings or Exit.
+        let kept = crate::tamper::recall();
+        if !kept.is_empty() {
+            s.tamper_hash = kept;
         }
         s.sanitize();
         s
@@ -867,7 +919,14 @@ impl Settings {
         let read = std::fs::read_to_string(path);
         match read.as_ref().map(|t| Self::from_toml(t)) {
             Ok(Some(s)) => s,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Self::default(),
+            // A new install starts with every alert off, so a new user isn't flooded; the wizard offers them.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let mut s = Self { quiet_alert_defaults: true, ..Self::default() };
+                for kind in crate::live::alerts::AlertKind::ALL {
+                    *kind.switch_mut(&mut s.alerts) = false;
+                }
+                s
+            }
             bad => {
                 let why = match bad {
                     Err(e) => e.to_string(),
@@ -1002,6 +1061,7 @@ impl Settings {
         self.device_return_days = self.device_return_days.clamp(1, 365);
         self.threat_update_hours = self.threat_update_hours.clamp(1, 24 * 30);
         self.dns_block_update_hours = self.dns_block_update_hours.clamp(1, 24 * 30);
+        self.geo_update_hours = self.geo_update_hours.clamp(1, 24 * 30);
         self.data_plan.limit_gb = self.data_plan.limit_gb.max(0.1);
         self.sanitize_quotas();
         self.sanitize_alert_rules();
@@ -1020,11 +1080,6 @@ impl Settings {
         self.report_weekday = self.report_weekday.min(6);
         self.report_hour = self.report_hour.min(23);
         self.migrate_dns_feeds();
-        crate::plugins::ha::sanitize(self);
-        crate::plugins::thinkbroadband::sanitize(self);
-        crate::plugins::opnsense::sanitize(self);
-        crate::plugins::ping::sanitize(self);
-        crate::plugins::speedtest::sanitize(self);
     }
 
     /// A mode picked in the UI; it ends the `RUSTWARDEN_MODE` override, so it is saved even when it matches it.
@@ -1049,6 +1104,7 @@ impl Settings {
             }
         }
         let text = toml::to_string_pretty(&out).map_err(std::io::Error::other)?;
+        crate::tamper::remember(&self.tamper_hash);
         // Write beside the file and rename, so a crash mid-write can't leave a truncated config.
         let tmp = path.with_extension("toml.tmp");
         std::fs::write(&tmp, text)?;
@@ -1058,6 +1114,16 @@ impl Settings {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn new_install_has_alerts_off_and_playground_reads_as_dev() {
+        let dir = std::env::temp_dir().join("rustwarden-test-missing-config");
+        let s = super::Settings::load_from(&dir.join("config.toml"));
+        assert!(crate::live::alerts::AlertKind::ALL.iter().all(|k| !k.enabled(&s.alerts)));
+        assert_eq!(s.wizard_seen, 0);
+        let old = super::Settings::from_toml("update_channel = \"playground\"").unwrap();
+        assert_eq!(old.update_channel, super::UpdateChannel::Dev);
+    }
+
     use super::*;
 
     #[test]
@@ -1218,16 +1284,6 @@ mod tests {
     }
 
     #[test]
-    fn integrations_round_trip_and_are_tidied() {
-        let mut s = Settings::default();
-        s.integrations.push(crate::plugins::ha::Integration { url: " http://ha.local:8123/ ".into(), token: " t ".into(), ..Default::default() });
-        s.sanitize();
-        let back = Settings::from_toml(&toml::to_string_pretty(&s).unwrap()).unwrap();
-        assert_eq!((back.integrations[0].url.as_str(), back.integrations[0].token.as_str()), ("http://ha.local:8123", "t"));
-        assert!(crate::plugins::ha::active(&back).is_some());
-    }
-
-    #[test]
     fn partial_and_broken_files_fall_back() {
         assert_eq!(Settings::from_toml("mode = \"live\"").unwrap().retention_days, 30);
         assert!(Settings::from_toml("mode = [").is_none());
@@ -1257,8 +1313,6 @@ desktop = true"
     #[test]
     fn secrets_are_encrypted_in_the_file() {
         let s = Settings {
-            virustotal_key: "abc123".into(),
-            discord_webhook: "https://discord.com/api/webhooks/1/x".into(),
             // Feed and lookup URLs often carry a key in the query.
             threat_feeds: "https://feeds.example/ips.txt?key=feedkey".into(),
             dns_block_feeds: "https://feeds.example/hosts.txt?key=dnskey".into(),
@@ -1266,37 +1320,13 @@ desktop = true"
             ..Settings::default()
         };
         let text = toml::to_string_pretty(&s).unwrap();
-        assert!(!text.contains("abc123") && !text.contains("webhooks/1/x") && text.contains("dpapi:"));
+        assert!(text.contains("dpapi:"));
         assert!(!text.contains("feedkey") && !text.contains("dnskey") && !text.contains("infotoken"));
         let back = Settings::from_toml(&text).unwrap();
-        assert_eq!((back.virustotal_key.as_str(), back.discord_webhook.as_str()), ("abc123", "https://discord.com/api/webhooks/1/x"));
         assert_eq!((back.threat_feeds, back.dns_block_feeds, back.net_info_url), (s.threat_feeds, s.dns_block_feeds, s.net_info_url));
         // Older plain files still load; a value that can't be decrypted is kept as it was.
-        assert_eq!(Settings::from_toml("virustotal_key = \"plain\"").unwrap().virustotal_key, "plain");
-        assert_eq!(Settings::from_toml("virustotal_key = \"dpapi:00ff\"").unwrap().virustotal_key, "dpapi:00ff");
-    }
-
-    #[test]
-    fn opnsense_key_and_secret_are_encrypted_and_the_probe_survives_a_save() {
-        use crate::plugins::opnsense::{Caps, Integration};
-        let mut it = Integration { url: "https://fw".into(), key: "opnkey123".into(), secret: "opnsecret456".into(), ..Default::default() };
-        it.caps = Some(Caps { leases: true, write: Some(true), ..Default::default() });
-        it.caps_for = it.fingerprint();
-        it.pull_devices = true;
-        it.push_blocks = true;
-        let s = Settings { opnsense: Some(it), ..Settings::default() };
-        let text = toml::to_string_pretty(&s).unwrap();
-        assert!(!text.contains("opnkey123") && !text.contains("opnsecret456"));
-        let mut back = Settings::from_toml(&text).unwrap();
-        back.sanitize();
-        let b = back.opnsense.unwrap();
-        assert_eq!((b.key.as_str(), b.secret.as_str()), ("opnkey123", "opnsecret456"));
-        assert!(b.pull_devices && b.push_blocks, "the probe still matches, so the options stay on");
-        // A hand-edited file can't switch on what was never probed.
-        let forced = text.replace("caps_for = \"", "caps_for = \"x");
-        let mut forced = Settings::from_toml(&forced).unwrap();
-        forced.sanitize();
-        assert!(!forced.opnsense.unwrap().push_blocks);
+        assert_eq!(Settings::from_toml("threat_feeds = \"plain\"").unwrap().threat_feeds, "plain");
+        assert_eq!(Settings::from_toml("threat_feeds = \"dpapi:00ff\"").unwrap().threat_feeds, "dpapi:00ff");
     }
 
     #[test]

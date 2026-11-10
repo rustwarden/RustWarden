@@ -116,9 +116,16 @@ fn handle(mut stream: TcpStream, port: u16, snapshot: &dyn Fn() -> Result<Snapsh
     let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
     // Headers end at a blank line; a request may arrive in pieces, so read until that line, a cap, or a close.
+    // Requests are answered one at a time, so a client that sends a byte now and then must not hold the endpoint:
+    // the whole request gets a few seconds, not each read.
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
     let mut request_bytes = Vec::new();
     let mut chunk = [0u8; 1024];
     while !request_bytes.windows(4).any(|w| w == b"\r\n\r\n") && request_bytes.len() < 8192 {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() || stream.set_read_timeout(Some(left)).is_err() {
+            break;
+        }
         match stream.read(&mut chunk) {
             Ok(0) => break,
             Err(_) => break,
@@ -156,8 +163,9 @@ fn handle(mut stream: TcpStream, port: u16, snapshot: &dyn Fn() -> Result<Snapsh
     // loopback), so wait briefly for the client to close first.
     let _ = stream.shutdown(std::net::Shutdown::Write);
     let _ = stream.set_read_timeout(Some(Duration::from_millis(200)));
+    let linger_until = std::time::Instant::now() + Duration::from_secs(1);
     let mut rest = [0u8; 256];
-    while matches!(stream.read(&mut rest), Ok(n) if n > 0) {}
+    while std::time::Instant::now() < linger_until && matches!(stream.read(&mut rest), Ok(n) if n > 0) {}
 }
 
 #[cfg(test)]
@@ -208,6 +216,28 @@ mod tests {
         let reply = exchange("GET /metrics HTTP/1.1\r\nHost: 127.0.0.1:PORT\r\n\r\n");
         assert!(reply.starts_with("HTTP/1.1 200 OK"));
         assert!(reply.contains("rustwarden_blocked_connections 3"));
+    }
+
+    #[test]
+    fn a_slow_client_cannot_hold_the_endpoint() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let started = std::time::Instant::now();
+            handle(stream, port, &|| Ok(sample()));
+            started.elapsed()
+        });
+        let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        // One byte every second, never finishing the headers: each read alone would stay inside its timeout.
+        for _ in 0..8 {
+            if client.write_all(b"G").is_err() {
+                break;
+            }
+            std::thread::sleep(Duration::from_secs(1));
+        }
+        let took = server.join().unwrap();
+        assert!(took < Duration::from_secs(6), "held for {took:?}");
     }
 
     #[test]

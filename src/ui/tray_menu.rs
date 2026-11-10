@@ -96,6 +96,8 @@ pub(crate) enum TrayAct {
     Mode(FirewallMode),
     Disable,
     PromptFor(u32),
+    /// Block an app by clicking its window.
+    PickApp,
 }
 
 impl RustWarden {
@@ -199,6 +201,9 @@ impl RustWarden {
                 if menu_row(ui, Some(Icon::Sliders), "Settings...", "", false, true).clicked() {
                     out.act = Some(TrayAct::Settings);
                 }
+                if menu_row(ui, Some(Icon::Click), "Block an app by clicking it", "", false, true).clicked() {
+                    out.act = Some(TrayAct::PickApp);
+                }
                 if menu_row(ui, Some(Icon::Bell), "Snooze alerts", if snap.snoozed { "On" } else { "Off" }, false, snap.live).clicked() {
                     out.act = Some(TrayAct::Snooze);
                 }
@@ -291,6 +296,7 @@ impl RustWarden {
                 }
             }
             TrayAct::PromptFor(m) => self.set_prompt_minutes(m),
+            TrayAct::PickApp => self.start_picker(ctx),
             TrayAct::Restart => {
                 self.restart_app(ctx);
                 self.show_password(ctx);

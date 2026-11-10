@@ -23,6 +23,30 @@ pub fn asn_db_path() -> PathBuf {
     crate::settings::data_dir().join("dbip-asn-lite.mmdb")
 }
 
+/// A database RustWarden can download, as the download confirmation describes it.
+pub struct DbInfo {
+    pub name: &'static str,
+    /// The DB-IP edition: "country", "city" or "asn".
+    pub edition: &'static str,
+    pub used_for: &'static str,
+    /// Rough download size, which also weights the overall progress bar.
+    pub mb: u32,
+}
+
+pub const DATABASES: [DbInfo; 3] = [
+    DbInfo { name: "Country database", edition: "country", used_for: "flags and countries", mb: 5 },
+    DbInfo { name: "City database", edition: "city", used_for: "the city map", mb: 120 },
+    DbInfo { name: "ASN database", edition: "asn", used_for: "AS number rules", mb: 8 },
+];
+
+pub fn db_path(edition: &str) -> PathBuf {
+    match edition {
+        "city" => city_db_path(),
+        "asn" => asn_db_path(),
+        _ => default_db_path(),
+    }
+}
+
 /// Every network the ASN database at `path` assigns to `asn`, as (address, prefix length).
 pub fn asn_networks(path: &std::path::Path, asn: u32) -> Result<Vec<(IpAddr, u8)>, String> {
     let reader = Reader::open_readfile(path).map_err(|e| format!("can't read {}: {e}", path.display()))?;
@@ -39,6 +63,33 @@ pub fn asn_networks(path: &std::path::Path, asn: u32) -> Result<Vec<(IpAddr, u8)
 /// Uses PowerShell so the app needs no HTTP client of its own.
 /// `progress` is kept at 0..=100 for a progress bar.
 pub fn download_dbip(dest: &std::path::Path, edition: &str, progress: &std::sync::atomic::AtomicU32) -> Result<(), String> {
+    // Downloaded beside the real file and only swapped in once `verify` passes, so a bad file never replaces a good one.
+    let part = dest.with_extension("mmdb.part");
+    let r = download_script(&part, edition, progress).and_then(|()| verify(&part, edition));
+    match r {
+        Ok(()) => std::fs::rename(&part, dest).map_err(|e| format!("can't save {}: {e}", dest.display())),
+        Err(e) => {
+            let _ = std::fs::remove_file(&part);
+            Err(e)
+        }
+    }
+}
+
+/// Checks that `path` is the DB-IP database `edition` ("country", "city" or "asn"): it must open as a MaxMind DB
+/// whose type names that edition and that holds data. A wrong, truncated or HTML-error file fails here.
+pub fn verify(path: &std::path::Path, edition: &str) -> Result<(), String> {
+    let reader = Reader::open_readfile(path).map_err(|e| format!("the downloaded file is not a valid database ({e})"))?;
+    let kind = reader.metadata().database_type.to_ascii_lowercase();
+    if !kind.contains("dbip") || !kind.contains(edition) {
+        return Err(format!("the downloaded file is a \"{}\" database, not the {edition} one", reader.metadata().database_type));
+    }
+    if reader.metadata().node_count == 0 {
+        return Err("the downloaded database is empty".into());
+    }
+    Ok(())
+}
+
+fn download_script(dest: &std::path::Path, edition: &str, progress: &std::sync::atomic::AtomicU32) -> Result<(), String> {
     use std::io::BufRead;
     use std::os::windows::process::CommandExt;
     const SCRIPT: &str = r#"
@@ -95,8 +146,8 @@ exit 1
     }
 }
 
-/// Background check: every few hours, re-downloads each database already on disk that is over 28 days old
-/// (DB-IP publishes monthly), if the setting is still on. A loaded database is only swapped on restart.
+/// Background check: re-downloads each database already on disk once it is older than the update interval
+/// (Settings > Countries & Network), if the setting is still on. A loaded database is only swapped on restart.
 pub fn spawn_auto_update() {
     std::thread::spawn(|| {
         // Sleeps in one-second steps so exiting the app ends the thread (and starts no download).
@@ -113,15 +164,17 @@ pub fn spawn_auto_update() {
             return;
         }
         loop {
-            if crate::settings::Settings::load().geo_auto_update {
+            let s = crate::settings::Settings::load();
+            let every = u64::from(s.geo_update_hours.max(1)) * 3600;
+            if s.geo_auto_update {
                 for (path, edition) in [(default_db_path(), "country"), (city_db_path(), "city")] {
-                    let old = std::fs::metadata(&path).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age.as_secs() > 28 * 86_400);
+                    let old = std::fs::metadata(&path).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age.as_secs() >= every);
                     if old {
                         let _ = download_dbip(&path, edition, &Default::default());
                     }
                 }
             }
-            if !nap(6 * 3600) {
+            if !nap(every.min(6 * 3600)) {
                 return;
             }
         }
@@ -247,6 +300,14 @@ impl Geo {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn verify_refuses_a_file_that_is_not_a_database() {
+        let path = std::env::temp_dir().join("rustwarden-not-a-db.mmdb");
+        std::fs::write(&path, "<html>rate limited</html>").unwrap();
+        assert!(super::verify(&path, "country").is_err());
+        let _ = std::fs::remove_file(&path);
+    }
+
     #[test]
     fn country_networks_cover_addresses_the_database_places_there() {
         // Needs the user's country database; passes without one.

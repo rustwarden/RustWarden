@@ -6,8 +6,9 @@ use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::{Output, Stdio};
 
-/// Refuses `file://` and the like, whatever address the settings hold.
-pub const PROTO: &str = "proto = \"=http,https\"\n";
+/// Refuses `file://` and the like, whatever address the settings hold, and turns curl's URL globbing off: an address
+/// such as `https://host/[1-1000000]` (from a plugin or a setting) would otherwise become a million requests.
+pub const PROTO: &str = "proto = \"=http,https\"\ngloboff\n";
 
 /// A quoted value for a curl config.
 pub fn quote(s: &str) -> String {
@@ -29,31 +30,22 @@ pub fn run(config: &str, dir: Option<&Path>) -> Result<Output, String> {
     child.wait_with_output().map_err(|e| e.to_string())
 }
 
-/// A call to a REST API: `body` makes it a JSON POST, and the output ends with "\n<http status>".
-pub fn api_config(url: &str, auth: &str, body: Option<&str>) -> String {
-    let mut c = format!("silent\nshow-error\nmax-time = 10\nwrite-out = \"\\n%{{http_code}}\"\nheader = {}\n", quote(auth));
-    if let Some(b) = body {
-        c += &format!("header = \"Content-Type: application/json\"\ndata-raw = {}\n", quote(b));
-    }
-    c + &format!("url = {}\n", quote(url))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn a_value_cannot_break_out_of_the_config() {
-        let c = api_config("https://h/\"\nurl = \"evil", "Authorization: Bearer a\nb", Some("{\"x\":1}"));
-        assert_eq!(c.lines().filter(|l| l.starts_with("url")).count(), 1);
-        assert!(c.contains("Bearer a\\nb"));
-        assert!(c.contains("data-raw = \"{\\\"x\\\":1}\""));
-    }
-
-    #[test]
     fn refuses_other_protocols() {
         let out = run("silent\nurl = \"file:///c:/windows/win.ini\"\n", None).unwrap();
         assert!(!out.status.success() && out.stdout.is_empty());
+    }
+
+    #[test]
+    fn globbing_is_off() {
+        // With globbing on, curl reads the brackets as a range and asks for /1 and /2; off, it sends them as they are
+        // (and fails here only because nothing listens on that port).
+        let out = run("silent\nurl = \"http://127.0.0.1:9/[1-2]\"\nwrite-out = \"%{url_effective}\"\n", None).unwrap();
+        assert!(String::from_utf8_lossy(&out.stdout).contains("[1-2]"), "{}", String::from_utf8_lossy(&out.stdout));
     }
 
     #[test]

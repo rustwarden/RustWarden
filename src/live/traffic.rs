@@ -86,6 +86,69 @@ impl Aggregator {
     }
 }
 
+/// Hostnames from DNS answers. A shared (CDN / anycast) address serves many names, so besides the
+/// per-address list each lookup is remembered per (process, address) and traffic is matched to that first.
+#[derive(Default)]
+struct Names {
+    by_ip: HashMap<IpAddr, Vec<String>>,
+    by_pid: HashMap<(u32, IpAddr), String>,
+}
+
+impl Names {
+    /// Records an answer; returns the name to show for the address.
+    fn dns(&mut self, pid: u32, ip: IpAddr, name: &str) -> String {
+        if pid != 0 {
+            if self.by_pid.len() > 50_000 {
+                self.by_pid.clear();
+            }
+            self.by_pid.insert((pid, ip), name.to_owned());
+        }
+        let v = self.by_ip.entry(ip).or_default();
+        v.retain(|n| n != name);
+        v.push(name.to_owned());
+        if v.len() > 16 {
+            v.remove(0);
+        }
+        shared_label(v)
+    }
+
+    /// Records the server name `pid`'s TLS connection to `ip` asked for. It always names that program's traffic to the
+    /// address; the address's own label (`labelled`: something already named it) is only filled when it had none, so a
+    /// lookup's name isn't replaced by whichever connection came last. Returns the new label when it set one.
+    fn sni(&mut self, pid: u32, ip: IpAddr, name: &str, labelled: bool) -> Option<String> {
+        if pid != 0 {
+            if self.by_pid.len() > 50_000 {
+                self.by_pid.clear();
+            }
+            self.by_pid.insert((pid, ip), name.to_owned());
+        }
+        if labelled {
+            return None;
+        }
+        let v = self.by_ip.entry(ip).or_default();
+        v.retain(|n| n != name);
+        v.push(name.to_owned());
+        if v.len() > 16 {
+            v.remove(0);
+        }
+        Some(shared_label(v))
+    }
+
+    /// The name this process looked up for the address, if it did.
+    fn for_flow(&self, pid: u32, ip: IpAddr) -> Option<&str> {
+        self.by_pid.get(&(pid, ip)).map(String::as_str)
+    }
+}
+
+/// Latest name, with a count when other names share the address.
+fn shared_label(names: &[String]) -> String {
+    match names {
+        [] => String::new(),
+        [only] => only.clone(),
+        [.., last] => format!("{last} (+{} shared)", names.len() - 1),
+    }
+}
+
 struct Collector {
     shared: Arc<Shared>,
     db: Db,
@@ -96,6 +159,9 @@ struct Collector {
     /// Addresses on VPN / tunnel adapters; empty while no VPN is connected.
     vpn_locals: HashSet<IpAddr>,
     names: HashMap<IpAddr, String>,
+    dns_names: Names,
+    /// What was last stored per (program, address), so the database is only written on a change.
+    app_names: HashMap<(i64, IpAddr), String>,
     /// Names learned since the last publish; only these are copied into the shared state.
     new_names: Vec<(IpAddr, String)>,
     /// Recent remote addresses per app with bytes, for the Firewall tab's host column.
@@ -104,6 +170,8 @@ struct Collector {
     recent_apps: HashMap<i64, VecDeque<(f64, f64)>>,
     last_seen_app: HashMap<i64, Instant>,
     p2p: super::p2p::Detector,
+    beacons: super::beacon::Tracker,
+    tunnels: super::dnstunnel::Tracker,
     /// Programs flagged as peer-to-peer: id, (key, name, last time flagged). Kept for a week so the list doesn't flicker.
     p2p_seen: HashMap<i64, (String, String, i64)>,
 }
@@ -145,7 +213,7 @@ impl Collector {
         let mut per_app: HashMap<i64, (u64, u64)> = HashMap::new();
         let mut total = (0u64, 0u64);
         // Read once per second, not cloned from the settings for every event.
-        let (hidden, hide_vpn, vpn_apps, dns_log, split_kernel, p2p_detect, p2p_ignore) = {
+        let (hidden, hide_vpn, vpn_apps, dns_log, split_kernel, p2p_detect, p2p_ignore, beacon_on, beacon_ignore, beacon_cfg) = {
             let s = self.shared.settings();
             (
                 s.incognito_apps.iter().map(|p| p.to_lowercase()).collect::<Vec<String>>(),
@@ -155,17 +223,23 @@ impl Collector {
                 s.split_kernel,
                 s.p2p_detect,
                 s.p2p_ignore.iter().map(|p| p.to_lowercase()).collect::<Vec<String>>(),
+                s.alerts.beaconing,
+                s.beacon_ignore,
+                super::beacon::Config { min_window: i64::from(s.beacon_min_window), max_spread: s.beacon_max_jitter, threshold: s.beacon_threshold, cdn_suffixes: s.beacon_cdn_suffixes },
             )
         };
         let mut p2p_names: Vec<(i64, String, String)> = Vec::new();
         let mut seen = HashSet::new();
+        // (key, name, address) -> (app id, bytes sent, bytes received) this second.
+        let mut contacts: HashMap<(String, String, IpAddr), (i64, u64, u64)> = HashMap::new();
         let mut dns_rows = Vec::new();
         while let Ok(ev) = rx.try_recv() {
             match &ev {
                 NetEvent::Dns { pid, name, qtype, status, ips, log } => {
                     for ip in ips {
-                        self.names.insert(*ip, name.clone());
-                        self.new_names.push((*ip, name.clone()));
+                        let shown = self.dns_names.dns(*pid, *ip, name);
+                        self.names.insert(*ip, shown.clone());
+                        self.new_names.push((*ip, shown));
                         let _ = self.db.set_hostname(&ip.to_string(), name, now);
                     }
                     if *log && dns_log {
@@ -176,6 +250,13 @@ impl Collector {
                         }
                         let app = path.as_deref().map_or("Unknown", super::apps::file_name).to_owned();
                         dns_rows.push(DnsEntry { ts: now, app, name: name.clone(), qtype: *qtype, ips: ips.iter().map(IpAddr::to_string).collect(), status: *status, listed: false });
+                    }
+                }
+                NetEvent::Sni { pid, name, ip } => {
+                    if let Some(shown) = self.dns_names.sni(*pid, *ip, name, self.names.contains_key(ip)) {
+                        self.names.insert(*ip, shown.clone());
+                        self.new_names.push((*ip, shown));
+                        let _ = self.db.set_hostname(&ip.to_string(), name, now);
                     }
                 }
                 NetEvent::Data { .. } => {
@@ -205,7 +286,21 @@ impl Collector {
                         self.p2p.note(app.id, flow.remote, flow.remote_port, now, need);
                         p2p_names.push((app.id, app.key.clone(), app.name.clone()));
                     }
+                    if let Some(n) = self.dns_names.for_flow(pid, flow.remote)
+                        && self.app_names.get(&(app.id, flow.remote)).map(String::as_str) != Some(n)
+                    {
+                        let _ = self.db.set_app_hostname(app.id, &flow.remote.to_string(), n, now);
+                        self.app_names.insert((app.id, flow.remote), n.to_owned());
+                    }
                     seen.insert((app.key.clone(), flow.remote));
+                    if beacon_on && flow.kind == KIND_WAN && !super::beacon::ignored(&beacon_ignore, &app.key, &app.name) {
+                        let c = contacts.entry((app.key.clone(), app.name.clone(), flow.remote)).or_insert((app.id, 0, 0));
+                        if flow.down {
+                            c.2 += u64::from(bytes);
+                        } else {
+                            c.1 += u64::from(bytes);
+                        }
+                    }
                     agg.add(app.id, &flow, bytes);
                     self.note_remote(app.id, flow.remote, u64::from(bytes));
                     self.last_seen_app.insert(app.id, Instant::now());
@@ -220,9 +315,42 @@ impl Collector {
                 }
             }
         }
+        for ((key, name, remote), (app_id, up, down)) in contacts {
+            let Some(beat) = self.beacons.observe(&key, remote, now, (up, down), &beacon_cfg) else { continue };
+            // The name this program looked up beats the shared label of an address many names point to.
+            let host = self.app_names.get(&(app_id, remote)).or_else(|| self.names.get(&remote)).map(|n| n.split(" (+").next().unwrap_or(n).to_owned());
+            if host.as_deref().is_some_and(|h| super::beacon::ignored_pair(&beacon_ignore, &key, &name, h)) {
+                continue;
+            }
+            let (destinations, programs) = self.beacons.spread(&key, remote);
+            let signed = self.db.app_by_key(&key).ok().flatten().and_then(|a| a.signed);
+            let ctx = super::beacon::Context { host: host.as_deref(), browser: crate::netwatch::is_browser(super::apps::file_name(&key)), signed, destinations, programs };
+            let verdict = super::beacon::score(&beat, &ctx, &beacon_cfg);
+            if !verdict.alert {
+                continue;
+            }
+            self.beacons.reported(&key, remote, now);
+            let text = format!(
+                "contacts {} like clockwork, about every {} ({} times in a row; score {}/100: {}):",
+                self.name_of(remote),
+                super::beacon::period_text(beat.period),
+                beat.count,
+                verdict.score,
+                verdict.reasons.join(", ")
+            );
+            self.shared.alert_as(&self.db, AlertKind::Beaconing, &name, &text, &remote.to_string(), &self.geo.place(remote).code(), verdict.important);
+        }
         self.publish_p2p(p2p_detect, p2p_names, &p2p_ignore, now);
         let _ = self.db.add_dns(&dns_rows);
         super::dns::check(&self.shared, &self.db, &dns_rows);
+        if !dns_rows.is_empty() && self.shared.settings().alerts.dns_tunnel {
+            for r in &dns_rows {
+                if let Some(t) = self.tunnels.note(&r.name, now) {
+                    let text = "sent an unusual number of long, random-looking lookups under one domain, which is how data is tunnelled out through DNS:";
+                    self.shared.alert(&self.db, AlertKind::DnsTunnel, &r.app, text, &format!("{} ({} names in 5 minutes, e.g. {})", t.domain, t.names, t.example), "");
+                }
+            }
+        }
         super::threat::hits(&self.shared, seen);
         self.publish_rates(total, per_app, true);
         agg.drain()
@@ -347,11 +475,15 @@ pub fn run(shared: Arc<Shared>) {
         vpn_locals: HashSet::new(),
         names: db.hostnames().unwrap_or_default().into_iter().filter_map(|(ip, n)| Some((ip.parse().ok()?, n))).collect(),
         new_names: Vec::new(),
+        dns_names: Names::default(),
+        app_names: HashMap::new(),
         app_remote: HashMap::new(),
         recent_totals: VecDeque::new(),
         recent_apps: HashMap::new(),
         last_seen_app: HashMap::new(),
         p2p: Default::default(),
+        beacons: Default::default(),
+        tunnels: Default::default(),
         p2p_seen: HashMap::new(),
         shared: shared.clone(),
         db,
@@ -460,6 +592,41 @@ mod tests {
 
     fn ip(s: &str) -> IpAddr {
         s.parse().unwrap()
+    }
+
+    #[test]
+    fn names_are_attributed_per_process() {
+        let mut n = Names::default();
+        let shared = ip("104.16.0.1");
+        n.dns(10, shared, "a.example.com");
+        let shown = n.dns(20, shared, "b.example.com");
+        assert_eq!(n.for_flow(10, shared), Some("a.example.com"));
+        assert_eq!(n.for_flow(20, shared), Some("b.example.com"));
+        assert_eq!(n.for_flow(30, shared), None);
+        assert_eq!(shown, "b.example.com (+1 shared)");
+    }
+
+    #[test]
+    fn a_tls_server_name_names_its_own_programs_traffic() {
+        let mut n = Names::default();
+        let cdn = ip("104.16.0.1");
+        // Another program's lookup named the shared address first.
+        n.dns(10, cdn, "ads.example.net");
+        // The browser's DNS was encrypted (no answer seen), but its TLS hello says where it went.
+        assert_eq!(n.sni(20, cdn, "news.example.org", true), None, "the address keeps the label it had");
+        assert_eq!(n.for_flow(20, cdn), Some("news.example.org"));
+        assert_eq!(n.for_flow(10, cdn), Some("ads.example.net"), "the other program is not renamed");
+        // An address nothing named yet takes the server name as its label, even with no program known.
+        let fresh = ip("203.0.113.7");
+        assert_eq!(n.sni(0, fresh, "cdn.example.com", false).as_deref(), Some("cdn.example.com"));
+        assert_eq!(n.for_flow(0, fresh), None);
+    }
+
+    #[test]
+    fn server_answers_without_pid_only_feed_the_address() {
+        let mut n = Names::default();
+        n.dns(0, ip("1.1.1.1"), "x.test");
+        assert_eq!(n.for_flow(0, ip("1.1.1.1")), None);
     }
 
     fn ev(send: bool, udp: bool, src: (&str, u16), dst: (&str, u16)) -> NetEvent {

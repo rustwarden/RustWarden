@@ -11,7 +11,7 @@ Rules:
 
 # Version control
 
-- After each completed feature or meaningful unit of work, commit and push with a message that says what changed and why. Don't wait to be asked, unless told otherwise.
+- Do not commit or push automatically. Only commit or push when the user explicitly asks. When asked, use a message that says what changed and why.
 - If a push is rejected because the remote has new commits, fetch, rebase onto the remote branch, resolve any conflicts yourself, and push again.
 - Never force-push.
 - Stop and ask only when a conflict is a logic clash: two changes modify the same function or behavior in incompatible ways.
@@ -21,10 +21,11 @@ Rules:
 - After each new feature commit, increment the minor version (the middle number) by 1 and reset the patch: 1.1 becomes 1.2, 1.2.1 becomes 1.3.
 - After each bug fix commit, increment the patch version (the last number) by 1: 1.2 becomes 1.2.1, 1.2.1 becomes 1.2.2.
 - The version lives in Cargo.toml. Keep it in step with each commit.
+- On the dev branch, never bump the version to 2.0.0 (or any 2.x). 2.0.0 is reserved for the next main branch build. If a bump would reach it, stop and ask.
 
 # File updates
 
-- Update the changes.md file with new changes. It is a feature log, so you are free to edit existing entries that have changed if needed. Push it to git too. Update it after each successful change or feature.
+- Update the changes.md file with new changes. It is a feature log, so you are free to edit existing entries that have changed if needed. Update it after each successful change or feature.
 - Several people work on this codebase, so every entry you add or edit must name who made the change, using the git user name of the person you are working for (e.g. connor). Put the name at the start of the entry, such as `- [connor] feat: ...`. When you edit an existing entry, keep the original author's name and add yours if it is a different person.
 - README.md is a short overview and FEATURES.md is the full feature list. For user-visible features, add them to FEATURES.md in full, and update README.md only if the short summary or its "What it does" list is affected.
 

@@ -26,6 +26,7 @@ mod metrics;
 mod migrate;
 mod netparse;
 mod netpkt;
+mod netwatch;
 mod pcap;
 mod plugins;
 mod qos;
@@ -39,6 +40,7 @@ mod snapshot;
 mod sys;
 mod tamper;
 mod theme;
+mod tlsprint;
 mod traffic_load;
 mod tray;
 mod ui;
@@ -63,6 +65,8 @@ fn saved_window() -> Option<([f32; 2], [f32; 2])> {
 }
 
 fn main() -> eframe::Result {
+    // Before any file is touched: an elevated run must not follow a junction a non-administrator made (see sys::redirection_guard).
+    sys::redirection_guard();
     // A screenshot run (shots.rs) is a plain start: no elevation, service hand-off or single-instance check.
     let shots = shots::folder();
     match std::env::args().nth(1).as_deref() {
@@ -78,7 +82,7 @@ fn main() -> eframe::Result {
         // Checks the alert log's hash chain from a terminal (see verify_log.rs).
         Some("--verify-alert-log") => std::process::exit(verify_log::run()),
         // The thinkbroadband browser helper: a small window of its own, not the app.
-        Some("--tbb-browser") => std::process::exit(plugins::thinkbroadband::browser::run(&std::env::args().skip(2).collect::<Vec<_>>())),
+        Some("--tbb-browser") => std::process::exit(sys::webview::run(&std::env::args().skip(2).collect::<Vec<_>>())),
         // Started by the service (already elevated).
         Some("--elevated") => {}
         _ if shots.is_some() => {}
@@ -114,9 +118,12 @@ fn main() -> eframe::Result {
     if shots.is_none() && !sys::autostart::claim_instance(std::env::args().any(|a| a == "--elevated")) {
         return Ok(());
     }
-    // No console in release, so a panic would vanish: keep the last one next to the other temp files.
-    std::panic::set_hook(Box::new(|info| {
-        let _ = std::fs::write(std::env::temp_dir().join("rustwarden-panic.log"), format!("{info}\n{}", std::backtrace::Backtrace::force_capture()));
+    // No console in release, so a panic would vanish: keep the last one. Elevated, it goes where only administrators can
+    // write: %TEMP% belongs to the user, and a link planted there could aim an elevated write at any file.
+    let panic_log = if sys::is_elevated() { settings::admin_dir().join("panic.log") } else { std::env::temp_dir().join("rustwarden-panic.log") };
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = panic_log.parent().map(std::fs::create_dir_all);
+        let _ = std::fs::write(&panic_log, format!("{info}\n{}", std::backtrace::Backtrace::force_capture()));
     }));
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("RustWarden")

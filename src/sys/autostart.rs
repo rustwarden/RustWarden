@@ -76,13 +76,15 @@ fn run_elevated(flag: &str) -> Option<u32> {
     }
 }
 
-/// True if `exe` is under the folder named by environment variable `var`.
-fn under(exe: &Path, var: &str) -> bool {
-    std::env::var(var).is_ok_and(|d| exe.to_string_lossy().to_lowercase().starts_with(&format!("{}\\", d.to_lowercase().trim_end_matches('\\'))))
+/// True if `exe` is under `dir`.
+fn under(exe: &Path, dir: &str) -> bool {
+    exe.to_string_lossy().to_lowercase().starts_with(&format!("{}\\", dir.to_lowercase().trim_end_matches('\\')))
 }
 
+/// Asks Windows for Program Files: an environment variable could point the elevated service install at a folder the user controls.
 fn in_program_files(exe: &Path) -> bool {
-    under(exe, "ProgramFiles") || under(exe, "ProgramFiles(x86)")
+    use windows::Win32::UI::Shell::{FOLDERID_ProgramFiles, FOLDERID_ProgramFilesX86};
+    [FOLDERID_ProgramFiles, FOLDERID_ProgramFilesX86].iter().filter_map(crate::settings::known_folder).any(|d| under(exe, &d))
 }
 
 /// `RustWarden.lnk` in a known folder (the user's Desktop, or their Start menu Programs).
@@ -131,7 +133,7 @@ pub(crate) fn installed_exe() -> Result<std::path::PathBuf, String> {
     if in_program_files(&me) && !me.starts_with(crate::settings::legacy_admin_dir()) {
         return Ok(me);
     }
-    Ok(std::path::PathBuf::from(std::env::var("ProgramFiles").map_err(|e| e.to_string())?).join("RustWarden").join("RustWarden.exe"))
+    Ok(crate::settings::admin_dir().join("RustWarden.exe"))
 }
 
 /// Installs the service from wherever the exe is run (e.g. Downloads) by re-running it elevated with
@@ -480,11 +482,45 @@ pub fn refresh_stale_service() -> bool {
         return false;
     }
     let newer = || {
+        // The version built into each exe decides; an older exe with a fresh file time (copied, unzipped) never replaces a newer one.
+        if let Some(theirs) = file_version(&installed)
+            && theirs != own_version()
+        {
+            return Some(own_version() > theirs);
+        }
+        // Same version (a rebuild during development), or an installed exe with no version: a changed, more recent file is newer.
         let (a, b) = (std::fs::metadata(&me).ok()?, std::fs::metadata(&installed).ok()?);
-        // shortcut: file time says "newer", so an older exe copied with a fresh time counts as newer; compare embedded versions if that bites.
         Some(a.modified().ok()? > b.modified().ok()? && (a.len() != b.len() || std::fs::read(&me).ok()? != std::fs::read(&installed).ok()?))
     };
     newer() == Some(true) && run_elevated("--install-service") == Some(0)
+}
+
+/// This build's version as (major, minor, patch), as the exe's version resource carries it.
+fn own_version() -> (u16, u16, u16) {
+    let p = |s: &str| s.parse().unwrap_or(0);
+    (p(env!("CARGO_PKG_VERSION_MAJOR")), p(env!("CARGO_PKG_VERSION_MINOR")), p(env!("CARGO_PKG_VERSION_PATCH")))
+}
+
+/// The (major, minor, patch) file version in an exe's version resource; `None` without one.
+fn file_version(exe: &Path) -> Option<(u16, u16, u16)> {
+    use windows::Win32::Storage::FileSystem::{GetFileVersionInfoSizeW, GetFileVersionInfoW, VS_FIXEDFILEINFO, VerQueryValueW};
+    use windows::core::{HSTRING, w};
+    let name = HSTRING::from(exe.as_os_str());
+    unsafe {
+        let size = GetFileVersionInfoSizeW(&name, None);
+        if size == 0 {
+            return None;
+        }
+        let mut buf = vec![0u8; size as usize];
+        GetFileVersionInfoW(&name, None, size, buf.as_mut_ptr().cast()).ok()?;
+        let (mut info, mut len) = (std::ptr::null_mut(), 0u32);
+        if !VerQueryValueW(buf.as_ptr().cast(), w!("\\"), &mut info, &mut len).as_bool() || info.is_null() || (len as usize) < size_of::<VS_FIXEDFILEINFO>() {
+            return None;
+        }
+        // SAFETY: VerQueryValueW pointed into `buf` (still alive) at a structure of at least this size; it may be unaligned.
+        let fixed = std::ptr::read_unaligned(info as *const VS_FIXEDFILEINFO);
+        (fixed.dwSignature == 0xFEEF_04BD).then_some(((fixed.dwFileVersionMS >> 16) as u16, fixed.dwFileVersionMS as u16, (fixed.dwFileVersionLS >> 16) as u16))
+    }
 }
 
 pub fn startup_enabled() -> bool {
@@ -840,5 +876,24 @@ fn launch_gui(hidden: bool) -> windows::core::Result<()> {
         })();
         let _ = CloseHandle(token);
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_the_version_built_into_an_exe() {
+        // Every Windows exe carries one; a file that isn't a program has none.
+        let notepad = std::path::PathBuf::from(crate::settings::windows_dir()).join("notepad.exe");
+        // Windows shims its own files' version to 6.2 for a program without a compatibility manifest (the test binary), so
+        // only "it has one" is checked here; RustWarden's own exe carries its real version.
+        assert!(file_version(&notepad).is_some_and(|v| v.0 >= 6));
+        let plain = std::env::temp_dir().join(format!("rustwarden-version-test-{}.txt", std::process::id()));
+        std::fs::write(&plain, b"not a program").unwrap();
+        assert_eq!(file_version(&plain), None);
+        let _ = std::fs::remove_file(&plain);
+        assert_eq!(own_version().0, env!("CARGO_PKG_VERSION_MAJOR").parse::<u16>().unwrap());
     }
 }

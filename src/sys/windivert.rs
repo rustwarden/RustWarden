@@ -12,6 +12,8 @@ pub const LAYER_NETWORK: i32 = 0;
 pub const LAYER_FLOW: i32 = 2;
 pub const FLAG_SNIFF: u64 = 1;
 pub const FLAG_RECV_ONLY: u64 = 4;
+/// Matching packets are dropped; the handle never has to read them.
+pub const FLAG_DROP: u64 = 2;
 /// `WinDivertShutdown(how)`: stop receiving and sending.
 const SHUTDOWN_BOTH: i32 = 3;
 /// Stop new packets being queued; what is already queued can still be received.
@@ -57,6 +59,11 @@ impl Address {
 
     pub fn outbound(&self) -> bool {
         self.bits & (1 << 17) != 0
+    }
+
+    /// For the network layer: the index of the interface the packet came in on.
+    pub fn if_idx(&self) -> u32 {
+        u32::from_le_bytes([self.data[0], self.data[1], self.data[2], self.data[3]])
     }
 
     fn ipv6(&self) -> bool {

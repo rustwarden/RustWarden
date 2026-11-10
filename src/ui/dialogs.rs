@@ -16,6 +16,8 @@ use std::time::{Duration, Instant};
 /// Times of recent clicks on the About box; 7 within 5 seconds trigger the easter egg.
 static ABOUT_CLICKS: Mutex<Vec<Instant>> = Mutex::new(Vec::new());
 const ABOUT_PNG: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/about_graph.png"));
+/// Width of an Info dialog's text; it never changes with the text, which wraps and scrolls instead.
+const INFO_WIDTH: f32 = 460.0;
 
 /// (blocked, whitelisted) malicious addresses, each with "program · signature".
 use crate::app::ThreatLists;
@@ -68,6 +70,12 @@ enum Outcome {
     /// Add or replace a destination rule; the window stays open.
     /// The right password was entered: do what it was guarding.
     Unlocked(Gated),
+    /// The wizard was finished: apply its choices.
+    WizardDone,
+    /// The wizard was skipped or closed.
+    WizardSkip,
+    /// Dev channel: apply these settings, then run the wizard again.
+    RunWizard(Box<Settings>),
 }
 
 /// The monitor the app is on, for sizing dialogs (which aren't confined to the app window).
@@ -222,7 +230,7 @@ impl RustWarden {
         let mut d = std::mem::take(&mut self.dest_draft);
         let mut dest_cols = std::mem::take(&mut self.dest_cols);
         let (mut save, mut remove, mut download) = (None, None, false);
-        let driver = self.settings.app_mode == crate::settings::AppMode::Driver;
+        let driver = crate::driver::in_use(&self.settings);
         let dom = if driver { self.backend.domain_blocks() } else { Default::default() };
         let mut dd = std::mem::take(&mut self.domain_draft);
         let (mut dom_save, mut dom_remove, mut dom_import, mut dom_clear) = (None, None, None, false);
@@ -493,7 +501,7 @@ impl RustWarden {
         let mut cols = std::mem::take(&mut self.qos_cols);
         let (mut save, mut remove) = (None, None);
         let limits = self.backend.qos_limits();
-        let driver = self.settings.app_mode == crate::settings::AppMode::Driver;
+        let driver = crate::driver::in_use(&self.settings);
         let apps: Vec<(String, String, crate::data::AppIcon)> = self.protect.apps.iter().filter(|a| !a.path.is_empty() && !a.locked).map(|a| (a.name.clone(), a.path.clone(), a.icon)).collect();
         let program_name = |path: &str| if path.is_empty() { "Pick a program".to_owned() } else { crate::live::apps::file_name(path).to_owned() };
         egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
@@ -668,7 +676,12 @@ impl RustWarden {
             Dialog::Info { title, body } => {
                 let mut out = Outcome::Keep;
                 if !crate::widgets::dialog(title).show(ctx, |ui| {
-                    ui.label(body.as_str());
+                    // A fixed width, and a scroll bar past a fixed height: the body can be replaced while the dialog is
+                    // open (whois "Looking up…" then the answer), and a longer one must not stretch the window.
+                    ui.set_width(INFO_WIDTH);
+                    egui::ScrollArea::vertical().max_height(screen_size(ctx).y * 0.6).auto_shrink([false, true]).show(ui, |ui| {
+                        ui.add(egui::Label::new(body.as_str()).wrap());
+                    });
                     ui.add_space(8.0);
                     if ui.button("Close").clicked() {
                         out = Outcome::Close;
@@ -695,19 +708,48 @@ impl RustWarden {
                 let mut out = Outcome::Keep;
                 let avail = screen_size(ctx) * 0.8;
                 let size = tex.size_vec2();
-                let fit = (avail.x / size.x).min((avail.y - 90.0) / size.y).min(1.0);
+                // 70% of the largest fit: the full-size graph swamped the screen. Ctrl+scroll zooms inside the view.
+                let view = size * (avail.x / size.x).min((avail.y - 130.0) / size.y).min(1.0) * 0.7;
+                let zoom_id = egui::Id::unique("about_zoom");
                 if !crate::widgets::dialog(&format!("About RustWarden {}", env!("CARGO_PKG_VERSION"))).flush().show(ctx, |ui| {
-                    ui.add(egui::Image::new((tex.id(), size * fit)));
+                    let mut zoom: f32 = ctx.data(|d| d.get_temp(zoom_id).unwrap_or(1.0));
+                    let area = egui::ScrollArea::both().max_width(view.x).max_height(view.y).show(ui, |ui| {
+                        ui.add(egui::Image::new((tex.id(), view * zoom)));
+                    });
+                    let graph = area.inner_rect;
+                    if ui.rect_contains_pointer(graph) {
+                        let z = ctx.input(|i| i.zoom_delta());
+                        if z != 1.0 {
+                            zoom = (zoom * z).clamp(1.0, 4.0);
+                            ctx.data_mut(|d| d.insert_temp(zoom_id, zoom));
+                        }
+                    }
+                    // A floating WinUI card that says what the picture is.
+                    let caption = "A visual representation of the code base, as depicted by graphify";
+                    let g = ui.painter().layout_no_wrap(caption.into(), theme::font(13.0), theme::text());
+                    let card = egui::Rect::from_min_size(graph.min + egui::vec2(12.0, 12.0), g.size() + egui::vec2(24.0, 14.0));
+                    let p = ui.painter().with_clip_rect(graph);
+                    p.rect_filled(card.translate(egui::vec2(0.0, 2.0)), 8, egui::Color32::from_black_alpha(40));
+                    p.rect_filled(card, 8, theme::card());
+                    p.rect_stroke(card, 8, egui::Stroke::new(1.0, theme::card_edge()), egui::StrokeKind::Inside);
+                    p.galley(card.min + egui::vec2(12.0, 7.0), g, theme::text());
                     if ctx.input(|i| i.pointer.primary_clicked()) && about_click_hits() {
                         notice = Some(Self::set_about_wallpaper().map_or_else(|e| format!("Could not set the wallpaper: {e}"), |_| "bazinga".into()));
                     }
                     egui::Frame::NONE.inner_margin(egui::Margin::same(14)).show(ui, |ui| {
-                        ui.label("RustWarden is a Windows network monitor that shows live traffic per app and lets you block it with firewall rules.");
-                        ui.label(format!("Created by Connor & Norman - Version: {} ({})", env!("CARGO_PKG_VERSION"), crate::util::build_label()));
-                        ui.add_space(6.0);
-                        if ui.button("Close").clicked() {
-                            out = Outcome::Close;
-                        }
+                        ui.set_width(view.x - 28.0);
+                        ui.vertical_centered(|ui| {
+                            ui.label("RustWarden is a Windows network monitor that shows live traffic per app and lets you block it with firewall rules.");
+                            ui.weak("Ctrl + scroll over the graph to zoom.");
+                            ui.add_space(4.0);
+                            egui::Frame::NONE.fill(theme::card()).stroke(egui::Stroke::new(1.0, theme::card_edge())).corner_radius(8).inner_margin(egui::Margin::symmetric(14, 8)).show(ui, |ui| {
+                                ui.label(format!("Version {} ({})", env!("CARGO_PKG_VERSION"), crate::util::build_label()));
+                            });
+                            ui.add_space(6.0);
+                            if ui.button("Close").clicked() {
+                                out = Outcome::Close;
+                            }
+                        });
                     });
                 }) {
                     out = Outcome::Close;
@@ -908,7 +950,9 @@ impl RustWarden {
             Dialog::Rename { mac, text } => {
                 let mut out = Outcome::Keep;
                 let dev = self.scanner.devices.iter().find(|d| d.mac == *mac);
-                let ha_url = dev.and_then(|d| crate::plugins::ha::ui::device_url(d, &self.settings));
+                let note_src = crate::plugins::wasm::manager::annotator();
+                let src_name = note_src.as_ref().map_or("Home Assistant", |s| s.name.as_str()).to_owned();
+                let ha_url = dev.and_then(crate::ui::notes::device_url);
                 if !crate::widgets::dialog("Device details").show(ctx, |ui| {
                     ui.set_min_width(380.0);
                     if let Some(d) = dev {
@@ -929,14 +973,14 @@ impl RustWarden {
                             row("First seen", &crate::clock::fmt_stamp(d.first_seen));
                             row("Last seen", &crate::clock::fmt_stamp(d.last_seen));
                             row("Times seen", &d.seen_count.to_string());
-                            if let Some(ha) = &d.ha {
-                                row("HA name", &ha.name);
-                                row("HA area", &ha.area);
-                                row("HA model", &ha.model);
+                            if let Some(n) = &d.note {
+                                row(&format!("{src_name} name"), &n.name);
+                                row(&format!("{src_name} area"), &n.area);
+                                row(&format!("{src_name} model"), &n.model);
                             }
                         });
                         if let Some(url) = &ha_url
-                            && ui.link("Open in Home Assistant").clicked()
+                            && ui.link(format!("Open in {src_name}")).clicked()
                         {
                             crate::sys::open_url(url);
                         }
@@ -981,6 +1025,11 @@ impl RustWarden {
                 }
                 out
             }
+            Dialog::Wizard(w) => match super::wizard::show(ctx, w) {
+                super::wizard::Step::Keep => Outcome::Keep,
+                super::wizard::Step::Skip => Outcome::WizardSkip,
+                super::wizard::Step::Finish => Outcome::WizardDone,
+            },
             Dialog::Settings(draft) => {
                 let mut out = Outcome::Keep;
                 let jump = self.settings_section.take();
@@ -1011,6 +1060,7 @@ impl RustWarden {
                     let mut sel: usize = ui.data_mut(|d| d.get_temp(sel_id).unwrap_or(0));
                     if let Some(n) = jump {
                         sel = n;
+                        ui.data_mut(|d| d.remove_temp::<usize>(page_tab_id()));
                     }
                     ui.horizontal_top(|ui| {
                         ui.spacing_mut().item_spacing = egui::vec2(0.0, 2.0);
@@ -1035,17 +1085,22 @@ impl RustWarden {
                                 ui.painter().text(rect.left_center() + egui::vec2(48.0, 0.0), Align2::LEFT_CENTER, name, theme::font(14.0), theme::text());
                                 if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                                     if sel != i {
-                                        ui.data_mut(|d| d.remove_temp::<usize>(privacy_tab_id()));
+                                        ui.data_mut(|d| d.remove_temp::<usize>(page_tab_id()));
                                     }
                                     sel = i;
                                 }
                             }
                         });
-                        ui.vertical(|ui| {
-                            ui.set_width(680.0);
-                            egui::Frame::NONE.inner_margin(egui::Margin { left: 8, right: 24, top: 14, bottom: 0 }).show(ui, |ui| {
-                                egui::ScrollArea::vertical().max_height(body_h - 14.0).show(ui, |ui| settings_form(ui, draft, live, sel, &profiles, &lists, &extras, &quotas, &p2p, &mut out));
-                            });
+                        // A fixed, clipped pane: a page wider than this (a long row) must not grow the window, which
+                        // as its own OS window would never shrink back when another page is chosen.
+                        let (pane, _) = ui.allocate_exact_size(egui::vec2(680.0, body_h), egui::Sense::hover());
+                        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(pane).layout(egui::Layout::top_down(egui::Align::Min)));
+                        child.set_clip_rect(pane.intersect(child.clip_rect()));
+                        egui::Frame::NONE.inner_margin(egui::Margin { left: 8, right: 24, top: 14, bottom: 0 }).show(&mut child, |ui| {
+                            egui::ScrollArea::vertical()
+                                .max_height(body_h - 14.0)
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| settings_form(ui, draft, live, sel, &profiles, &lists, &extras, &quotas, &p2p, &mut out));
                         });
                     });
                     ui.data_mut(|d| d.insert_temp(sel_id, sel));
@@ -1077,7 +1132,8 @@ impl RustWarden {
         }
         match outcome {
             Outcome::Keep => self.dialog = Some(dialog),
-            Outcome::Close => {}
+            // Switches flipped on the Plugins page start plugins at once; closing without Save puts them back.
+            Outcome::Close => crate::plugins::wasm::manager::apply(&self.settings, ctx),
             Outcome::Apply(s) => self.apply_settings(ctx, *s),
             Outcome::Confirmed(action) => self.run_confirmed(ctx, action),
             Outcome::Rename(mac, name) => {
@@ -1118,6 +1174,22 @@ impl RustWarden {
                     self.settings_back = Some(draft);
                 }
                 self.dialog = Some(Dialog::Confirm(c));
+            }
+            Outcome::WizardSkip => {
+                self.settings.wizard_seen = crate::settings::WIZARD_VERSION;
+                let _ = self.settings.save();
+            }
+            Outcome::WizardDone => {
+                let Dialog::Wizard(w) = dialog else { return };
+                let w = *w;
+                let mut s = w.draft;
+                s.wizard_seen = crate::settings::WIZARD_VERSION;
+                self.apply_settings(ctx, s);
+                self.dialog = super::dialogs::mode_confirm(w.firewall).map(Dialog::Confirm);
+            }
+            Outcome::RunWizard(draft) => {
+                self.apply_settings(ctx, *draft);
+                self.dialog = Some(Dialog::Wizard(Box::new(crate::ui::wizard::Wizard::new(self.settings.clone()))));
             }
             Outcome::StartUpdate(rel) => self.start_update(ctx, rel),
             Outcome::TestAlert(kind, s) => {
@@ -1220,36 +1292,39 @@ fn changelog(ui: &mut Ui, notes: &str) {
 }
 
 /// Master/detail editor: pick an alert at the left, set its switch, desktop popup and level at the right.
-fn alert_settings(ui: &mut Ui, s: &mut Settings) {
-    group(ui, "", |c| {
-        c.row("Send alerts to the Windows event log", "Application log, source \"RustWarden\".", |ui| {
-            crate::widgets::small_toggle(ui, &mut s.event_log);
-        });
-        c.enable(crate::sys::is_elevated());
-        c.row("Behaviour baseline", "Learns each program's usual countries, networks, hours and daily volume, and alerts when it steps outside them. Needs administrator.", |ui| {
-            crate::widgets::small_toggle(ui, &mut s.baseline);
-        });
-        c.enable(true);
-        if s.baseline {
-            c.row("Baseline window", "Built from the last N days, with no alerts for the first M days.", |ui| {
-                let days = s.baseline_days;
-                ui.add(egui::DragValue::new(&mut s.baseline_learn_days).range(1..=days).suffix(" days"));
-                ui.label("no alerts for");
-                ui.add(egui::DragValue::new(&mut s.baseline_days).range(3..=365).suffix(" days"));
+fn alert_settings(ui: &mut Ui, s: &mut Settings, apps: &[QuotaApp]) {
+    if page_tabs(ui, &["Alert types", "Options"]) == 1 {
+        group(ui, "", |c| {
+            c.row("Send alerts to the Windows event log", "Application log, source \"RustWarden\".", |ui| {
+                crate::widgets::small_toggle(ui, &mut s.event_log);
             });
-            c.row("Repeat the same alert at most every", "", |ui| {
-                ui.add(egui::DragValue::new(&mut s.baseline_throttle_hours).range(1..=720).suffix(" h"));
+            c.enable(crate::sys::is_elevated());
+            c.row("Behaviour baseline", "Learns each program's usual countries, networks, hours and daily volume, and alerts when it steps outside them. Needs administrator.", |ui| {
+                crate::widgets::small_toggle(ui, &mut s.baseline);
             });
-            // Turning this on is the consent to send addresses out: with the net-info lookup off, it picks Team Cymru.
-            let was = s.baseline_networks;
-            c.row("Learn networks too", "Sends each internet address to the net-info service, Team Cymru if none is set.", |ui| {
-                crate::widgets::small_toggle(ui, &mut s.baseline_networks);
-            });
-            if s.baseline_networks && !was && s.net_info == NetInfoSource::Off {
-                s.net_info = NetInfoSource::TeamCymru;
+            c.enable(true);
+            if s.baseline {
+                c.row("Baseline window", "Built from the last N days, with no alerts for the first M days.", |ui| {
+                    let days = s.baseline_days;
+                    ui.add(egui::DragValue::new(&mut s.baseline_learn_days).range(1..=days).suffix(" days"));
+                    ui.label("no alerts for");
+                    ui.add(egui::DragValue::new(&mut s.baseline_days).range(3..=365).suffix(" days"));
+                });
+                c.row("Repeat the same alert at most every", "", |ui| {
+                    ui.add(egui::DragValue::new(&mut s.baseline_throttle_hours).range(1..=720).suffix(" h"));
+                });
+                // Turning this on is the consent to send addresses out: with the net-info lookup off, it picks Team Cymru.
+                let was = s.baseline_networks;
+                c.row("Learn networks too", "Sends each internet address to the net-info service, Team Cymru if none is set.", |ui| {
+                    crate::widgets::small_toggle(ui, &mut s.baseline_networks);
+                });
+                if s.baseline_networks && !was && s.net_info == NetInfoSource::Off {
+                    s.net_info = NetInfoSource::TeamCymru;
+                }
             }
-        }
-    });
+        });
+        return;
+    }
     let sel_id = ui.scope_id().with("alert_sel");
     let mut sel: usize = ui.data_mut(|d| d.get_temp(sel_id).unwrap_or(0));
     if let Some(i) = ui.ctx().data_mut(|d| d.remove_temp::<usize>(egui::Id::unique(ALERT_JUMP))) {
@@ -1264,8 +1339,8 @@ fn alert_settings(ui: &mut Ui, s: &mut Settings) {
                     egui::ScrollArea::vertical().min_scrolled_height(410.0).max_height(410.0).show(ui, |ui| {
                         ui.spacing_mut().item_spacing.y = 2.0;
                         for (i, kind) in AlertKind::ALL.iter().enumerate() {
-                            // Needs the driver, so it only appears in Driver mode.
-                            if *kind == AlertKind::InboundScan && s.app_mode != crate::settings::AppMode::Driver {
+                            // Needs the driver, so it only appears in Driver mode with the driver installed.
+                            if matches!(*kind, AlertKind::InboundScan | AlertKind::RogueDhcp | AlertKind::TlsMismatch) && !crate::driver::in_use(s) {
                                 continue;
                             }
                             let (name, on) = (kind.title(), kind.enabled(&s.alerts));
@@ -1281,7 +1356,7 @@ fn alert_settings(ui: &mut Ui, s: &mut Settings) {
                                 ui.painter().rect_filled(badge, 4, theme::green());
                                 ui.painter().text(badge.center(), Align2::CENTER_CENTER, "ON", theme::bold(11.0), theme::WHITE);
                             }
-                            ui.painter().text(rect.left_center() + egui::vec2(56.0, 0.0), Align2::LEFT_CENTER, name, theme::font(14.0), theme::text());
+                            crate::widgets::text_fit(ui.painter(), rect.left_center() + egui::vec2(56.0, 0.0), Align2::LEFT_CENTER, name, theme::font(14.0), theme::text(), rect.width() - 62.0);
                             if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                                 sel = i;
                             }
@@ -1289,7 +1364,9 @@ fn alert_settings(ui: &mut Ui, s: &mut Settings) {
                     });
                 });
                 ui.vertical(|ui| {
-                    ui.set_width(300.0);
+                    ui.set_width(316.0);
+                    // Fixed height like the list beside it, so a kind with many options scrolls instead of stretching the dialog.
+                    egui::ScrollArea::vertical().id_salt("alert_detail").min_scrolled_height(410.0).max_height(410.0).auto_shrink([false, false]).show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 18.0;
                     let kind = AlertKind::ALL[sel.min(AlertKind::ALL.len() - 1)];
                     ui.label(egui::RichText::new(kind.title()).font(theme::bold(18.0)));
@@ -1301,7 +1378,12 @@ fn alert_settings(ui: &mut Ui, s: &mut Settings) {
                         crate::widgets::switch(ui, &mut opts.desktop, "Show desktop notification.");
                         let log_label = if s.event_log { "Send to the Windows event log." } else { "Send to the Windows event log (switched off at the top of this page)." };
                         crate::widgets::switch(ui, &mut opts.event_log, log_label);
-                        crate::widgets::switch(ui, &mut opts.api, "Send External Notifications.");
+                        let has_plugin = crate::plugins::wasm::manager::any_notification_plugin();
+                        ui.add_enabled_ui(has_plugin, |ui| {
+                            crate::widgets::switch(ui, &mut opts.api, "Send to Notification Plugins.");
+                        })
+                        .response
+                        .on_disabled_hover_text("Switch on a notification plugin in Settings > Plugins first.");
                         ui.label(egui::RichText::new("Alerts level:").color(theme::text_dim()));
                         egui::ComboBox::from_id_salt("alert_level").width(300.0).selected_text(opts.level.label()).icon(crate::widgets::combo_icon).show_ui(ui, |ui| {
                             for l in AlertLevel::ALL {
@@ -1310,7 +1392,7 @@ fn alert_settings(ui: &mut Ui, s: &mut Settings) {
                         });
                         ui.label(egui::RichText::new(opts.level.hint()).color(theme::text_dim()));
                         if kind == AlertKind::ThinkBroadband {
-                            crate::plugins::thinkbroadband::ui::alert_options(ui, s);
+                            ui.label(egui::RichText::new("The packet-loss level is set in Settings > Plugins > ThinkBroadband Quality Monitor > Settings.").color(theme::text_dim()));
                         }
                         if kind == AlertKind::DeviceReturned {
                             ui.horizontal(|ui| {
@@ -1323,7 +1405,71 @@ fn alert_settings(ui: &mut Ui, s: &mut Settings) {
                                 egui::RichText::new("Ignore adapters whose name contains (comma separated). Bridged virtual machines never use the VPN, so their adapters are skipped:")
                                     .color(theme::text_dim()),
                             );
-                            ui.add(egui::TextEdit::singleline(&mut s.dns_leak_ignore).desired_width(300.0));
+                            ui.add(egui::TextEdit::singleline(&mut s.dns_leak_ignore).desired_width(ui.available_width()));
+                        }
+                        if kind == AlertKind::RogueDhcp {
+                            ui.checkbox(&mut s.dhcp_virtual_alert, "Also watch virtual adapters (VMware, Hyper-V, VirtualBox, VPN tunnels)");
+                            ui.label(egui::RichText::new("Trusted DHCP servers (addresses, or adapter name=address, comma separated):").color(theme::text_dim()));
+                            ui.add(egui::TextEdit::singleline(&mut s.dhcp_trusted).desired_width(ui.available_width()).hint_text("192.168.2.1, Ethernet=192.168.2.1"));
+                        }
+                        if kind == AlertKind::Beaconing {
+                            ui.label(
+                                egui::RichText::new("Ignored programs are not watched for regular check-ins at all, so nothing is logged for them. With a domain, only that program's contacts with that domain are ignored:")
+                                    .color(theme::text_dim()),
+                            );
+                            // Stored as the comma separated text `live::beacon::ignored` reads; the picker adds an app's name.
+                            let mut entries: Vec<String> = s.beacon_ignore.split([',', ';', '\n']).map(|e| e.trim().to_owned()).filter(|e| !e.is_empty()).collect();
+                            let before = entries.clone();
+                            entries.retain(|e| {
+                                ui.horizontal(|ui| {
+                                    let prog = e.split('@').next().unwrap_or(e);
+                                    let known = apps.iter().find(|a| a.1.eq_ignore_ascii_case(prog));
+                                    let keep = !ui.small_button("Remove").clicked();
+                                    if let Some((_, _, icon, path)) = known {
+                                        let (r, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
+                                        icons::app_icon_for(ui.painter(), *icon, path, r);
+                                    }
+                                    ui.add(egui::Label::new(e.replacen('@', "  @ ", 1)).truncate());
+                                    keep
+                                })
+                                .inner
+                            });
+                            let dom_id = ui.scope_id().with("beacon_domain");
+                            let mut domain: String = ui.data_mut(|d| d.get_temp(dom_id).unwrap_or_default());
+                            ui.horizontal_wrapped(|ui| {
+                                let resp = crate::widgets::pill_button(ui, None, "Add a program", true, 180.0);
+                                egui::Popup::menu(&resp).width(280.0).show(|ui| {
+                                    ui.set_max_height(340.0);
+                                    egui::ScrollArea::vertical().show(ui, |ui| {
+                                        for (_, name, icon, path) in apps {
+                                            if crate::widgets::check_item_icon(ui, false, name, Some((*icon, path))).clicked() {
+                                                // Separators in a name would split it into other entries.
+                                                let name = name.replace([',', ';', '@', '\n'], " ");
+                                                let d = domain.trim();
+                                                entries.push(if d.is_empty() { name } else { format!("{name}@{d}") });
+                                                domain.clear();
+                                                ui.close();
+                                            }
+                                        }
+                                    });
+                                });
+                                ui.add(egui::TextEdit::singleline(&mut domain).desired_width(160.0).hint_text("only this domain (optional)"));
+                            });
+                            ui.data_mut(|d| d.insert_temp(dom_id, domain));
+                            if entries != before {
+                                s.beacon_ignore = entries.join(", ");
+                            }
+                            ui.label(egui::RichText::new("A regular rhythm is scored with the size of the contacts, the destination and the program; these are the limits:").color(theme::text_dim()));
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label("Watch at least");
+                                ui.add(egui::DragValue::new(&mut s.beacon_min_window).range(60..=7200).suffix(" s"));
+                                ui.label("report from score");
+                                ui.add(egui::DragValue::new(&mut s.beacon_threshold).range(1..=100));
+                                ui.label("jitter up to");
+                                ui.add(egui::DragValue::new(&mut s.beacon_max_jitter).range(0.01..=0.3).speed(0.005));
+                            });
+                            ui.label(egui::RichText::new("Media / CDN domains that lower the score:").color(theme::text_dim()));
+                            ui.add(egui::TextEdit::multiline(&mut s.beacon_cdn_suffixes).desired_rows(3).desired_width(ui.available_width()));
                         }
                         if kind == AlertKind::Away {
                             ui.horizontal(|ui| {
@@ -1332,9 +1478,10 @@ fn alert_settings(ui: &mut Ui, s: &mut Settings) {
                             });
                         }
                     });
-                    if opts != kind.default_opts() || s.alert_opts.contains_key(kind.key()) {
+                    if opts != kind.defaults_in(s) || s.alert_opts.contains_key(kind.key()) {
                         s.alert_opts.insert(kind.key().to_owned(), opts);
                     }
+                    });
                 });
             });
         });
@@ -1343,141 +1490,159 @@ fn alert_settings(ui: &mut Ui, s: &mut Settings) {
 }
 
 fn other_section(ui: &mut Ui, s: &mut Settings, out: &mut Outcome) {
-    group(ui, "", |c| {
-        let mut demo = s.mode == Mode::Demo;
-        c.row("Use demo data", "Shows placeholder data and a DEMO tag in the header. Turn off to measure this machine.", |ui| {
-            if crate::widgets::small_toggle(ui, &mut demo).changed() {
-                s.mode = if demo { Mode::Demo } else { Mode::Live };
-            }
-        });
-    });
-
-    group(ui, "Notifications", |c| {
-        let sel_id = c.ui_id().with("test_alert_kind");
-        c.row(
-            "Send a test notification",
-            "Shows a made-up Prompt prompt, Malicious IP popup or alert of the chosen type, without recording it or changing any firewall rule. Alerts are delivered the way a real one is (per its Alerts settings).",
-            |ui| {
-                // 0 = Prompt, 1 = Malicious IP, then the alert kinds.
-                const EXTRA: [&str; 2] = ["Prompt", "Malicious IP"];
-                let name = |i: usize| if i < EXTRA.len() { EXTRA[i] } else { AlertKind::ALL[i - EXTRA.len()].title() };
-                let mut sel: usize = ui.data_mut(|d| d.get_temp(sel_id).unwrap_or(0)).min(EXTRA.len() + AlertKind::ALL.len() - 1);
-                if ui.button("Test").clicked() {
-                    *out = match sel {
-                        0 => Outcome::TestAsk,
-                        1 => Outcome::TestThreat,
-                        i => Outcome::TestAlert(AlertKind::ALL[i - EXTRA.len()], Box::new(s.clone())),
-                    };
-                }
-                egui::ComboBox::from_id_salt("test_alert_kind").selected_text(name(sel)).icon(crate::widgets::combo_icon).show_ui(ui, |ui| {
-                    for i in 0..EXTRA.len() + AlertKind::ALL.len() {
-                        ui.selectable_value(&mut sel, i, name(i));
+    match page_tabs(ui, &["General", "Backup", "Updates", "Advanced"]) {
+        0 => {
+            group(ui, "", |c| {
+                let mut demo = s.mode == Mode::Demo;
+                c.row("Use demo data", "Shows placeholder data and a DEMO tag in the header. Turn off to measure this machine.", |ui| {
+                    if crate::widgets::small_toggle(ui, &mut demo).changed() {
+                        s.mode = if demo { Mode::Demo } else { Mode::Live };
                     }
                 });
-                ui.data_mut(|d| d.insert_temp(sel_id, sel));
-            },
-        );
-    });
+            });
 
-    group(ui, "Back up rules and settings", |c| {
-        c.row("Export rules and settings", "Saves the programs you have blocked, your destination rules and all your settings (the password is left out; tokens and webhook addresses stay encrypted for this Windows user) to a file, to bring back after a reinstall or when the app changes name.", |ui| {
-            if ui.button("Export…").clicked() {
-                *out = Outcome::ExportRules;
-            }
-        });
-        c.row("Import rules and settings", "Reads a file from Export and applies what differs from now, after showing you a summary. Files from older or newer versions work: settings they lack keep their current value. Nothing is removed.", |ui| {
-            if ui.button("Import…").clicked() {
-                *out = Outcome::ImportRules;
-            }
-        });
-    });
+            group(ui, "Notifications", |c| {
+                let sel_id = c.ui_id().with("test_alert_kind");
+                c.row(
+                "Send a test notification",
+                "Shows a made-up Prompt prompt, Malicious IP popup or alert of the chosen type, without recording it or changing any firewall rule. Alerts are delivered the way a real one is (per its Alerts settings).",
+                |ui| {
+                    // 0 = Prompt, 1 = Malicious IP, then the alert kinds.
+                    const EXTRA: [&str; 2] = ["Prompt", "Malicious IP"];
+                    let name = |i: usize| if i < EXTRA.len() { EXTRA[i] } else { AlertKind::ALL[i - EXTRA.len()].title() };
+                    let mut sel: usize = ui.data_mut(|d| d.get_temp(sel_id).unwrap_or(0)).min(EXTRA.len() + AlertKind::ALL.len() - 1);
+                    if ui.button("Test").clicked() {
+                        *out = match sel {
+                            0 => Outcome::TestAsk,
+                            1 => Outcome::TestThreat,
+                            i => Outcome::TestAlert(AlertKind::ALL[i - EXTRA.len()], Box::new(s.clone())),
+                        };
+                    }
+                    egui::ComboBox::from_id_salt("test_alert_kind").selected_text(name(sel)).icon(crate::widgets::combo_icon).show_ui(ui, |ui| {
+                        for i in 0..EXTRA.len() + AlertKind::ALL.len() {
+                            ui.selectable_value(&mut sel, i, name(i));
+                        }
+                    });
+                    ui.data_mut(|d| d.insert_temp(sel_id, sel));
+                },
+            );
+            });
 
-    group(ui, "Window", |c| {
-        c.row("Window size and position", "RustWarden reopens where you left it. If that goes wrong, this puts it back to the default size in the middle of the screen.", |ui| {
-            if ui.button("Reset window").clicked() {
-                *out = Outcome::ResetWindow;
-            }
-        });
-    });
-
-    group(ui, "Clean up", |c| {
-        c.row("Downloaded components", "RustWarden has no installer, so what it downloads stays on this PC until you remove it here: speedtest-cli, the GeoIP and ASN databases, the malicious IP and domain lists and the thinkbroadband sign-in.", |ui| {
-            if ui.button("Remove…").clicked() {
-                *out = Outcome::Then(Confirm {
-                    title: "Remove downloaded components?".into(),
-                    body: crate::cleanup::warning(),
-                    yes: "Remove and switch off".into(),
-                    action: ConfirmAction::CleanUp,
+            group(ui, "Window", |c| {
+                c.row("Window size and position", "RustWarden reopens where you left it. If that goes wrong, this puts it back to the default size in the middle of the screen.", |ui| {
+                    if ui.button("Reset window").clicked() {
+                        *out = Outcome::ResetWindow;
+                    }
                 });
-            }
-        });
-    });
+            });
+        }
+        1 => {
+            group(ui, "Back up rules and settings", |c| {
+                c.row("Export rules and settings", "Saves the programs you have blocked, your destination rules and all your settings (the password is left out; tokens and webhook addresses stay encrypted for this Windows user) to a file, to bring back after a reinstall or when the app changes name.", |ui| {
+                if ui.button("Export…").clicked() {
+                    *out = Outcome::ExportRules;
+                }
+            });
+                c.row("Import rules and settings", "Reads a file from Export and applies what differs from now, after showing you a summary. Files from older or newer versions work: settings they lack keep their current value. Nothing is removed.", |ui| {
+                if ui.button("Import…").clicked() {
+                    *out = Outcome::ImportRules;
+                }
+            });
+            });
 
-    group(ui, "Windows service", |c| {
-        c.row("Service", "Lets RustWarden open as administrator without a prompt. Installing or removing it asks for administrator approval once and restarts RustWarden.", |ui| {
-            let installed = ui.data(|d| d.get_temp::<bool>(egui::Id::NULL.with("service_installed"))).unwrap_or(false);
-            for (label, install) in [("Uninstall service…", false), ("Install service…", true)] {
-                if ui.add_enabled(install != installed, egui::Button::new(label)).clicked() {
+            group(ui, "Clean up", |c| {
+                c.row("Downloaded components", "RustWarden has no installer, so what it downloads stays on this PC until you remove it here: speedtest-cli, the GeoIP and ASN databases, the malicious IP and domain lists and the ThinkBroadband Quality Monitor sign-in.", |ui| {
+                if ui.button("Remove…").clicked() {
                     *out = Outcome::Then(Confirm {
-                        title: format!("{} the service?", if install { "Install" } else { "Uninstall" }),
-                        body: "RustWarden will restart afterwards.".into(),
-                        yes: format!("{} and restart", if install { "Install" } else { "Uninstall" }),
-                        action: ConfirmAction::Service { install },
+                        title: "Remove downloaded components?".into(),
+                        body: crate::cleanup::warning(),
+                        yes: "Remove and switch off".into(),
+                        action: ConfirmAction::CleanUp,
                     });
                 }
-            }
-        });
-    });
-
-    group(ui, "Updates", |c| {
-        // From 1.0.0 releases come straight from the public GitHub repo, so there is no server to enter.
-        if !crate::update::uses_public_repo() {
-            c.row(
-            "Update server",
-            "RustWarden checks for a new version when it starts and every few hours, and quietly does nothing if that fails. Downloads are only installed if their SHA-256 matches the published one.",
-            |ui| {
-                let r = ui.add(egui::TextEdit::singleline(&mut s.update_url).hint_text("https://example.com/updates/").desired_width(260.0));
-                crate::widgets::edit_menu(ui, &r, &mut s.update_url, true);
-                s.update_url = s.update_url.trim().to_owned();
-            },
-        );
-        }
-        c.row("Update channel", "", |ui| {
-            crate::widgets::radio(ui, &mut s.update_channel, crate::settings::UpdateChannel::Playground, "Playground");
-            crate::widgets::radio(ui, &mut s.update_channel, crate::settings::UpdateChannel::Release, "Release");
-        });
-        if s.update_channel == crate::settings::UpdateChannel::Playground {
-            c.block(|ui| {
-                ui.colored_label(
-                    ui.visuals().warn_fg_color,
-                    "Playground builds are alpha-level software and may break. Switch back to Release at any time; the next update check installs the latest release.",
-                );
+            });
             });
         }
-        c.row("App mode", "Driver mode adds features that need a small signed network driver (WinDivert), such as download limits. Normal mode needs no driver and hides those features.", |ui| {
-            crate::widgets::dropdown(ui, None, &mut s.app_mode, &[crate::settings::AppMode::Normal, crate::settings::AppMode::Driver], |m| m.label().into(), 130.0);
-        });
-        if s.app_mode == crate::settings::AppMode::Driver {
-            driver_rows(c, out);
-            c.row("Force DNS through my resolver", "Sends every program's DNS lookups (port 53) to the resolver below, whatever server they were aimed at, and makes the answers look as if the original server gave them. This closes DNS leaks. IPv4 and plain DNS only: encrypted DNS is not touched. The resolver must be reachable on your normal connection.", |ui| {
-                crate::widgets::small_toggle(ui, &mut s.dns_enforce);
-                ui.add_enabled(s.dns_enforce, egui::TextEdit::singleline(&mut s.dns_resolver).hint_text("1.1.1.1").desired_width(130.0));
-                if s.dns_enforce && crate::live::dnsguard::parse_resolver(&s.dns_resolver).is_err() {
-                    ui.colored_label(ui.visuals().warn_fg_color, "Enter an IPv4 address");
+        2 => {
+            group(ui, "Updates", |c| {
+                // From 1.0.0 releases come straight from the public GitHub repo, so there is no server to enter.
+                if !crate::update::uses_public_repo() {
+                    c.row(
+                "Update server",
+                "RustWarden checks for a new version when it starts and every few hours, and quietly does nothing if that fails. Downloads are only installed if their SHA-256 matches the published one.",
+                |ui| {
+                    let r = ui.add(egui::TextEdit::singleline(&mut s.update_url).hint_text("https://example.com/updates/").desired_width(260.0));
+                    crate::widgets::edit_menu(ui, &r, &mut s.update_url, true);
+                    s.update_url = s.update_url.trim().to_owned();
+                },
+            );
+                }
+                c.row("Update channel", "", |ui| {
+                    crate::widgets::radio(ui, &mut s.update_channel, crate::settings::UpdateChannel::Dev, "Dev");
+                    crate::widgets::radio(ui, &mut s.update_channel, crate::settings::UpdateChannel::Release, "Release");
+                });
+                if s.update_channel == crate::settings::UpdateChannel::Dev {
+                    c.block(|ui| {
+                        ui.colored_label(
+                            ui.visuals().warn_fg_color,
+                            "Dev builds are alpha-level software and may break. Switch back to Release at any time; the next update check installs the latest release.",
+                        );
+                    });
+                }
+                if s.update_channel == crate::settings::UpdateChannel::Dev {
+                    c.row("First-run wizard", "Dev channel only: runs the setup wizard again. Pending changes here are saved first.", |ui| {
+                        if ui.button("Run wizard").clicked() {
+                            *out = Outcome::RunWizard(Box::new(s.clone()));
+                        }
+                    });
                 }
             });
-            c.row("Line speed (up / down, Mbps)", "Your connection's speed, for the priorities in Limits / QoS. Programs with a priority share it: High is never held back and is served first, Normal gets the rest, Low what is left after that. Only programs listed in Limits / QoS are shared this way. 0 = not set (no sharing).", |ui| {
-                ui.add(egui::DragValue::new(&mut s.line_up_mbps).range(0..=100_000).suffix(" up"));
-                ui.add(egui::DragValue::new(&mut s.line_down_mbps).range(0..=100_000).suffix(" down"));
-            });
-            c.row("Learn host names from the driver", "Reads the server name of new HTTPS connections and DNS answers on this PC (nothing leaves it), so the Connections tab shows names such as youtube.com, and the DNS Log also lists lookups made by programs with their own resolver, such as some browsers.", |ui| crate::widgets::small_toggle(ui, &mut s.driver_names));
         }
-        c.row(
-            "Let RustWarden's own downloads through the firewall",
-            "While RustWarden runs its own curl, PowerShell or speed test helper (updates, lookups, downloads), that helper is allowed online for a few minutes even if a rule blocks it. Any rule switched off is switched back on afterwards, when RustWarden closes, or by Restore firewall defaults. Needs administrator rights.",
-            |ui| crate::widgets::small_toggle(ui, &mut s.allow_helper_tools),
-        );
-    });
+        _ => {
+            group(ui, "Driver", |c| {
+                c.row(
+                    "App mode",
+                    "Driver mode adds features that need a small signed network driver (WinDivert), such as download limits. Normal mode needs no driver and hides those features.",
+                    |ui| {
+                        crate::widgets::dropdown(ui, None, &mut s.app_mode, &[crate::settings::AppMode::Normal, crate::settings::AppMode::Driver], |m| m.label().into(), 130.0);
+                    },
+                );
+                if s.app_mode == crate::settings::AppMode::Driver {
+                    driver_rows(c, out);
+                    // Everything below needs the driver itself, not just Driver mode: without it these rows would do nothing, so they stay hidden.
+                    if crate::driver::ready() {
+                        c.row("Line speed (up / down, Mbps)", "Your connection's speed, for the priorities in Limits / QoS. Programs with a priority share it: High is never held back and is served first, Normal gets the rest, Low what is left after that. Only programs listed in Limits / QoS are shared this way. 0 = not set (no sharing).", |ui| {
+                        ui.add(egui::DragValue::new(&mut s.line_up_mbps).range(0..=100_000).suffix(" up"));
+                        ui.add(egui::DragValue::new(&mut s.line_down_mbps).range(0..=100_000).suffix(" down"));
+                    });
+                        c.row("Learn host names from the driver", "Reads the server name of new HTTPS connections and DNS answers on this PC (nothing leaves it), so the Connections tab shows names such as youtube.com, and the DNS Log also lists lookups made by programs with their own resolver, such as some browsers.", |ui| crate::widgets::small_toggle(ui, &mut s.driver_names));
+                        c.row(
+                        "QUIC fallback (programs)",
+                        "Blocks QUIC (HTTP/3, UDP port 443) for these programs, separated by commas (for example chrome.exe, msedge.exe), so they use HTTPS over TCP. There the server name is in the open, which is what Block by domain and the host names read. Needs administrator rights.",
+                        |ui| {
+                            ui.add(egui::TextEdit::singleline(&mut s.quic_fallback).hint_text("chrome.exe, msedge.exe").desired_width(230.0));
+                        },
+                    );
+                    }
+                }
+            });
+            group(ui, "Windows service", |c| {
+                c.row("Service", "Lets RustWarden open as administrator without a prompt. Installing or removing it asks for administrator approval once and restarts RustWarden.", |ui| {
+                    let installed = ui.data(|d| d.get_temp::<bool>(egui::Id::NULL.with("service_installed"))).unwrap_or(false);
+                    for (label, install) in [("Uninstall service…", false), ("Install service…", true)] {
+                        if ui.add_enabled(install != installed, egui::Button::new(label)).clicked() {
+                            *out = Outcome::Then(Confirm {
+                                title: format!("{} the service?", if install { "Install" } else { "Uninstall" }),
+                                body: "RustWarden will restart afterwards.".into(),
+                                yes: format!("{} and restart", if install { "Install" } else { "Uninstall" }),
+                                action: ConfirmAction::Service { install },
+                            });
+                        }
+                    }
+                });
+            });
+        }
+    }
 }
 
 /// The driver's status and its Install / Remove buttons (Settings > Other, Driver mode).
@@ -1538,7 +1703,7 @@ fn sections() -> [(&'static str, Icon, egui::Color32); 12] {
         ("Malicious IPs", Icon::ShieldAlert, theme::red()),
         ("Privacy", Icon::Privacy, theme::text()),
         ("Countries & Network", Icon::Globe, theme::accent()),
-        ("Integrations", Icon::House, theme::accent()),
+        ("Plugins", Icon::House, theme::accent()),
         ("Other", Icon::More, theme::text()),
     ]
 }
@@ -1567,67 +1732,79 @@ fn settings_form(
         1 => personalise_section(ui, s),
         2 => plan_section(ui, s),
         3 => quotas_section(ui, s, quotas),
-        4 => alert_settings(ui, s),
+        4 => alert_settings(ui, s, &quotas.apps),
         5 => scanner_section(ui, s),
         6 => firewall_section(ui, s, live, profiles, extras, out),
         7 => threat_section(ui, s, lists, out),
         8 => privacy_section(ui, s, p2p),
         9 => countries_section(ui, s),
-        10 => group(ui, "", |c| c.block(|ui| crate::plugins::core::section(ui, s))),
+        10 => group(ui, "", |c| c.block(|ui| crate::ui::plugins::section(ui, s))),
         _ => other_section(ui, s, out),
     }
 }
 
 fn personalise_section(ui: &mut Ui, s: &mut Settings) {
-    group(ui, "", |c| {
-        c.row("Follow the Windows theme", "Switches between light and dark by itself when Windows does (Windows Settings > Personalisation > Colours). Turn it off to choose a theme here.", |ui| {
-            crate::widgets::small_toggle(ui, &mut s.follow_windows_theme);
-        });
-        c.enable(!s.follow_windows_theme);
-        c.row("Theme", "Light or dark", |ui| {
-            egui::ComboBox::from_id_salt("theme").selected_text(s.theme.label()).icon(crate::widgets::combo_icon).show_ui(ui, |ui| {
-                for t in [Theme::Light, Theme::Dark] {
-                    ui.selectable_value(&mut s.theme, t, t.label());
-                }
+    match page_tabs(ui, &["Theme", "Popups"]) {
+        0 => {
+            group(ui, "", |c| {
+                c.row(
+                    "Follow the Windows theme",
+                    "Switches between light and dark by itself when Windows does (Windows Settings > Personalisation > Colours). Turn it off to choose a theme here.",
+                    |ui| {
+                        crate::widgets::small_toggle(ui, &mut s.follow_windows_theme);
+                    },
+                );
+                c.enable(!s.follow_windows_theme);
+                c.row("Theme", "Light or dark", |ui| {
+                    egui::ComboBox::from_id_salt("theme").selected_text(s.theme.label()).icon(crate::widgets::combo_icon).show_ui(ui, |ui| {
+                        for t in [Theme::Light, Theme::Dark] {
+                            ui.selectable_value(&mut s.theme, t, t.label());
+                        }
+                    });
+                });
+                c.enable(true);
+                c.row("Acrylic intensity", "How much of the colours behind the window shine through (Windows 11).", |ui| {
+                    crate::widgets::slider(ui, &mut s.acrylic, 0.0..=1.0, 0.01, |v| format!("{:.0}%", v * 100.0));
+                });
+                c.row("Use Windows accent colour", "Follows the accent colour set in Windows, and changes with it.", |ui| {
+                    crate::widgets::small_toggle(ui, &mut s.accent_windows);
+                });
+                c.enable(!s.accent_windows);
+                c.block(|ui| accent_picker(ui, &mut s.accent));
+                c.enable(true);
+                c.row("Tint with wallpaper colour", "Uses the Mica backdrop, coloured by your wallpaper like File Explorer, instead of grey acrylic.", |ui| {
+                    crate::widgets::small_toggle(ui, &mut s.tint);
+                });
+                c.row("UI scale", "Scales every window, popup and banner. Applies when you save.", |ui| {
+                    crate::widgets::slider(ui, &mut s.text_scale, 1.0..=1.5, 0.1, |v| format!("{v:.1}x")).on_hover_text("1.0x – 1.5x");
+                });
             });
-        });
-        c.enable(true);
-        c.row("Acrylic intensity", "How much of the colours behind the window shine through (Windows 11).", |ui| {
-            crate::widgets::slider(ui, &mut s.acrylic, 0.0..=1.0, 0.01, |v| format!("{:.0}%", v * 100.0));
-        });
-        c.row("Popup opacity", "The least opaque the Traffic detail popups get, however strong the Acrylic is. Notifications are always solid.", |ui| {
-            crate::widgets::slider(ui, &mut s.popup_opacity, 0.5..=1.0, 0.01, |v| format!("{:.0}%", v * 100.0));
-        });
-        c.row("Popup corner", "Where alert and Prompt popups appear.", |ui| {
-            egui::ComboBox::from_id_salt("popup_corner").selected_text(s.popup_corner.label()).icon(crate::widgets::combo_icon).show_ui(ui, |ui| {
-                for corner in crate::ui::toast::Corner::ALL {
-                    ui.selectable_value(&mut s.popup_corner, corner, corner.label());
-                }
+        }
+        _ => {
+            group(ui, "", |c| {
+                c.row("Popup opacity", "The least opaque the Traffic detail popups get, however strong the Acrylic is. Notifications are always solid.", |ui| {
+                    crate::widgets::slider(ui, &mut s.popup_opacity, 0.5..=1.0, 0.01, |v| format!("{:.0}%", v * 100.0));
+                });
+                c.row("Popup corner", "Where alert and Prompt popups appear.", |ui| {
+                    egui::ComboBox::from_id_salt("popup_corner").selected_text(s.popup_corner.label()).icon(crate::widgets::combo_icon).show_ui(ui, |ui| {
+                        for corner in crate::ui::toast::Corner::ALL {
+                            ui.selectable_value(&mut s.popup_corner, corner, corner.label());
+                        }
+                    });
+                });
+                c.row("Popup duration", "How long an alert popup stays up. Prompt prompts stay until you answer.", |ui| {
+                    let mut secs = s.popup_secs as f32;
+                    crate::widgets::slider(ui, &mut secs, 3.0..=60.0, 1.0, |v| format!("{v:.0} s"));
+                    s.popup_secs = secs.round() as u32;
+                });
+                c.row("Popups shown at once", "The most alert popups on screen together; older ones make way for new ones.", |ui| {
+                    let mut most = s.popup_max as f32;
+                    crate::widgets::slider(ui, &mut most, 1.0..=8.0, 1.0, |v| format!("{v:.0}"));
+                    s.popup_max = most.round() as u32;
+                });
             });
-        });
-        c.row("Popup duration", "How long an alert popup stays up. Prompt prompts stay until you answer.", |ui| {
-            let mut secs = s.popup_secs as f32;
-            crate::widgets::slider(ui, &mut secs, 3.0..=60.0, 1.0, |v| format!("{v:.0} s"));
-            s.popup_secs = secs.round() as u32;
-        });
-        c.row("Popups shown at once", "The most alert popups on screen together; older ones make way for new ones.", |ui| {
-            let mut most = s.popup_max as f32;
-            crate::widgets::slider(ui, &mut most, 1.0..=8.0, 1.0, |v| format!("{v:.0}"));
-            s.popup_max = most.round() as u32;
-        });
-        c.row("Use Windows accent colour", "Follows the accent colour set in Windows, and changes with it.", |ui| {
-            crate::widgets::small_toggle(ui, &mut s.accent_windows);
-        });
-        c.enable(!s.accent_windows);
-        c.block(|ui| accent_picker(ui, &mut s.accent));
-        c.enable(true);
-        c.row("Tint with wallpaper colour", "Uses the Mica backdrop, coloured by your wallpaper like File Explorer, instead of grey acrylic.", |ui| {
-            crate::widgets::small_toggle(ui, &mut s.tint);
-        });
-        c.row("UI scale", "Scales every window, popup and banner. Applies when you save.", |ui| {
-            crate::widgets::slider(ui, &mut s.text_scale, 1.0..=1.5, 0.1, |v| format!("{v:.1}x")).on_hover_text("1.0x – 1.5x");
-        });
-    });
+        }
+    }
 }
 
 /// The Windows 11 accent colours, 8 to a row.
@@ -1674,68 +1851,73 @@ fn accent_picker(ui: &mut Ui, hex: &mut String) {
 }
 
 fn general_section(ui: &mut Ui, s: &mut Settings, out: &mut Outcome) {
-    group(ui, "", |c| {
-        c.block(startup_controls);
-        c.row("Show rates in bits", "Instead of bytes.", |ui| {
-            crate::widgets::small_toggle(ui, &mut s.bits);
-        });
-    });
-
-    group(ui, "Tamper protection", |c| {
-        let sub = if s.tamper_on() {
-            "A password is set: opening Settings, Exit and Restart ask for it."
-        } else {
-            "Set a password to lock Settings, Exit and Restart (shared or family PCs). It does not stop an administrator ending the process or the service."
-        };
-        let sub = if s.tamper_new.trim().is_empty() { sub.to_owned() } else { format!("{sub} Saved when you press Save.") };
-        c.row("Password", &sub, |ui| {
-            if s.tamper_on() && ui.button("Remove").clicked() {
-                s.tamper_hash.clear();
-                s.tamper_new.clear();
-            }
-            let hint = if s.tamper_on() { "New password" } else { "Password" };
-            ui.add(egui::TextEdit::singleline(&mut s.tamper_new).password(true).hint_text(hint).desired_width(200.0));
-        });
-    });
-
-    group(ui, "Firewall list", |c| {
-        c.row(
-            "Split \"NT Kernel & System\" by service",
-            "Windows reports all kernel networking (file sharing, NetBIOS, discovery, HTTP.sys) as one program. This shows a row per service, told apart by port. Applies to new traffic.",
-            |ui| {
-                crate::widgets::small_toggle(ui, &mut s.split_kernel);
-            },
-        );
-    });
-
-    group(ui, "History", |c| {
-        c.row("Traffic history", "How long Live mode keeps traffic history.", |ui| {
-            crate::widgets::num_field(ui, &mut s.retention_days, 1..=3650, " days");
-        });
-        c.row("Hardware history", "How long Live mode keeps hardware history (CPU, memory, disk, GPU).", |ui| {
-            crate::widgets::num_field(ui, &mut s.hardware_history_hours, 1..=24 * 30, " hours");
-        });
-        c.enable(crate::sys::is_elevated());
-        c.row("DNS log", "Logs each program's DNS lookups (Network > DNS Log).", |ui| {
-            crate::widgets::small_toggle(ui, &mut s.dns_log);
-        });
-        c.enable(crate::sys::is_elevated() && s.dns_log);
-        c.row("DNS log history", "How long the DNS log is kept. It stays on this PC; programs hidden in Settings > Privacy are left out.", |ui| {
-            crate::widgets::num_field(ui, &mut s.dns_retention_days, 1..=365, " days");
-        });
-        c.enable(true);
-        // Demo mode keeps no history, so there is nothing to clear.
-        c.row("Clear traffic history", "Deletes the stored traffic history of Live mode. Alerts, apps and devices are kept.", |ui| {
-            if ui.add_enabled(s.mode == Mode::Live, egui::Button::new("Clear…")).on_disabled_hover_text("Demo mode keeps no history").clicked() {
-                *out = Outcome::Then(Confirm {
-                    title: "Clear traffic history?".into(),
-                    body: "Deletes the stored traffic history of Live mode. Alerts, apps and devices are kept.".into(),
-                    yes: "Clear history".into(),
-                    action: ConfirmAction::ClearHistory,
+    match page_tabs(ui, &["General", "History", "Security"]) {
+        0 => {
+            group(ui, "", |c| {
+                c.block(startup_controls);
+                c.row("Show rates in bits", "Instead of bytes.", |ui| {
+                    crate::widgets::small_toggle(ui, &mut s.bits);
                 });
-            }
-        });
-    });
+            });
+            group(ui, "Firewall list", |c| {
+                c.row(
+                    "Split \"NT Kernel & System\" by service",
+                    "Windows reports all kernel networking (file sharing, NetBIOS, discovery, HTTP.sys) as one program. This shows a row per service, told apart by port. Applies to new traffic.",
+                    |ui| {
+                        crate::widgets::small_toggle(ui, &mut s.split_kernel);
+                    },
+                );
+            });
+        }
+        1 => {
+            group(ui, "History", |c| {
+                c.row("Traffic history", "How long Live mode keeps traffic history.", |ui| {
+                    crate::widgets::num_field(ui, &mut s.retention_days, 1..=3650, " days");
+                });
+                c.row("Hardware history", "How long Live mode keeps hardware history (CPU, memory, disk, GPU).", |ui| {
+                    crate::widgets::num_field(ui, &mut s.hardware_history_hours, 1..=24 * 30, " hours");
+                });
+                c.enable(crate::sys::is_elevated());
+                c.row("DNS log", "Logs each program's DNS lookups (Network > DNS Log).", |ui| {
+                    crate::widgets::small_toggle(ui, &mut s.dns_log);
+                });
+                c.enable(crate::sys::is_elevated() && s.dns_log);
+                c.row("DNS log history", "How long the DNS log is kept. It stays on this PC; programs hidden in Settings > Privacy are left out.", |ui| {
+                    crate::widgets::num_field(ui, &mut s.dns_retention_days, 1..=365, " days");
+                });
+                c.enable(true);
+                // Demo mode keeps no history, so there is nothing to clear.
+                c.row("Clear traffic history", "Deletes the stored traffic history of Live mode. Alerts, apps and devices are kept.", |ui| {
+                    if ui.add_enabled(s.mode == Mode::Live, egui::Button::new("Clear…")).on_disabled_hover_text("Demo mode keeps no history").clicked() {
+                        *out = Outcome::Then(Confirm {
+                            title: "Clear traffic history?".into(),
+                            body: "Deletes the stored traffic history of Live mode. Alerts, apps and devices are kept.".into(),
+                            yes: "Clear history".into(),
+                            action: ConfirmAction::ClearHistory,
+                        });
+                    }
+                });
+            });
+        }
+        _ => {
+            group(ui, "Tamper protection", |c| {
+                let sub = if s.tamper_on() {
+                    "A password is set: opening Settings, Exit and Restart ask for it."
+                } else {
+                    "Set a password to lock Settings, Exit and Restart (shared or family PCs). It does not stop an administrator ending the process or the service."
+                };
+                let sub = if s.tamper_new.trim().is_empty() { sub.to_owned() } else { format!("{sub} Saved when you press Save.") };
+                c.row("Password", &sub, |ui| {
+                    if s.tamper_on() && ui.button("Remove").clicked() {
+                        s.tamper_hash.clear();
+                        s.tamper_new.clear();
+                    }
+                    let hint = if s.tamper_on() { "New password" } else { "Password" };
+                    ui.add(egui::TextEdit::singleline(&mut s.tamper_new).password(true).hint_text(hint).desired_width(200.0));
+                });
+            });
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -1945,21 +2127,6 @@ fn quotas_section(ui: &mut Ui, s: &mut Settings, ctx: &QuotaUi) {
 }
 
 fn scanner_section(ui: &mut Ui, s: &mut Settings) {
-    group(ui, "Network tabs", |c| {
-        c.row("Ping Monitor tab", "Shows the tab under Network and pings your hosts every 30 seconds.", |ui| {
-            crate::widgets::small_toggle(ui, &mut s.ping.show_tab);
-        });
-        c.row("Speedtest tab", "Shows the tab under Network. Runs Ookla's speedtest-cli; nothing is downloaded until you press the button on the tab.", |ui| {
-            crate::widgets::small_toggle(ui, &mut s.speedtest.show_tab);
-        });
-        c.enable(s.speedtest.show_tab);
-        c.row("Automatic speed tests", "Minutes between tests (0 = only when I press Run test).", |ui| {
-            crate::widgets::num_field(ui, &mut s.speedtest.interval_mins, 0..=1440, " min");
-        });
-        c.row("Speedtest server ID", "0 = closest.", |ui| {
-            crate::widgets::num_field(ui, &mut s.speedtest.server_id, 0..=99_999_999, "");
-        });
-    });
     group(ui, "Scanning", |c| {
         c.row("Scan automatically", "", |ui| {
             crate::widgets::small_toggle(ui, &mut s.auto_scan);
@@ -1977,181 +2144,225 @@ fn scanner_section(ui: &mut Ui, s: &mut Settings) {
 }
 
 fn threat_section(ui: &mut Ui, s: &mut Settings, lists: &ThreatLists, out: &mut Outcome) {
-    group(ui, "Malicious IPs", |c| {
-        c.row(
-            "Warn about malicious IPs",
-            "Warns when a program connects to a known malicious or botnet IP (downloads the lists below). Alert delivery is set under Alerts > Malicious IP protection.",
-            |ui| {
-                crate::widgets::small_toggle(ui, &mut s.threat_protect);
-            },
-        );
-        c.enable(s.threat_protect);
-        c.row("Block those addresses automatically", "", |ui| {
-            crate::widgets::small_toggle(ui, &mut s.threat_block);
-        });
-        c.row("Update the lists", "Hours between list updates.", |ui| {
-            crate::widgets::num_field(ui, &mut s.threat_update_hours, 1..=720, " hours");
-        });
-        c.block(|ui| {
-            ui.label("Blocklist URLs, one per line");
-            ui.add(egui::TextEdit::multiline(&mut s.threat_feeds).desired_rows(3).desired_width(f32::INFINITY));
-        });
-    });
-    group(ui, "Malicious domains", |c| {
-        c.row(
-            "Warn about malicious domains",
-            "Warns when a program looks up a known malicious domain (downloads the lists below; needs the DNS log). This only warns: RustWarden doesn't block names or change your DNS settings. Alert delivery is set under Alerts > Malicious domain alerts.",
-            |ui| {
-                crate::widgets::small_toggle(ui, &mut s.dns_block_alerts);
-            },
-        );
-        c.enable(s.dns_block_alerts);
-        c.row("Update the lists", "Hours between list updates.", |ui| {
-            crate::widgets::num_field(ui, &mut s.dns_block_update_hours, 1..=720, " hours");
-        });
-        c.block(|ui| {
-            ui.label("Domain list URLs, one per line (hosts files or plain names)");
-            ui.add(egui::TextEdit::multiline(&mut s.dns_block_feeds).desired_rows(3).desired_width(f32::INFINITY));
-        });
-    });
-    for (title, empty, list, buttons) in [
-        (
-            "Blocked addresses",
-            "None. A blocked address is listed here with Unblock and Whitelist buttons (the warning banner has them too). Unblocking makes the next connection raise a new warning that doesn't auto-block.",
-            &lists.0,
-            vec![("Unblock", ThreatAct::Unblock), ("Whitelist", ThreatAct::Whitelist)],
-        ),
-        ("Whitelisted addresses", "None. Whitelisted addresses are never warned about or blocked.", &lists.1, vec![("Remove", ThreatAct::Unwhitelist)]),
-    ] {
-        group(ui, title, |c| {
-            if list.is_empty() {
+    match page_tabs(ui, &["IP lists", "Domain lists", "Blocked & whitelisted"]) {
+        0 => {
+            group(ui, "Malicious IPs", |c| {
+                c.row(
+                    "Warn about malicious IPs",
+                    "Warns when a program connects to a known malicious or botnet IP (downloads the lists below). Alert delivery is set under Alerts > Malicious IP protection.",
+                    |ui| {
+                        crate::widgets::small_toggle(ui, &mut s.threat_protect);
+                    },
+                );
+                c.enable(s.threat_protect);
+                c.row("Block those addresses automatically", "", |ui| {
+                    crate::widgets::small_toggle(ui, &mut s.threat_block);
+                });
+                c.row("Update the lists", "Hours between list updates.", |ui| {
+                    crate::widgets::num_field(ui, &mut s.threat_update_hours, 1..=720, " hours");
+                });
                 c.block(|ui| {
-                    ui.weak(empty);
+                    ui.label("Blocklist URLs, one per line");
+                    ui.add(egui::TextEdit::multiline(&mut s.threat_feeds).desired_rows(3).desired_width(f32::INFINITY));
+                });
+            });
+        }
+        1 => {
+            group(ui, "Malicious domains", |c| {
+                c.row(
+                    "Warn about malicious domains",
+                    "Warns when a program looks up a known malicious domain (downloads the lists below; needs the DNS log). This only warns: RustWarden doesn't block names or change your DNS settings. Alert delivery is set under Alerts > Malicious domain alerts.",
+                    |ui| {
+                        crate::widgets::small_toggle(ui, &mut s.dns_block_alerts);
+                    },
+                );
+                c.enable(s.dns_block_alerts);
+                c.row("Update the lists", "Hours between list updates.", |ui| {
+                    crate::widgets::num_field(ui, &mut s.dns_block_update_hours, 1..=720, " hours");
+                });
+                c.block(|ui| {
+                    ui.label("Domain list URLs, one per line (hosts files or plain names)");
+                    ui.add(egui::TextEdit::multiline(&mut s.dns_block_feeds).desired_rows(3).desired_width(f32::INFINITY));
+                });
+            });
+        }
+        _ => {
+            for (title, empty, list, buttons) in [
+                (
+                    "Blocked addresses",
+                    "None. A blocked address is listed here with Unblock and Whitelist buttons (the warning banner has them too). Unblocking makes the next connection raise a new warning that doesn't auto-block.",
+                    &lists.0,
+                    vec![("Unblock", ThreatAct::Unblock), ("Whitelist", ThreatAct::Whitelist)],
+                ),
+                ("Whitelisted addresses", "None. Whitelisted addresses are never warned about or blocked.", &lists.1, vec![("Remove", ThreatAct::Unwhitelist)]),
+            ] {
+                group(ui, title, |c| {
+                    if list.is_empty() {
+                        c.block(|ui| {
+                            ui.weak(empty);
+                        });
+                    }
+                    for (ip, who) in list {
+                        c.row(ip, who, |ui| {
+                            for (label, act) in buttons.iter().rev() {
+                                if ui.button(*label).clicked() {
+                                    *out = Outcome::Then(Confirm {
+                                        title: format!("{label} {ip}?"),
+                                        body: match act {
+                                            ThreatAct::Unwhitelist => format!("{ip} will be warned about (and blocked, if auto-block is on) the next time a program connects to it."),
+                                            _ => format!(
+                                                "{ip} is on a malicious-IP list. {label} lets programs reach it again{}.",
+                                                if *act == ThreatAct::Whitelist { " and RustWarden will never warn about it again" } else { "" }
+                                            ),
+                                        },
+                                        yes: (*label).into(),
+                                        action: ConfirmAction::Threat { ip: ip.clone(), act: *act },
+                                    });
+                                }
+                            }
+                            if ui.button("Details").on_hover_text("Whois and blocklist details").clicked() {
+                                *out = Outcome::IpInfo(ip.clone());
+                            }
+                        });
+                    }
                 });
             }
-            for (ip, who) in list {
-                c.row(ip, who, |ui| {
-                    for (label, act) in buttons.iter().rev() {
-                        if ui.button(*label).clicked() {
-                            *out = Outcome::Then(Confirm {
-                                title: format!("{label} {ip}?"),
-                                body: match act {
-                                    ThreatAct::Unwhitelist => format!("{ip} will be warned about (and blocked, if auto-block is on) the next time a program connects to it."),
-                                    _ => format!(
-                                        "{ip} is on a malicious-IP list. {label} lets programs reach it again{}.",
-                                        if *act == ThreatAct::Whitelist { " and RustWarden will never warn about it again" } else { "" }
-                                    ),
-                                },
-                                yes: (*label).into(),
-                                action: ConfirmAction::Threat { ip: ip.clone(), act: *act },
-                            });
-                        }
-                    }
-                    if ui.button("Details").on_hover_text("Whois and blocklist details").clicked() {
-                        *out = Outcome::IpInfo(ip.clone());
-                    }
-                });
-            }
-        });
+        }
     }
 }
 
 fn firewall_section(ui: &mut Ui, s: &mut Settings, live: bool, profiles: &(Vec<String>, String), extras: &[(bool, bool)], out: &mut Outcome) {
-    group(ui, "Blocking", |c| {
-        c.row(
-            "Keep Prompt blocking when RustWarden is closed",
-            "New programs have no internet until you reopen RustWarden and answer; it asks about the programs it stopped on the next start. It switches on the Windows \"Filtering Platform Connection\" failure audit so blocked attempts are logged, and switches it off again when this is turned off.",
-            |ui| {
-                crate::widgets::small_toggle(ui, &mut s.keep_blocking_closed);
-            },
-        );
-        // Idle apps aren't cleaned: a blocked app sends nothing, so idle can't tell it from an unused one.
-        c.row("Remove block rules of uninstalled apps", "", |ui| {
-            crate::widgets::small_toggle(ui, &mut s.firewall_cleanup);
-        });
-        c.row("Wait before removing them", "Days after the app was uninstalled.", |ui| {
-            crate::widgets::num_field(ui, &mut s.cleanup_uninstalled_days, 1..=3650, " days");
-        });
-    });
-    if live {
-        group(ui, "Existing firewall rules", |c| {
-            for (label, rename, sub, body) in [
-                (
-                    "Import existing firewall rules…",
-                    false,
-                    "Lets RustWarden use the per-program rules another firewall app left in Windows Firewall; they show on the Firewall tab.",
-                    "Lets RustWarden use the per-program Windows Firewall rules another firewall app created: they show on the Firewall tab and can be changed here. Names are kept, so the app that made them still recognises them if it comes back.",
-                ),
-                (
-                    "Import and rename existing rules…",
-                    true,
-                    "Like importing, and the rules are renamed to RustWarden's naming. The app that made them will no longer recognise them.",
-                    "Like importing, but the rules are also renamed to RustWarden's naming. The app that made them will no longer recognise them.",
-                ),
-            ] {
-                c.row(label.trim_end_matches('…'), sub, |ui| {
-                    if ui.button("Choose…").clicked() {
-                        *out = Outcome::Then(Confirm { title: label.trim_end_matches('…').into(), body: body.into(), yes: "Import rules".into(), action: ConfirmAction::ImportRules { rename } });
-                    }
-                });
-            }
-        });
-        group(ui, "Windows components", |c| {
-            use crate::live::firewall::ExtrasAct;
-            c.row("Block Windows components that don't need internet", "Makes block rules for background components Windows doesn't need online.", |ui| {
-                if ui.button("Block…").clicked() {
-                    *out = Outcome::Then(Confirm {
-                        title: "Block Windows components?".into(),
-                        body: crate::live::windows_extras::description(),
-                        yes: "Block them".into(),
-                        action: ConfirmAction::BlockWindowsExtras,
-                    });
-                }
-            });
-            for (i, g) in crate::live::windows_extras::GROUPS.iter().enumerate() {
-                let (has, paused) = extras.get(i).copied().unwrap_or_default();
-                let sub = if !has {
-                    "Not blocked yet."
-                } else if paused {
-                    "Paused."
-                } else {
-                    "Blocked."
-                };
-                c.row(g.title, sub, |ui| {
-                    // Pause turns into Resume; Unblock removes the rules, so both buttons then disappear.
-                    for (label, act, body, shown) in [
-                        ("Unblock", ExtrasAct::Unblock, "Deletes the rules this feature made for this group. Blocks you set yourself on the Firewall tab are not touched.", has),
-                        ("Resume", ExtrasAct::Resume, "Switches the paused rules back on.", has && paused),
-                        ("Pause", ExtrasAct::Pause, "Switches these rules off so the programs can use the internet again. The rules are kept; Resume switches them back on.", has && !paused),
-                    ] {
-                        if shown && ui.button(label).clicked() {
-                            *out = Outcome::Then(Confirm { title: format!("{label}: {}", g.title), body: body.into(), yes: label.into(), action: ConfirmAction::WindowsExtras { group: i, act } });
-                        }
-                    }
-                });
-            }
-            c.row("Repeat that automatically", "Covers programs Windows Update reinstalled. Starts after you have used the button once.", |ui| {
-                crate::widgets::small_toggle(ui, &mut s.block_windows_auto);
-            });
-            c.enable(s.block_windows_auto);
-            c.row("Hours between repeats", "24 suits most; 48 if you update rarely.", |ui| {
-                crate::widgets::num_field(ui, &mut s.block_windows_hours, 1..=720, " hours");
-            });
-        });
-        group(ui, "", |c| {
-            c.row("Restore firewall defaults", "Deletes every Windows Firewall rule that RustWarden created (the \"RustWarden\" group) and nothing else.", |ui| {
-                if ui.button("Restore…").clicked() {
-                    *out = Outcome::Then(Confirm {
-                        title: "Restore firewall defaults?".into(),
-                        body: "This deletes every Windows Firewall rule that RustWarden created (the \"RustWarden\" group) and nothing else.".into(),
-                        yes: "Remove RustWarden rules".into(),
-                        action: ConfirmAction::RestoreDefaults,
-                    });
-                }
-            });
-        });
+    // Arriving from the Firewall tab's ruleset button opens the Rulesets tab.
+    let flash = egui::Id::NULL.with("flash_rulesets");
+    if ui.data(|d| d.get_temp::<f64>(flash).is_some() && d.get_temp::<bool>(flash.with("done")).is_none()) {
+        ui.data_mut(|d| d.insert_temp(page_tab_id(), 2_usize));
     }
-    profiles_section(ui, profiles, out);
+    match page_tabs(ui, &["Blocking", "Windows components", "Rulesets", "Advanced"]) {
+        0 => {
+            group(ui, "Blocking", |c| {
+                c.row(
+                "Keep Prompt blocking when RustWarden is closed",
+                "New programs have no internet until you reopen RustWarden and answer; it asks about the programs it stopped on the next start. It switches on the Windows \"Filtering Platform Connection\" failure audit so blocked attempts are logged, and switches it off again when this is turned off.",
+                |ui| {
+                    crate::widgets::small_toggle(ui, &mut s.keep_blocking_closed);
+                },
+            );
+                // Idle apps aren't cleaned: a blocked app sends nothing, so idle can't tell it from an unused one.
+                c.row("Remove block rules of uninstalled apps", "", |ui| {
+                    crate::widgets::small_toggle(ui, &mut s.firewall_cleanup);
+                });
+                c.row("Wait before removing them", "Days after the app was uninstalled.", |ui| {
+                    crate::widgets::num_field(ui, &mut s.cleanup_uninstalled_days, 1..=3650, " days");
+                });
+            });
+            if live {
+                group(ui, "Existing firewall rules", |c| {
+                    for (label, rename, sub, body) in [
+                        (
+                            "Import existing firewall rules…",
+                            false,
+                            "Lets RustWarden use the per-program rules another firewall app left in Windows Firewall; they show on the Firewall tab.",
+                            "Lets RustWarden use the per-program Windows Firewall rules another firewall app created: they show on the Firewall tab and can be changed here. Names are kept, so the app that made them still recognises them if it comes back.",
+                        ),
+                        (
+                            "Import and rename existing rules…",
+                            true,
+                            "Like importing, and the rules are renamed to RustWarden's naming. The app that made them will no longer recognise them.",
+                            "Like importing, but the rules are also renamed to RustWarden's naming. The app that made them will no longer recognise them.",
+                        ),
+                    ] {
+                        c.row(label.trim_end_matches('…'), sub, |ui| {
+                            if ui.button("Choose…").clicked() {
+                                *out =
+                                    Outcome::Then(Confirm {
+                                        title: label.trim_end_matches('…').into(), body: body.into(), yes: "Import rules".into(), action: ConfirmAction::ImportRules { rename }
+                                    });
+                            }
+                        });
+                    }
+                });
+            }
+        }
+        1 if live => {
+            group(ui, "Windows components", |c| {
+                use crate::live::firewall::ExtrasAct;
+                c.row("Block Windows components that don't need internet", "Makes block rules for background components Windows doesn't need online.", |ui| {
+                    if ui.button("Block…").clicked() {
+                        *out = Outcome::Then(Confirm {
+                            title: "Block Windows components?".into(),
+                            body: crate::live::windows_extras::description(),
+                            yes: "Block them".into(),
+                            action: ConfirmAction::BlockWindowsExtras,
+                        });
+                    }
+                });
+                for (i, g) in crate::live::windows_extras::GROUPS.iter().enumerate() {
+                    let (has, paused) = extras.get(i).copied().unwrap_or_default();
+                    let sub = if !has {
+                        "Not blocked yet."
+                    } else if paused {
+                        "Paused."
+                    } else {
+                        "Blocked."
+                    };
+                    c.row(g.title, sub, |ui| {
+                        // Pause turns into Resume; Unblock removes the rules, so both buttons then disappear.
+                        for (label, act, body, shown) in [
+                            ("Unblock", ExtrasAct::Unblock, "Deletes the rules this feature made for this group. Blocks you set yourself on the Firewall tab are not touched.", has),
+                            ("Resume", ExtrasAct::Resume, "Switches the paused rules back on.", has && paused),
+                            ("Pause", ExtrasAct::Pause, "Switches these rules off so the programs can use the internet again. The rules are kept; Resume switches them back on.", has && !paused),
+                        ] {
+                            if shown && ui.button(label).clicked() {
+                                *out = Outcome::Then(Confirm { title: format!("{label}: {}", g.title), body: body.into(), yes: label.into(), action: ConfirmAction::WindowsExtras { group: i, act } });
+                            }
+                        }
+                    });
+                }
+                c.row("Repeat that automatically", "Covers programs Windows Update reinstalled. Starts after you have used the button once.", |ui| {
+                    crate::widgets::small_toggle(ui, &mut s.block_windows_auto);
+                });
+                c.enable(s.block_windows_auto);
+                c.row("Hours between repeats", "24 suits most; 48 if you update rarely.", |ui| {
+                    crate::widgets::num_field(ui, &mut s.block_windows_hours, 1..=720, " hours");
+                });
+            });
+        }
+        1 => {
+            ui.weak("Available in Live mode.");
+        }
+        2 => profiles_section(ui, profiles, out),
+        _ => {
+            group(ui, "", |c| {
+                c.row(
+                    "Let RustWarden's own downloads through the firewall",
+                    "While RustWarden runs its own curl, PowerShell or speed test helper (updates, lookups, downloads), that helper is allowed online for a few minutes even if a rule blocks it. Any rule switched off is switched back on afterwards, when RustWarden closes, or by Restore firewall defaults. Needs administrator rights.",
+                    |ui| crate::widgets::small_toggle(ui, &mut s.allow_helper_tools),
+                );
+                // Needs the driver itself, not just Driver mode.
+                if s.app_mode == crate::settings::AppMode::Driver && crate::driver::ready() {
+                    c.row("Force DNS through my resolver", "Sends every program's DNS lookups (port 53) to the resolver below, whatever server they were aimed at, and makes the answers look as if the original server gave them. This closes DNS leaks. IPv4 and plain DNS only: encrypted DNS is not touched. The resolver must be reachable on your normal connection.", |ui| {
+                    crate::widgets::small_toggle(ui, &mut s.dns_enforce);
+                    ui.add_enabled(s.dns_enforce, egui::TextEdit::singleline(&mut s.dns_resolver).hint_text("1.1.1.1").desired_width(130.0));
+                    if s.dns_enforce && crate::live::dnsguard::parse_resolver(&s.dns_resolver).is_err() {
+                        ui.colored_label(ui.visuals().warn_fg_color, "Enter an IPv4 address");
+                    }
+                });
+                }
+                if live {
+                    c.row("Restore firewall defaults", "Deletes every Windows Firewall rule that RustWarden created (the \"RustWarden\" group) and nothing else.", |ui| {
+                        if ui.button("Restore…").clicked() {
+                            *out = Outcome::Then(Confirm {
+                                title: "Restore firewall defaults?".into(),
+                                body: "This deletes every Windows Firewall rule that RustWarden created (the \"RustWarden\" group) and nothing else.".into(),
+                                yes: "Remove RustWarden rules".into(),
+                                action: ConfirmAction::RestoreDefaults,
+                            });
+                        }
+                    });
+                }
+            });
+        }
+    }
 }
 
 /// Firewall rulesets: switch to one, create one, or delete one. The active and the only ruleset can't be deleted.
@@ -2227,18 +2438,23 @@ fn profiles_card(ui: &mut Ui, names: &[String], active: &str, pick: &str, id: eg
     ui.data_mut(|d| d.insert_temp(id, pick));
 }
 
-fn privacy_tab_id() -> egui::Id {
-    egui::Id::NULL.with("privacy_tab")
+/// The selected tab of the open Settings page; the sidebar resets it whenever another page is opened.
+fn page_tab_id() -> egui::Id {
+    egui::Id::NULL.with("settings_page_tab")
 }
 
-/// Incognito / Hidden Apps tabs; the sidebar resets the tab to Incognito whenever Privacy is opened.
-fn privacy_section(ui: &mut Ui, s: &mut Settings, p2p: &[crate::data::P2pApp]) {
-    let mut tab: usize = ui.data_mut(|d| d.get_temp(privacy_tab_id()).unwrap_or(0));
+/// Tabs across the top of a Settings page, so a long page is split instead of scrolled. Returns the selected one.
+fn page_tabs(ui: &mut Ui, labels: &[&str]) -> usize {
+    let mut tab: usize = ui.data_mut(|d| d.get_temp(page_tab_id()).unwrap_or(0)).min(labels.len() - 1);
     ui.horizontal(|ui| {
-        crate::widgets::segmented_text(ui, &mut tab, &["Incognito", "Hidden Apps", "VPN", "P2P"]);
+        crate::widgets::segmented_text(ui, &mut tab, labels);
     });
-    ui.data_mut(|d| d.insert_temp(privacy_tab_id(), tab));
-    match tab {
+    ui.data_mut(|d| d.insert_temp(page_tab_id(), tab));
+    tab
+}
+
+fn privacy_section(ui: &mut Ui, s: &mut Settings, p2p: &[crate::data::P2pApp]) {
+    match page_tabs(ui, &["Incognito", "Hidden Apps", "VPN", "P2P"]) {
         0 => incognito_section(ui, s),
         1 => hidden_section(ui, s),
         2 => vpn_section(ui, s),
@@ -2341,7 +2557,24 @@ fn name_list(ui: &mut Ui, title: &str, hint: &str, items: &[String], button: &st
 }
 
 fn vpn_section(ui: &mut Ui, s: &mut Settings) {
-    group(ui, "", |c| {
+    group(ui, "Leak protection", |c| {
+        c.row(
+            "VPN kill switch",
+            "While a VPN is connected, blocks everything except your local network and the VPN's own server on your real network cards, so nothing can leave outside the tunnel. If the VPN drops, the block stays and the internet is cut until it reconnects. It switches itself on the first time it sees a VPN connected (a VPN such as PIA only creates its adapter when you press Connect), and turning it off lifts it. Use \"Let the VPN connect\" for two minutes to reach a new server. Needs administrator rights.",
+            |ui| {
+                crate::widgets::small_toggle(ui, &mut s.vpn_kill_switch);
+                if ui.add_enabled(s.vpn_kill_switch, egui::Button::new("Let the VPN connect")).on_hover_text("Opens the network for two minutes").clicked() {
+                    crate::live::guard::release();
+                }
+            },
+        );
+        c.row(
+            "Block DNS-over-HTTPS resolvers",
+            "Blocks encrypted DNS (HTTPS and DNS-over-TLS, ports 443 and 853) to well-known public resolvers such as Google, Cloudflare, Quad9, OpenDNS, AdGuard and NextDNS, so browsers that bypass the system's DNS fall back to it, where domain blocks and the DNS log can see the lookups. Plain DNS is not touched. Needs administrator rights.",
+            |ui| crate::widgets::small_toggle(ui, &mut s.block_doh),
+        );
+    });
+    group(ui, "Traffic counting", |c| {
         c.row(
             "Don't count VPN tunnel traffic while a VPN is connected",
             "A VPN client's encrypted traffic duplicates what your apps send through it, so it would top the list. Your apps' own traffic is still counted. Built-in clients (OpenVPN, WireGuard, NordVPN, ExpressVPN, Proton, Mullvad, Tailscale...) are covered; add others by executable name.",
@@ -2409,90 +2642,172 @@ fn download_job(ui: &Ui, id: egui::Id, start: Option<(std::path::PathBuf, &'stat
     (Some(job.pct.load(Ordering::Relaxed) as f32 / 100.0), None)
 }
 
-/// One downloadable database: its name, where it is installed, when it was downloaded (the file's
-/// modified time), and a button with a progress bar. True the frame a download finishes successfully.
-fn db_row(ui: &mut Ui, name: &str, path: &std::path::Path, edition: &'static str, id: egui::Id, ok_msg: &str) -> bool {
-    let (mut prog, done) = download_job(ui, id, None);
-    let mut ok = false;
-    if let Some(r) = done {
-        ok = r.is_ok();
-        ui.data_mut(|d| d.insert_temp(id.with("msg"), r.err().unwrap_or_else(|| ok_msg.to_owned())));
+fn dl_id(edition: &str) -> egui::Id {
+    egui::Id::unique(("db_download", edition))
+}
+
+/// Progress of a batch of downloads, weighted by size: `(MB, progress)` per file, `None` once it has finished.
+fn overall_progress(parts: &[(u32, Option<f32>)]) -> f32 {
+    let total: u32 = parts.iter().map(|p| p.0).sum();
+    if total == 0 {
+        return 1.0;
     }
-    let stamp = std::fs::metadata(path).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| crate::clock::fmt_stamp(d.as_secs() as i64));
-    tight(ui, |ui| {
-        ui.label(egui::RichText::new(name).strong());
-        ui.label(format!("Installed at: {}", path.display()));
-        ui.label(format!("Downloaded: {}", stamp.as_deref().unwrap_or("Not downloaded")));
-    });
-    ui.horizontal(|ui| {
-        let label = if prog.is_some() {
-            "Downloading…"
-        } else if stamp.is_some() {
-            "Update"
-        } else {
-            "Download"
+    parts.iter().map(|&(mb, p)| mb as f32 * p.unwrap_or(1.0)).sum::<f32>() / total as f32
+}
+
+/// The databases in `editions`, one line each, with Download buttons that confirm in a popup and one
+/// progress bar for the whole batch. Shared by Settings > Countries & Network and the first-run wizard.
+/// Downloading the country database also points the draft at it.
+pub(super) fn databases_panel(ui: &mut Ui, s: &mut Settings, editions: &[&'static str]) {
+    use crate::live::geo;
+    let want: Vec<&geo::DbInfo> = geo::DATABASES.iter().filter(|d| editions.contains(&d.edition)).collect();
+    // What the overall bar covers, and the batch waiting for confirmation; global so both callers agree.
+    let batch_id = egui::Id::unique("db_batch");
+    let ask_id = egui::Id::unique("db_confirm");
+    let mut batch: Vec<&'static str> = ui.data(|d| d.get_temp(batch_id)).unwrap_or_default();
+    let mut ask: Option<Vec<&'static str>> = ui.data(|d| d.get_temp(ask_id)).flatten();
+    let mut parts = Vec::new();
+    let mut busy = false;
+    for d in &want {
+        let id = dl_id(d.edition);
+        let path = geo::db_path(d.edition);
+        let (prog, done) = download_job(ui, id, None);
+        if let Some(r) = done {
+            if r.is_ok() && d.edition == "country" {
+                let p = path.to_string_lossy().into_owned();
+                s.geo_db_path = Some(p.clone());
+                // Also remembered outside the draft, so Cancel doesn't leave the file downloaded but unused.
+                ui.data_mut(|x| x.insert_temp(egui::Id::unique("geo_downloaded"), p));
+            }
+            ui.data_mut(|x| x.insert_temp(id.with("msg"), r.err().unwrap_or_default()));
+        }
+        busy |= prog.is_some();
+        if batch.contains(&d.edition) {
+            parts.push((d.mb, prog));
+        }
+        let stamp = std::fs::metadata(&path).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|x| crate::clock::fmt_stamp(x.as_secs() as i64));
+        let err = ui.data(|x| x.get_temp::<String>(id.with("msg"))).filter(|m| !m.is_empty());
+        let status = match (prog, err, &stamp) {
+            (Some(_), _, _) => "Downloading…".to_owned(),
+            (None, Some(e), _) => format!("Failed: {e}"),
+            (None, None, Some(t)) => format!("Downloaded {t}"),
+            (None, None, None) => "Not downloaded".to_owned(),
         };
-        if ui.add_enabled(prog.is_none(), egui::Button::new(label)).clicked() {
-            ui.data_mut(|d| d.remove_temp::<String>(id.with("msg")));
-            prog = download_job(ui, id, Some((path.to_path_buf(), edition))).0;
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(d.name).strong()).on_hover_text(path.display().to_string());
+            ui.weak(format!("{} MB, {}", d.mb, d.used_for));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.add_enabled(prog.is_none(), egui::Button::new(if stamp.is_some() { "Update" } else { "Download" })).clicked() {
+                    ask = Some(vec![d.edition]);
+                }
+                ui.weak(status);
+            });
+        });
+    }
+    ui.horizontal(|ui| {
+        let missing: Vec<&'static str> = want.iter().filter(|d| !geo::db_path(d.edition).exists()).map(|d| d.edition).collect();
+        let (label, pick) = if missing.is_empty() { ("Update all", want.iter().map(|d| d.edition).collect()) } else { ("Download", missing) };
+        if ui.add_enabled(!busy && !want.is_empty(), egui::Button::new(label)).clicked() {
+            ask = Some(pick);
         }
-        if let Some(p) = prog {
-            ui.add(egui::ProgressBar::new(p).desired_width(160.0).show_percentage());
-        } else if let Some(msg) = ui.data(|d| d.get_temp::<String>(id.with("msg"))) {
-            ui.label(msg);
+        if busy && !parts.is_empty() {
+            ui.add(egui::ProgressBar::new(overall_progress(&parts)).desired_width(ui.available_width()).show_percentage());
         }
     });
-    ok
+    if !busy {
+        batch.clear();
+    }
+    if let Some(pick) = ask.clone() {
+        let size: u32 = want.iter().filter(|d| pick.contains(&d.edition)).map(|d| d.mb).sum();
+        let r = egui::Modal::new(ask_id.with("modal")).show(ui.ctx(), |ui| {
+            ui.set_width(360.0);
+            ui.label(egui::RichText::new(format!("Download about {size} MB?")).strong());
+            for d in want.iter().filter(|d| pick.contains(&d.edition)) {
+                ui.label(format!("• {} ({} MB)", d.name, d.mb));
+            }
+            ui.weak("From db-ip.com over HTTPS (free Lite editions, CC BY 4.0). Nothing about you is sent. A database already in use updates after a restart.");
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                if ui.button("Download").clicked() {
+                    for &e in &pick {
+                        let id = dl_id(e);
+                        if download_job(ui, id, None).0.is_none() {
+                            ui.data_mut(|x| x.remove_temp::<String>(id.with("msg")));
+                            download_job(ui, id, Some((geo::db_path(e), e)));
+                        }
+                        if !batch.contains(&e) {
+                            batch.push(e);
+                        }
+                    }
+                    ask = None;
+                }
+                if ui.button("Cancel").clicked() {
+                    ask = None;
+                }
+            });
+        });
+        if r.should_close() {
+            ask = None;
+        }
+    }
+    ui.data_mut(|d| {
+        d.insert_temp(batch_id, batch);
+        d.insert_temp(ask_id, ask);
+    });
 }
 
 fn countries_section(ui: &mut Ui, s: &mut Settings) {
-    ui.label("Databases used to show flags, map locations and AS numbers. Any MaxMind GeoLite2/GeoIP2 or DB-IP country or city file works.");
-    let dest = crate::live::geo::default_db_path();
-    group(ui, "Country database", |c| {
-        c.row("Custom country database (.mmdb)", "Leave empty to use the downloaded one.", |ui| {
-            let mut path = s.geo_db_path.clone().unwrap_or_default();
-            if ui.add(egui::TextEdit::singleline(&mut path).desired_width(240.0)).changed() {
-                s.geo_db_path = (!path.trim().is_empty()).then(|| path.trim().to_owned());
-            }
-        });
-        c.block(|ui| {
-            let slot_id = ui.scope_id().with("geo_download");
-            if db_row(ui, "Country database", &dest, "country", slot_id, "Downloaded. Flags appear within a few seconds.") {
-                let path = dest.to_string_lossy().into_owned();
-                s.geo_db_path = Some(path.clone());
-                // Also remembered outside the draft, so Cancel doesn't leave the file downloaded but unused.
-                ui.data_mut(|d| d.insert_temp(egui::Id::unique("geo_downloaded"), path));
-            }
+    const TABS: [&str; 3] = ["Downloads", "Geolocation", "Lookups"];
+    let tab_id = ui.scope_id().with("countries_tab");
+    let mut tab: usize = ui.data(|d| d.get_temp(tab_id)).unwrap_or(0);
+    ui.horizontal(|ui| {
+        for (i, name) in TABS.iter().enumerate() {
+            ui.selectable_value(&mut tab, i, *name);
+        }
+    });
+    ui.data_mut(|d| d.insert_temp(tab_id, tab));
+    match tab {
+        0 => {
+            ui.label("The databases that show flags, map locations and AS numbers. Any MaxMind GeoLite2/GeoIP2 or DB-IP country or city file also works (see Geolocation).");
+            group(ui, "Databases", |c| {
+                c.block(|ui| databases_panel(ui, s, &["country", "city", "asn"]));
+            });
+            group(ui, "", |c| {
+                c.row("Keep downloaded databases up to date", "", |ui| {
+                    crate::widgets::small_toggle(ui, &mut s.geo_auto_update);
+                });
+                c.enable(s.geo_auto_update);
+                c.row("Update the databases", "Hours between updates. DB-IP publishes once a month.", |ui| {
+                    crate::widgets::num_field(ui, &mut s.geo_update_hours, 1..=720, " hours");
+                });
+            });
+            ui.add_space(4.0);
             link(ui, "IP geolocation by DB-IP (CC BY 4.0)", "https://db-ip.com");
-        });
-    });
+        }
+        1 => {
+            group(ui, "Country database", |c| {
+                c.row("Custom country database (.mmdb)", "Leave empty to use the downloaded one.", |ui| {
+                    let mut path = s.geo_db_path.clone().unwrap_or_default();
+                    if ui.add(egui::TextEdit::singleline(&mut path).desired_width(240.0)).changed() {
+                        s.geo_db_path = (!path.trim().is_empty()).then(|| path.trim().to_owned());
+                    }
+                });
+            });
+            group(ui, "City database", |c| {
+                c.row(
+                    "Use the city database on the map",
+                    "Places connections at their city instead of the middle of the country; nearby ones still merge when zoomed out (about 130 MB in memory).",
+                    |ui| {
+                        crate::widgets::small_toggle(ui, &mut s.geoip_city);
+                    },
+                );
+            });
+        }
+        _ => lookups_section(ui, s),
+    }
+}
 
-    group(ui, "City database", |c| {
-        c.row("Use the city database on the map", "Places connections at their city instead of the middle of the country; nearby ones still merge when zoomed out (about 130 MB in memory).", |ui| {
-            crate::widgets::small_toggle(ui, &mut s.geoip_city);
-        });
-        c.block(|ui| {
-            db_row(
-                ui,
-                "City database",
-                &crate::live::geo::city_db_path(),
-                "city",
-                ui.scope_id().with("geo_city_download"),
-                "Downloaded. If it was already in use, restart RustWarden to load the update.",
-            );
-        });
-    });
-
-    group(ui, "ASN database", |c| {
-        c.block(|ui| {
-            ui.label("Only needed for destination rules on an AS number.");
-            db_row(ui, "ASN database", &crate::live::geo::asn_db_path(), "asn", ui.scope_id().with("geo_asn_download"), "Downloaded.");
-        });
-        c.row("Keep downloaded databases up to date", "Checked every few hours; replaced when over a month old.", |ui| {
-            crate::widgets::small_toggle(ui, &mut s.geo_auto_update);
-        });
-    });
-
+fn lookups_section(ui: &mut Ui, s: &mut Settings) {
     group(ui, "AS number and company", |c| {
         c.row("Lookup service", "Shows e.g. \"AS15169 · Google LLC\" for remote addresses. The address is sent to the service you pick; Off sends nothing.", |ui| {
             egui::ComboBox::from_id_salt("net_info_source").selected_text(s.net_info.label()).icon(crate::widgets::combo_icon).show_ui(ui, |ui| {
@@ -2568,7 +2883,7 @@ pub fn virustotal_upload_confirm(key: &str, name: &str, path: &str) -> Confirm {
     Confirm {
         title: format!("Upload {name} to VirusTotal?"),
         body: format!(
-            "{path}\n\nVirusTotal has never seen this file. Uploading sends the file itself, not just its hash, to VirusTotal. It is shared with security vendors and may be kept and visible to others who search for it. Do not upload private, confidential or licensed software.\n\nOnly this file is uploaded (up to 32 MB). RustWarden never uploads files on its own."
+            "{path}\n\nVirusTotal has never seen this file. Uploading sends the file itself, not just its hash, to VirusTotal. It is shared with security vendors and may be kept and visible to others who search for it. Do not upload private, confidential or licensed software.\n\nOnly this file is uploaded (up to 650 MB). RustWarden never uploads files on its own."
         ),
         yes: "Upload this file".into(),
         action: ConfirmAction::VirusTotalUpload { key: key.to_owned() },
@@ -2640,4 +2955,18 @@ fn labelled(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui)) {
         ui.label(egui::RichText::new(label).font(theme::font(12.5)).color(theme::text_dim()));
         add(ui);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::overall_progress;
+
+    #[test]
+    fn the_download_bar_is_weighted_by_size() {
+        // Country (5 MB) done, city (120 MB) half way: mostly the city's progress.
+        let p = overall_progress(&[(5, None), (120, Some(0.5))]);
+        assert!((p - (5.0 + 60.0) / 125.0).abs() < 1e-6);
+        assert_eq!(overall_progress(&[(8, None)]), 1.0);
+        assert_eq!(overall_progress(&[]), 1.0);
+    }
 }
