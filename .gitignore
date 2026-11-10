@@ -31,3 +31,6 @@ graphify-out/cache/
 graphify-out/.graphify_*
 graphify-out/*.sig
 graphify-out/graph.html
+
+# MkDocs build output (mkdocs build / serve)
+/site

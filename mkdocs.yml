@@ -1,0 +1,92 @@
+site_name: RustWarden user guide
+site_description: How to use RustWarden, the network monitor and firewall front-end for Windows.
+site_url: https://rustwarden.github.io/RustWarden/
+repo_url: https://github.com/rustwarden/RustWarden
+repo_name: rustwarden/RustWarden
+edit_uri: edit/main/docs/
+docs_dir: docs
+
+# Broken links and #anchors fail the strict build.
+validation:
+  links:
+    anchors: warn
+
+theme:
+  name: material
+  logo: assets/icon.png
+  favicon: assets/icon.png
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Installing and first run: getting-started/install.md
+      - Key ideas: getting-started/concepts.md
+      - The window: getting-started/interface.md
+  - Traffic: traffic.md
+  - Firewall:
+      - firewall/index.md
+      - Live Connections: firewall/live-connections.md
+      - Destination Rules: firewall/destination-rules.md
+      - Limits / QoS: firewall/limits-qos.md
+      - "Rescue: remove every rule": firewall/rescue.md
+  - Alerts:
+      - alerts/index.md
+      - Alert types: alerts/alert-types.md
+      - Alert rules: alerts/alert-rules.md
+  - Network:
+      - Network Scanner: network/scanner.md
+      - DNS Log: network/dns-log.md
+      - Ping Monitor and Speedtest: network/ping-speedtest.md
+  - Hardware: hardware.md
+  - Protection:
+      - Malicious IPs and domains: protection/malicious-ip.md
+      - VirusTotal: protection/virustotal.md
+      - Privacy and VPN: protection/privacy-vpn.md
+      - Data plan and quotas: protection/quotas.md
+      - Behaviour baseline: protection/baseline.md
+      - Countries and lookups: protection/countries.md
+  - Driver mode: driver-mode.md
+  - Plugins:
+      - plugins/index.md
+      - Built-in plugins: plugins/built-in.md
+      - Notifications: plugins/notifications.md
+  - Settings reference: settings.md
+  - Updates, backup and upkeep: maintenance.md
+  - Troubleshooting and FAQ: troubleshooting.md

@@ -29,26 +29,26 @@ A fast, native Windows network monitor and firewall front-end, written in Rust.
 - **Watch your connection and PC:** speedtest, ping monitor and hardware history.
 - **Fits your setup:** Home Assistant, Prometheus and webhook notifications.
 
-See **[FEATURES.md](FEATURES.md)** for the full list.
+See **[FEATURES.md](FEATURES.md)** for the full list, and the **[user guide](https://rustwarden.github.io/RustWarden/)** for how each feature works.
 
 ### Built to be safe
 - **Local first.** Anything that talks to the internet is off until you turn it on, and secrets are stored encrypted with Windows DPAPI.
 - **Reversible.** Every firewall rule and QoS policy RustWarden creates is tagged as its own, and one button (or `rustwarden --remove-all-rules`) removes them all.
 
-[Download](#download) | [Build from source](#build-from-source) | [All features](FEATURES.md) | [Rescue: remove all rules](#rescue-remove-every-rustwarden-firewall-rule)
+[Download](#download) | [Build from source](#build-from-source) | [User guide](https://rustwarden.github.io/RustWarden/) | [All features](FEATURES.md) | [Rescue: remove all rules](#rescue-remove-every-rustwarden-firewall-rule)
 
 ---
 
 ## Rescue: remove every RustWarden firewall rule
 
-If a block goes wrong and the app can't be opened, `RustWarden.exe --remove-all-rules` removes every Windows Firewall rule RustWarden owns (and undoes Block All), then exits. It opens no window, so it can run from a scheduled task:
+If a block goes wrong and the app can't be opened, `RustWarden.exe --remove-all-rules` removes every Windows Firewall rule and QoS policy RustWarden owns (and undoes Block All), then exits. It opens no window, so it can run from a scheduled task:
 
 ```
 schtasks /create /tn "RustWarden rescue" /sc once /st 00:00 /rl highest /ru SYSTEM /tr "\"C:\Program Files\RustWarden\RustWarden.exe\" --remove-all-rules"
 schtasks /run /tn "RustWarden rescue"
 ```
 
-Rules RustWarden doesn't own (Windows', other firewalls') are never touched. Rules RustWarden imported from another firewall app are handed back to it, not deleted. Each removal is written to `%LOCALAPPDATA%\RustWarden\rescue.log`, and the run's output shows in a terminal you started it from. Exit codes: 0 done, 1 some rules could not be removed, 2 not run as administrator (nothing was changed). Adjust the path to where `RustWarden.exe` lives. QoS policies are not covered because RustWarden doesn't create any.
+Rules RustWarden doesn't own (Windows', other firewalls') are never touched. Rules RustWarden imported from another firewall app are handed back to it, not deleted. Each removal is written to `%LOCALAPPDATA%\RustWarden\rescue.log`, and the run's output shows in a terminal you started it from. Exit codes: 0 done, 1 some rules could not be removed, 2 not run as administrator (nothing was changed). Adjust the path to where `RustWarden.exe` lives.
 
 ## Download
 
@@ -80,7 +80,8 @@ Use **Settings > Other > Use demo data** to switch to Demo mode.
 | `src/demo.rs` | Demo data backend |
 | `src/plugins/` | Plugins: the registry, the `.wasm` plugin host and manager, and the built-in Home Assistant, Ping Monitor, Speedtest, VirusTotal and External Notifications plugins |
 | `assets/` | Logo, icons, flags, world map data, OUI vendor table |
-| `.github/` | Release workflow (nightly build and publish) |
+| `docs/` | The user guide (MkDocs, published to GitHub Pages by `.github/workflows/docs.yml`) |
+| `.github/` | Release workflow (nightly build and publish) and the docs workflow |
 
 See [FEATURES.md](FEATURES.md) for the feature list and [changes.md](changes.md) for the full feature log.
 
