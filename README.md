@@ -12,6 +12,8 @@ A fast, native Windows network monitor and firewall front-end, written in Rust.
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4?logo=windows)
 ![UI](https://img.shields.io/badge/UI-egui-blueviolet)
 
+📖 **Documentation: [rustwarden.github.io/RustWarden](https://rustwarden.github.io/RustWarden/)**, a full user guide to every feature.
+
 </div>
 
 ![RustWarden main window](docs/screenshots/traffic.png)
