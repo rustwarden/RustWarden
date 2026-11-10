@@ -6,7 +6,7 @@ RustWarden is a network monitor and firewall front-end for Windows 10 and 11. It
 
 ![RustWarden main window](screenshots/traffic.png)
 
-*All screenshots in this guide come from Demo mode, so none of the data is from a real PC.*
+*Most screenshots in this guide come from Demo mode, which shows made-up data.*
 
 ## Where to start
 

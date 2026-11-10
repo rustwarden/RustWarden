@@ -49,14 +49,25 @@ Both are written only when you click them, and only to a file you choose.
 
 ## Map view
 
-![Traffic map](screenshots/traffic-map.png)
+![Map view: lines from Home to each destination, with numbered bubbles per city](screenshots/map-view.png)
 
-An interactive world map with a bubble per country, sized by traffic.
+*The Map view in Live mode with the city database on, over the last 10 minutes.*
 
-- Nearby bubbles **cluster** when you zoom out and split apart when you zoom in. Scroll to zoom, drag to pan.
+An interactive world map showing where your traffic goes.
+
+- **Lines** run from your **Home** marker (the green dot) to each destination, with dots moving along them while traffic flows. Lines leaving in nearly the same direction are spread apart so they don't lie on top of each other.
+- **Numbered bubbles** show how many destinations are in that place. With the [city database](protection/countries.md#geolocation) switched on, bubbles sit on cities (Dublin, Paris, Frankfurt am Main…). Without it they sit in the middle of each country. Nearby bubbles **cluster** when you zoom out and split apart when you zoom in.
+- A **red** bubble, or a red dot on a bubble's corner, marks **blocked** attempts. **Red dashed lines are blocked attempts.**
+- Countries with traffic are shaded lighter. The darker band is **night**, the part of the world in darkness right now.
 - Hover a country to tint it, and click a bubble for a detail popup: programs, hosts and amounts.
-- The **Home** marker is your own location. Click the Home key beside the range chips to centre on it.
-- **Display** switches country names, flags, animated traffic lines, and allowed or blocked traffic on and off. **Red dashed lines are blocked attempts.**
+- **Live Connections** (bottom left) switches the lines and bubbles on or off. With it off, the map only shades the countries you've talked to.
+- **+ / −** (bottom right) zoom; you can also scroll to zoom and drag to pan.
+- The **Home** key beside the range chips centres the map on your location.
+- **Display** switches country names, flags, animated traffic lines, and allowed or blocked traffic on and off.
+- The bar along the bottom sums up **Down**, **Up** and **Total** for the range.
+
+!!! tip "VPN in use"
+    While a VPN is connected, a **VPN in use** chip appears next to the RustWarden logo (in Live mode). See [Privacy and VPN](protection/privacy-vpn.md#vpn) for the VPN features.
 
 The map needs the country database, and the **city database** to place connections at their city rather than the middle of the country. See [Countries and lookups](protection/countries.md).
 
