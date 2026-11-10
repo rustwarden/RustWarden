@@ -102,3 +102,4 @@
 - [Norman] fix: Speedtest draws upload in the same orange as upload on the Traffic tab (it was green).
 - [Norman] feat: User guide links to https://rustwarden.github.io/RustWarden/: a ? button beside the theme button at the top right, "User guide" above About in the RustWarden menu, and a "User guide" link at the bottom left of Settings.
 - [Norman] fix: the theme button at the top right now cycles Follow Windows (laptop icon), Light, Dark. While following Windows it used to change the saved theme without any visible effect.
+- [Norman] fix: the Traffic tab's Usage view has one Export dropdown (Current usage, Usage history) instead of separate Export and History buttons.

@@ -124,7 +124,7 @@ impl RustWarden {
             }
         });
 
-        // Right bar: the usual ranges as chips, the rest under "More". The usage view also has Export and History.
+        // Right bar: the usual ranges as chips, the rest under "More". The usage view also has an Export menu.
         let right = Rect::from_min_max(pos2((toolbar.right() - 760.0).max(toolbar.left()), toolbar.top()), toolbar.right_bottom());
         let mut range_changed = false;
         command_card(ui, right, true, |ui| {
@@ -146,11 +146,19 @@ impl RustWarden {
                 self.traffic.range = CHIPS[idx];
                 range_changed = true;
             }
-            if self.traffic.view == 1 && widgets::pill_button(ui, Some(Icon::Export), "Export", false, 0.0).clicked() {
-                self.export_usage();
-            }
-            if self.traffic.view == 1 && widgets::pill_button(ui, None, "History", false, 0.0).clicked() {
-                self.export_history(ui.ctx(), HistoryData::Traffic, "RustWarden traffic history.csv", Some(30));
+            if self.traffic.view == 1 {
+                let export = widgets::pill_button(ui, Some(Icon::Export), "Export", true, 0.0);
+                egui::Popup::menu(&export).width(220.0).show(|ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    if widgets::brand_menu_row(ui, Icon::Export, "Current usage (CSV)").clicked() {
+                        self.export_usage();
+                        ui.close();
+                    }
+                    if widgets::brand_menu_row(ui, Icon::Export, "Usage history (CSV)").clicked() {
+                        self.export_history(ui.ctx(), HistoryData::Traffic, "RustWarden traffic history.csv", Some(30));
+                        ui.close();
+                    }
+                });
             }
             if self.traffic.view == 2 {
                 // Key for the home marker, right beside the range chips.
