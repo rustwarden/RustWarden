@@ -881,6 +881,32 @@ pub mod secret {
     }
 }
 
+/// Which plugins are on, what file the user approved and which permissions they granted, as an elevated run keeps it in
+/// `Program Files\RustWarden`. config.toml is writable by any program running as the user; without this copy such a
+/// program could switch on a built-in plugin (which then runs with every permission it asks for) in the elevated window.
+#[derive(Serialize, Deserialize, Default)]
+struct PluginsCopy {
+    plugins: BTreeMap<String, PluginState>,
+}
+
+fn plugins_copy_path() -> PathBuf {
+    admin_dir().join("plugins.toml")
+}
+
+fn read_plugins_copy(path: &std::path::Path) -> Option<BTreeMap<String, PluginState>> {
+    toml::from_str::<PluginsCopy>(&std::fs::read_to_string(path).ok()?).ok().map(|c| c.plugins)
+}
+
+fn write_plugins_copy(path: &std::path::Path, plugins: &BTreeMap<String, PluginState>) -> std::io::Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let text = toml::to_string_pretty(&PluginsCopy { plugins: plugins.clone() }).map_err(std::io::Error::other)?;
+    let tmp = path.with_extension("toml.tmp");
+    std::fs::write(&tmp, text)?;
+    std::fs::rename(&tmp, path)
+}
+
 /// Keyless mirror of the abuse.ch URLhaus hostfile, which now needs an Auth-Key.
 const DNS_FEED_DEFAULT: &str = "https://malware-filter.gitlab.io/malware-filter/urlhaus-filter-hosts.txt";
 const DNS_FEED_RETIRED: &str = "https://urlhaus.abuse.ch/downloads/hostfile/";
@@ -917,6 +943,16 @@ impl Settings {
         let kept = crate::tamper::recall();
         if !kept.is_empty() {
             s.tamper_hash = kept;
+        }
+        // The same for what plugins may run and with which permissions: enabling one is a decision config.toml can't make for an elevated run.
+        // The first elevated run takes the file's decisions as they are; after that the admin-only copy rules.
+        if !cfg!(test) && crate::sys::is_elevated() {
+            match read_plugins_copy(&plugins_copy_path()) {
+                Some(kept) => s.plugins = kept,
+                None => {
+                    let _ = write_plugins_copy(&plugins_copy_path(), &s.plugins);
+                }
+            }
         }
         s.sanitize();
         s
@@ -1122,6 +1158,9 @@ impl Settings {
         }
         let text = toml::to_string_pretty(&out).map_err(std::io::Error::other)?;
         crate::tamper::remember(&self.tamper_hash);
+        if !cfg!(test) && crate::sys::is_elevated() {
+            let _ = write_plugins_copy(&plugins_copy_path(), &self.plugins);
+        }
         // Write beside the file and rename, so a crash mid-write can't leave a truncated config.
         let tmp = path.with_extension("toml.tmp");
         std::fs::write(&tmp, text)?;
@@ -1162,6 +1201,21 @@ mod tests {
         let (back, skipped) = Settings::default().merged_from(&s.to_export()).unwrap();
         assert_eq!((back.retention_days, skipped), (77, 0));
         assert!(!s.to_export().contains("secret"));
+    }
+
+    #[test]
+    fn plugin_decisions_survive_the_admin_copy_and_junk_reads_as_none() {
+        let dir = std::env::temp_dir().join(format!("rustwarden-plugins-copy-{}", std::process::id()));
+        let path = dir.join("plugins.toml");
+        let mut plugins = BTreeMap::new();
+        plugins.insert("ping".to_owned(), PluginState { enabled: true, approved_hash: "ab".into(), granted: vec!["ping".into()], removed: false });
+        plugins.insert("old".to_owned(), PluginState { removed: true, ..Default::default() });
+        assert!(read_plugins_copy(&path).is_none(), "no file yet");
+        write_plugins_copy(&path, &plugins).unwrap();
+        assert_eq!(read_plugins_copy(&path), Some(plugins));
+        std::fs::write(&path, "plugins = 5").unwrap();
+        assert!(read_plugins_copy(&path).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

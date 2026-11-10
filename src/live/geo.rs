@@ -65,17 +65,8 @@ pub fn asn_networks(path: &std::path::Path, asn: u32) -> Result<Vec<(IpAddr, u8)
 pub fn download_dbip(dest: &std::path::Path, edition: &str, progress: &std::sync::atomic::AtomicU32) -> Result<(), String> {
     // Downloaded beside the real file and only swapped in once `verify` passes, so a bad file never replaces a good one.
     let part = dest.with_extension("mmdb.part");
-    // Elevated, PowerShell works in a folder only administrators can write (it has no protection against links planted in the
-    // user's folder); this process then copies the result over, and checks it, as before.
-    let scratch = if crate::sys::is_elevated() { crate::settings::admin_dir().join("plugin-tmp").join(part.file_name().unwrap_or_default()) } else { part.clone() };
-    let copied = download_script(&scratch, edition, progress)
-        .and_then(|()| if scratch == part { Ok(()) } else { std::fs::copy(&scratch, &part).map(|_| ()).map_err(|e| format!("can't save {}: {e}", part.display())) });
-    if scratch != part {
-        for tail in ["", ".gz", ".tmp"] {
-            let _ = std::fs::remove_file(format!("{}{tail}", scratch.display()));
-        }
-    }
-    let r = copied.and_then(|()| verify(&part, edition));
+    // PowerShell runs with the user's normal rights (see `proc`), so a link planted in this folder gains nothing; this process then checks the file.
+    let r = download_script(&part, edition, progress).and_then(|()| verify(&part, edition));
     match r {
         Ok(()) => std::fs::rename(&part, dest).map_err(|e| format!("can't save {}: {e}", dest.display())),
         Err(e) => {
@@ -101,7 +92,6 @@ pub fn verify(path: &std::path::Path, edition: &str) -> Result<(), String> {
 
 fn download_script(dest: &std::path::Path, edition: &str, progress: &std::sync::atomic::AtomicU32) -> Result<(), String> {
     use std::io::BufRead;
-    use std::os::windows::process::CommandExt;
     const SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -131,15 +121,10 @@ Write-Error $last
 exit 1
 "#;
     let mut cmd = crate::sys::tool("powershell");
-    cmd.args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
-        .env("CC_GEO_DEST", dest)
-        .env("CC_GEO_EDITION", edition)
-        .creation_flags(crate::sys::NO_WINDOW)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
+    // The script travels in an environment variable: the command line of a program started with the user's rights is limited to 1024 characters.
+    cmd.args(["-NoProfile", "-NonInteractive", "-Command", "Invoke-Expression $env:CC_GEO_SCRIPT"]).env("CC_GEO_SCRIPT", SCRIPT).env("CC_GEO_DEST", dest).env("CC_GEO_EDITION", edition);
     progress.store(0, std::sync::atomic::Ordering::Relaxed);
-    let mut child = crate::sys::etw::spawn_own(&mut cmd).map_err(|e| format!("can't start PowerShell: {e}"))?;
+    let mut child = crate::sys::etw::spawn_user(&cmd, crate::sys::proc::Pipes::OUT, false).map_err(|e| format!("can't start PowerShell: {e}"))?;
     if let Some(stdout) = child.stdout.take() {
         for line in std::io::BufReader::new(stdout).lines().map_while(Result::ok) {
             if let Some(p) = line.strip_prefix("P ").and_then(|p| p.trim().parse().ok()) {

@@ -22,6 +22,7 @@ pub mod netinfo;
 pub mod notify;
 pub mod pdh;
 pub mod picker;
+pub mod proc;
 pub mod qos;
 pub mod services;
 pub mod session;

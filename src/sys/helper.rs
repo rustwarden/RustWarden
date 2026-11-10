@@ -75,10 +75,45 @@ fn sha_of(path: &Path) -> String {
 }
 
 /// Elevated: moves a genuine copy from the data folder to the admin-only one, so nobody has to download it again.
+/// The rest of that folder stays: it is the program's own folder for its files (see [`start`]).
 fn adopt_user_copy(plugin: &str, exe: &str, wanted: &str) {
     if super::is_elevated() && adopt(&user_dir(plugin).join(exe), &dir(plugin), exe, wanted) {
-        let _ = std::fs::remove_dir_all(user_dir(plugin));
+        let _ = std::fs::remove_file(user_dir(plugin).join(exe));
     }
+}
+
+/// A program runs without administrator rights, so it can't write beside its exe in the admin-only folder. Its own files
+/// (cloudflared's login, say) live in the user's folder for the plugin; folders an earlier version kept beside the exe are
+/// copied there once (a move would keep the old folder's permissions).
+fn migrate_state(plugin: &str) {
+    if !super::is_elevated() {
+        return;
+    }
+    let (from, to) = (dir(plugin), user_dir(plugin));
+    for e in std::fs::read_dir(&from).into_iter().flatten().flatten() {
+        let target = to.join(e.file_name());
+        if e.path().is_dir() && !target.exists() && copy_dir(&e.path(), &target).is_ok() {
+            let _ = std::fs::remove_dir_all(e.path());
+        }
+    }
+}
+
+fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for e in std::fs::read_dir(from)? {
+        let e = e?;
+        // `AppData` is what Windows builds under a home folder it is pointed at (browser caches, history): nothing in it is worth keeping.
+        if e.file_name() == "AppData" {
+            continue;
+        }
+        let target = to.join(e.file_name());
+        if e.file_type()?.is_dir() {
+            copy_dir(&e.path(), &target)?;
+        } else {
+            std::fs::copy(e.path(), target)?;
+        }
+    }
+    Ok(())
 }
 
 /// Hashes the copy, not the original, because the original can still change after it is checked.
@@ -142,10 +177,19 @@ pub fn install(plugin: &str, url: &str, zip_sha256: &str, exe: &str) -> Result<(
     }
     let dir = dir(plugin);
     std::fs::create_dir_all(&dir).map_err(|e| format!("Can't create {}: {e}", dir.display()))?;
+    // curl needs no administrator rights, so it downloads into the user's folder; the file is copied into the admin-only
+    // folder and checked there, because the original could still change after it is checked.
+    let scratch = user_dir(plugin);
+    std::fs::create_dir_all(&scratch).map_err(|e| format!("Can't create {}: {e}", scratch.display()))?;
     let mut curl = crate::sys::tool("curl.exe");
-    curl.args(["-fsSLg", "--proto", "=https", "--proto-redir", "=https", "--max-time", "300", "-o", "download.zip", url]).current_dir(&dir);
-    run_tool(&mut curl, "Can't download it")?;
+    curl.args(["-fsSLg", "--proto", "=https", "--proto-redir", "=https", "--max-time", "300", "-o", "download.zip", url]).current_dir(&scratch);
+    run_user_tool(&curl, "Can't download it")?;
     let zip = dir.join("download.zip");
+    if scratch != dir {
+        let copied = std::fs::copy(scratch.join("download.zip"), &zip);
+        let _ = std::fs::remove_file(scratch.join("download.zip"));
+        copied.map_err(|e| format!("Can't save the download: {e}"))?;
+    }
     if !sha_of(&zip).eq_ignore_ascii_case(zip_sha256) {
         let _ = std::fs::remove_file(&zip);
         return Err("The download did not match the expected checksum, so it was thrown away.".into());
@@ -161,6 +205,17 @@ pub fn install(plugin: &str, url: &str, zip_sha256: &str, exe: &str) -> Result<(
     let _ = std::fs::remove_file(&zip);
     unpacked?;
     if dir.join(exe).is_file() { Ok(()) } else { Err(format!("The download didn't contain {exe}")) }
+}
+
+/// Runs a tool that needs no administrator rights (see `proc`) and waits; its first line of errors is the reason it failed.
+fn run_user_tool(cmd: &Command, what: &str) -> Result<(), String> {
+    let child = crate::sys::etw::spawn_user(cmd, crate::sys::proc::Pipes { stdin: false, stdout: false, stderr: true }, false).map_err(|e| format!("{what}: {e}"))?;
+    let out = child.wait_with_output().map_err(|e| format!("{what}: {e}"))?;
+    if out.status.success() {
+        return Ok(());
+    }
+    let err = String::from_utf8_lossy(&out.stderr);
+    Err(format!("{what}: {}", err.lines().next().unwrap_or("it failed").trim()))
 }
 
 fn run_tool(cmd: &mut Command, what: &str) -> Result<(), String> {
@@ -198,7 +253,10 @@ pub fn start(
         return Err(format!("{exe} has changed since it was downloaded, so it wasn't run. Download it again."));
     }
     // "{dir}" in an argument is the plugin's own folder, so a program can keep its files there (removed with the plugin's data).
-    let folder = dir(plugin).to_string_lossy().into_owned();
+    // The program runs without administrator rights, so that is the user's folder for the plugin, not the one beside the exe.
+    migrate_state(plugin);
+    let folder = user_dir(plugin).to_string_lossy().into_owned();
+    let _ = std::fs::create_dir_all(&folder);
     let args: Vec<String> = args.into_iter().map(|a| a.replace("{dir}", &folder)).collect();
     // "env:NAME=value" arguments set an environment variable for the program instead of being passed to it. Only the
     // home folder may be set (a program that keeps its sign-in under it, such as cloudflared, then keeps it in the plugin's folder).
@@ -216,8 +274,9 @@ pub fn start(
     }
     std::thread::spawn(move || {
         let mut cmd = Command::new(&path);
-        cmd.args(&args).envs(env.iter().map(|(k, v)| (k, v))).stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null()).creation_flags(crate::sys::NO_WINDOW);
-        let mut child = match crate::sys::etw::spawn_own(&mut cmd) {
+        cmd.args(&args).envs(env.iter().map(|(k, v)| (k, v)));
+        // Without administrator rights: a downloaded program (a tunnel, a speed test) has no use for them.
+        let mut child = match crate::sys::etw::spawn_user(&cmd, crate::sys::proc::Pipes::OUT, false) {
             Ok(c) => c,
             Err(e) => {
                 RUNNING.lock().unwrap_or_else(|e| e.into_inner()).retain(|(_, f)| !Arc::ptr_eq(f, &stop));
@@ -294,6 +353,20 @@ mod tests {
         assert!(split_env(vec![r"env:HOME=C:\p\..\x".into()], p).is_err());
         assert!(split_env(vec![r"env:HOME=C:\Windows\Foo".into()], p).is_err(), "outside the plugin's folder");
         assert!(split_env(vec![r"env:HOME=C:\pother".into()], p).is_err(), "a sibling that starts the same");
+    }
+
+    #[test]
+    fn a_programs_folders_are_copied_with_their_files() {
+        let root = std::env::temp_dir().join(format!("rustwarden-helper-copy-{}", std::process::id()));
+        let (from, to) = (root.join("from"), root.join("to"));
+        std::fs::create_dir_all(from.join("login-1/.cloudflared")).unwrap();
+        std::fs::create_dir_all(from.join("login-1/AppData/Local")).unwrap();
+        std::fs::write(from.join("login-1/.cloudflared/cert.pem"), b"cert").unwrap();
+        copy_dir(&from, &to).unwrap();
+        assert_eq!(std::fs::read(to.join("login-1/.cloudflared/cert.pem")).unwrap(), b"cert");
+        assert!(!to.join("login-1/AppData").exists(), "Windows' own skeleton is not carried over");
+        assert!(from.join("login-1").is_dir(), "the source is left for the caller to remove");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

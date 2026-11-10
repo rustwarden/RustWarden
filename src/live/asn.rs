@@ -7,7 +7,6 @@ use super::store::Shared;
 use crate::settings::{NetInfoSource, Settings};
 use std::collections::HashMap;
 use std::net::IpAddr;
-use std::os::windows::process::CommandExt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
@@ -109,27 +108,38 @@ pub(super) fn curl_url(args: &[&str], url: &str) -> Option<String> {
 }
 
 fn run_in(program: &str, args: &[&str], input: Option<&str>) -> Option<String> {
-    use std::io::Write;
+    use std::io::{Read, Write};
     let mut cmd = crate::sys::tool(program);
-    let stdin = if input.is_some() { std::process::Stdio::piped() } else { std::process::Stdio::null() };
-    cmd.args(args).stdin(stdin).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null()).creation_flags(crate::sys::NO_WINDOW);
-    let mut child = crate::sys::etw::spawn_own(&mut cmd).ok()?;
+    cmd.args(args);
+    // None of these need administrator rights, so they run without them.
+    let pipes = crate::sys::proc::Pipes { stdin: input.is_some(), stdout: true, stderr: false };
+    let mut child = crate::sys::etw::spawn_user(&cmd, pipes, false).ok()?;
     if let Some(input) = input {
         // Dropped at the end of the block, so curl sees the end of its config.
         child.stdin.take()?.write_all(input.as_bytes()).ok()?;
     }
+    // Read while it runs: a list bigger than the pipe would otherwise stall curl until the deadline.
+    let mut stdout = child.stdout.take()?;
+    let reader = std::thread::spawn(move || {
+        let mut body = Vec::new();
+        let _ = stdout.read_to_end(&mut body);
+        body
+    });
     // A hung helper must not stall the lookup thread for good.
     let deadline = std::time::Instant::now() + Duration::from_secs(15);
-    while child.try_wait().ok()?.is_none() {
+    let status = loop {
+        if let Some(status) = child.try_wait().ok()? {
+            break status;
+        }
         if std::time::Instant::now() > deadline {
             let _ = child.kill();
             let _ = child.wait();
             return None;
         }
         std::thread::sleep(Duration::from_millis(50));
-    }
-    let out = child.wait_with_output().ok()?;
-    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+    };
+    let body = reader.join().ok()?;
+    status.success().then(|| String::from_utf8_lossy(&body).into_owned())
 }
 
 fn cymru_name(ip: IpAddr) -> String {

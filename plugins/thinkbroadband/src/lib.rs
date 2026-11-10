@@ -253,6 +253,15 @@ fn loss_alert(pct: f32, fresh: &[Sample]) -> Option<String> {
     Some(format!("lost up to {:.0}% of packets ({n} intervals of 100 seconds)", worst.loss))
 }
 
+/// How old a sample may be and still raise an alert. A download after a gap (RustWarden was closed, the sign-in had lapsed)
+/// brings in samples from hours ago: they are stored for the graph, but an alert about them would be old news.
+const ALERT_MAX_AGE_SECS: i64 = 15 * 60;
+
+/// The samples worth an alert: newer than the last one seen, and recent.
+fn news(all: Vec<Sample>, last: i64, now: i64) -> Vec<Sample> {
+    all.into_iter().filter(|s| s.ts > last && s.ts >= now - ALERT_MAX_AGE_SECS).collect()
+}
+
 fn poll() -> Result<(), String> {
     let now = guest::now();
     let list = monitors();
@@ -286,7 +295,7 @@ fn poll() -> Result<(), String> {
         let Some(newest) = all.iter().map(|s| s.ts).max() else { continue };
         // The first download is history, not news.
         if let Some(last) = last {
-            let fresh: Vec<Sample> = all.into_iter().filter(|s| s.ts > last).collect();
+            let fresh = news(all, last, guest::now());
             if let Some(text) = loss_alert(alert_pct(), &fresh) {
                 guest::raise_alert("packet-loss", &m.name, &text);
             }
@@ -604,6 +613,14 @@ mod tests {
         let s = |loss| Sample { loss, ..Default::default() };
         assert_eq!(loss_alert(1.0, &[s(0.0), s(4.0), s(2.0)]).as_deref(), Some("lost up to 4% of packets (2 intervals of 100 seconds)"));
         assert_eq!(loss_alert(5.0, &[s(4.0)]), None);
+        // Samples brought in after a gap are stored but never alerted on: only new ones from the last 15 minutes count.
+        let at = |ts, loss| Sample { ts, loss, ..Default::default() };
+        let now = 100_000;
+        let all = vec![at(now - 11_000, 84.0), at(now - 500, 40.0), at(now - 2_000, 30.0), at(now - 100, 10.0)];
+        let fresh = news(all, now - 1_000, now);
+        assert_eq!(fresh.iter().map(|s| s.loss).collect::<Vec<_>>(), [40.0, 10.0], "old and already-seen samples are left out");
+        assert_eq!(loss_alert(5.0, &fresh).as_deref(), Some("lost up to 40% of packets (2 intervals of 100 seconds)"));
+        assert!(news(vec![at(now - 11_000, 84.0)], 0, now).is_empty());
         // At a level of 0 only real loss counts, never a clean sample.
         assert_eq!(loss_alert(0.0, &[s(0.0)]), None);
         assert!(loss_alert(0.0, &[s(0.5)]).is_some());

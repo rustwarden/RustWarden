@@ -182,6 +182,20 @@ pub fn spawn_own(cmd: &mut std::process::Command) -> std::io::Result<std::proces
     Ok(child)
 }
 
+/// Like [`spawn_own`], for a helper that needs no administrator rights: started with the user's normal ones when this
+/// window is elevated (see `proc`). `window` lets the program show a window.
+pub fn spawn_user(cmd: &std::process::Command, pipes: super::proc::Pipes, window: bool) -> std::io::Result<super::proc::Child> {
+    let hook = SPAWN_HOOK.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if let Some(hook) = hook {
+        hook(std::path::Path::new(cmd.get_program()));
+    }
+    let child = super::proc::spawn(cmd, pipes, window)?;
+    if let Ok(own) = std::env::current_exe() {
+        paths().insert(child.id(), (own.to_string_lossy().into_owned(), Instant::now()));
+    }
+    Ok(child)
+}
+
 /// Drops remembered pids whose process has exited, at most once a minute, so a reused pid isn't
 /// filed under the program that had it before. Late ETW events still need the label, so an entry
 /// is kept for at least 30 seconds.

@@ -7,7 +7,7 @@
 //!                                writes `<dir>/<n>.txt` as "status\nbody". Exit 0 done, 2 sign-in needed, 3 gave up.
 
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use tao::dpi::LogicalSize;
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
@@ -63,7 +63,14 @@ enum Ev {
 /// Helper-process entry point (`args` are those after `--tbb-browser`); returns the exit code.
 pub fn run(args: &[String]) -> i32 {
     let login = args.first().map(String::as_str) == Some("login");
-    let (out, urls) = if login { (PathBuf::new(), Vec::new()) } else { (args.get(1).map(PathBuf::from).unwrap_or_default(), args.iter().skip(2).cloned().collect()) };
+    let (out, urls): (PathBuf, Vec<String>) = if login {
+        (PathBuf::new(), Vec::new())
+    } else {
+        let out = args.get(1).map(PathBuf::from).unwrap_or_default();
+        // Addresses come in the `urls.txt` beside the answers, or (an older caller) as arguments.
+        let listed = std::fs::read_to_string(out.join("urls.txt")).unwrap_or_default();
+        (out, if args.len() > 2 { args.iter().skip(2).cloned().collect() } else { listed.lines().map(str::to_owned).collect() })
+    };
     let js_urls = urls.iter().filter(|u| on_site(u)).map(|u| format!("\"{}\"", u.replace(['\\', '"'], ""))).collect::<Vec<_>>().join(",");
 
     let event_loop = EventLoopBuilder::<Ev>::with_user_event().build();
@@ -173,13 +180,17 @@ pub fn fetch(urls: &[String]) -> Result<Vec<(u16, String)>, String> {
     // One folder per call: the poll, a day backfill and an import can overlap.
     static RUN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
     let run = RUN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    // Elevated, the folder goes where only administrators can write: its name is predictable, so in %TEMP% a planted link could aim the writes elsewhere.
-    let base = if crate::sys::is_elevated() { crate::settings::admin_dir().join("plugin-tmp") } else { std::env::temp_dir() };
-    let dir = base.join(format!("rustwarden-tbb-{}-{run}", std::process::id()));
+    // The helper runs with the user's normal rights and writes its answers here, so this is the user's own temp folder; what it
+    // wrote is read as untrusted text (it is web content anyway).
+    let dir = std::env::temp_dir().join(format!("rustwarden-tbb-{}-{run}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let mut args = vec!["fetch".to_owned(), dir.to_string_lossy().into_owned()];
-    args.extend(urls.iter().cloned());
+    // The addresses go in a file: a program started with the user's rights may have a command line of 1024 characters at most.
+    if urls.iter().any(|u| u.chars().any(char::is_control)) {
+        return Err("an address has a control character in it".into());
+    }
+    std::fs::write(dir.join("urls.txt"), urls.join("\n")).map_err(|e| e.to_string())?;
+    let args = ["fetch".to_owned(), dir.to_string_lossy().into_owned()];
     let status = wait_watching(helper(&args.iter().map(String::as_str).collect::<Vec<_>>()), &dir.join("check")).map_err(|e| format!("Can't start the browser helper: {e}"));
     let result = status.and_then(|s| match s.code() {
         Some(0) => Ok(()),
@@ -202,13 +213,13 @@ pub fn fetch(urls: &[String]) -> Result<Vec<(u16, String)>, String> {
 }
 
 /// Starts the helper and waits for it; its traffic is filed under RustWarden like the other helpers.
-fn wait(mut cmd: Command) -> std::io::Result<std::process::ExitStatus> {
-    crate::sys::etw::spawn_own(&mut cmd)?.wait()
+fn wait(cmd: Command) -> std::io::Result<std::process::ExitStatus> {
+    crate::sys::etw::spawn_user(&cmd, crate::sys::proc::Pipes::NONE, true)?.wait()
 }
 
 /// Like `wait`, but raises `CHECK` while the helper's `check` file exists (its window is up for the extra check).
-fn wait_watching(mut cmd: Command, marker: &std::path::Path) -> std::io::Result<std::process::ExitStatus> {
-    let mut child = crate::sys::etw::spawn_own(&mut cmd)?;
+fn wait_watching(cmd: Command, marker: &std::path::Path) -> std::io::Result<std::process::ExitStatus> {
+    let mut child = crate::sys::etw::spawn_user(&cmd, crate::sys::proc::Pipes::NONE, true)?;
     let status = loop {
         if let Some(s) = child.try_wait()? {
             break s;
@@ -222,6 +233,6 @@ fn wait_watching(mut cmd: Command, marker: &std::path::Path) -> std::io::Result<
 
 fn helper(args: &[&str]) -> Command {
     let mut cmd = Command::new(std::env::current_exe().unwrap_or_default());
-    cmd.arg("--tbb-browser").args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    cmd.arg("--tbb-browser").args(args);
     cmd
 }

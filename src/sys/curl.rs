@@ -18,7 +18,18 @@ pub fn quote(s: &str) -> String {
 /// Runs curl with `config`, in `dir` if given (where relative files in the config live), and waits for it.
 pub fn run(config: &str, dir: Option<&Path>) -> Result<Output, String> {
     let mut cmd = super::tool("curl.exe");
-    cmd.args(["-K", "-"]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).creation_flags(super::NO_WINDOW);
+    cmd.args(["-K", "-"]);
+    // A request that only reads an answer needs no administrator rights, so it runs without them. One that writes a file in
+    // `dir` (the update, the driver) stays as it was: that folder may be one only administrators can write.
+    if dir.is_none() {
+        let mut child = super::etw::spawn_user(&cmd, super::proc::Pipes::ALL, false).map_err(|e| format!("Can't run curl.exe: {e}"))?;
+        // Dropped at the end of the block, so curl sees the end of its config.
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(PROTO.as_bytes()).and_then(|()| stdin.write_all(config.as_bytes())).map_err(|e| e.to_string())?;
+        }
+        return child.wait_with_output().map_err(|e| e.to_string());
+    }
+    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).creation_flags(super::NO_WINDOW);
     if let Some(dir) = dir {
         cmd.current_dir(dir);
     }
