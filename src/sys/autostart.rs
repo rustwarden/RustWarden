@@ -333,12 +333,19 @@ pub fn claim_instance(patient: bool) -> bool {
     use windows::Win32::System::Threading::CreateMutexW;
     for _ in 0..if patient { 100 } else { 1 } {
         match unsafe { CreateMutexW(None, false, w!("Local\\RustWardenInstance")) } {
-            // The handle is deliberately never closed: the lock lasts as long as the process.
-            Ok(_) if unsafe { windows::Win32::Foundation::GetLastError() } != ERROR_ALREADY_EXISTS => return true,
+            Ok(h) => {
+                // The handle is deliberately never closed once we own the lock: it lasts as long as the process.
+                if unsafe { windows::Win32::Foundation::GetLastError() } != ERROR_ALREADY_EXISTS {
+                    return true;
+                }
+                // Not ours: closing it matters, or this handle would keep the old window's mutex alive after it exits.
+                let _ = unsafe { CloseHandle(h) };
+            }
             // An elevated owner's mutex can't be opened from an unelevated process: still taken.
             Err(e) if e.code() != ERROR_ACCESS_DENIED.to_hresult() => return true,
-            _ => std::thread::sleep(std::time::Duration::from_millis(100)),
+            Err(_) => {}
         }
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
     signal_show();
     false

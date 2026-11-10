@@ -220,6 +220,21 @@ pub fn set_rule_enabled(name: &str, enabled: bool) -> Result<(), String> {
     unsafe { rule.SetEnabled(bool_variant(enabled)) }.map_err(|e| err("Can't change the firewall rule", e))
 }
 
+/// Switches a rule back on that was switched off earlier, from a name saved where a non-administrator could have edited it.
+/// Only an outbound rule is enabled (and only a block rule unless `allow_ok`), so a planted name can't turn on an inbound allow.
+pub fn restore_rule(name: &str, allow_ok: bool) -> Result<(), String> {
+    let p = policy()?;
+    let rule = unsafe { rules(&p)?.Item(&BSTR::from(name)) }.map_err(|e| err("Can't find the firewall rule", e))?;
+    unsafe {
+        let outbound = rule.Direction().is_ok_and(|d| d == NET_FW_RULE_DIR_OUT);
+        let block = rule.Action().is_ok_and(|a| a == NET_FW_ACTION_BLOCK);
+        if !outbound || !(block || allow_ok) {
+            return Err("Not a rule RustWarden switched off".into());
+        }
+        rule.SetEnabled(bool_variant(true)).map_err(|e| err("Can't change the firewall rule", e))
+    }
+}
+
 /// Whether Windows Firewall can tell this service's traffic apart: the service needs its own SID.
 /// Services without one share their host's identity, so a rule for them would match the whole host.
 pub fn service_has_sid(name: &str) -> Result<bool, String> {

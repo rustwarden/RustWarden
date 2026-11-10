@@ -114,11 +114,20 @@ pub fn check(server: &str, channel: UpdateChannel) -> Result<Checked, String> {
     let all: Vec<Api> = serde_json::from_slice(&body).map_err(|e| format!("Unexpected answer from the update server ({e})"))?;
     let mut all: Vec<Api> = all.into_iter().filter(|r| !r.draft && r.is_dev() == (channel == UpdateChannel::Dev)).collect();
     all.sort_by_key(|a| std::cmp::Reverse(version_parts(&a.tag_name)));
-    let Some(api) = all.first() else { return Ok(Checked::Latest(Vec::new())) };
+    // A release whose files are still being uploaded (or missing one) is skipped for the newest complete one.
+    let complete = |r: &&Api| ["", SHA_SUFFIX, SIG_SUFFIX].iter().all(|s| find_asset(&r.assets, s).is_some());
+    let Some(api) = all.iter().find(complete).or(all.first()) else { return Ok(Checked::Latest(Vec::new())) };
     let version = api.tag_name.trim_start_matches('v').to_owned();
     // Leaving dev for Release offers the latest release even though its number is lower than the dev build's.
     let leaving_dev = channel == UpdateChannel::Release && env!("CARGO_PKG_VERSION").ends_with("-dev");
-    let missed = if leaving_dev { 1 } else { all.iter().filter(|r| is_newer(&r.tag_name, env!("CARGO_PKG_VERSION"))).count() };
+    // Nothing is offered when the newest complete release is not newer than this one (a newer one is still uploading).
+    let missed = if leaving_dev {
+        1
+    } else if is_newer(&api.tag_name, env!("CARGO_PKG_VERSION")) {
+        all.iter().filter(|r| is_newer(&r.tag_name, env!("CARGO_PKG_VERSION"))).count()
+    } else {
+        0
+    };
     let history: Vec<Note> = all
         .iter()
         .take(missed.clamp(MIN_NOTES, MAX_NOTES))
@@ -327,6 +336,8 @@ fn verify(file: &Path, wanted: &str) -> Result<(), String> {
 fn expect_ok(status: u32) -> Result<(), String> {
     match status {
         200 => Ok(()),
+        // GitHub answers 403 (or 429) when this IP has used up the API's limit for visitors who aren't signed in.
+        403 | 429 => Err("Updates are not available right now (GitHub's request limit was reached). Try again later.".into()),
         404 => Err("The update server was not found (HTTP 404). Check the address in Settings".into()),
         0 => Err("Could not reach the update server".into()),
         s => Err(format!("The update server answered HTTP {s}")),
@@ -442,6 +453,15 @@ mod tests {
         assert!(check_signature(&key, b"abd", &sig).is_err());
         assert!(check_signature(&key, b"abc", &sig[..10]).is_err());
         assert!(check_signature(&SIGNING_KEY, b"abc", &sig).is_err());
+    }
+
+    #[test]
+    fn a_rate_limited_check_says_updates_are_unavailable() {
+        for status in [403, 429] {
+            assert!(expect_ok(status).unwrap_err().starts_with("Updates are not available"));
+        }
+        assert!(expect_ok(200).is_ok());
+        assert!(expect_ok(500).unwrap_err().contains("500"));
     }
 
     #[test]

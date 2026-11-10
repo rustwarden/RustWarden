@@ -3,7 +3,8 @@
 //! packet of outgoing TLS connections: one that names a blocked domain is dropped, everything else goes
 //! straight back. Dropped queries time out and dropped client-hellos never connect.
 //!
-//! Limits: a program using DNS-over-HTTPS and Encrypted Client Hello shows neither name; QUIC isn't read.
+//! Limits: a program using DNS-over-HTTPS and Encrypted Client Hello shows neither name; QUIC isn't read; a TLS hello
+//! split over several packets, and DNS over TCP, aren't read either.
 
 use super::db::Db;
 use super::store::{Shared, lock};

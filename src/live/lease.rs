@@ -187,7 +187,8 @@ pub fn end(db: &Db, all: bool) {
     let (done, keep): (Vec<_>, Vec<_>) = decode(&db.kv_get(KEY).unwrap_or_default()).into_iter().partition(|l| all || l.expires <= now);
     for lease in &done {
         for name in &lease.suspended {
-            let _ = firewall::set_rule_enabled(name, true);
+            // The saved lease is in the user's database: only a block rule is ever switched back on.
+            let _ = firewall::restore_rule(name, false);
         }
         let _ = firewall::remove_rule(&rule_name(&lease.exe));
         lock(&NEXT_CHECK).get_or_insert_with(HashMap::new).remove(&lease.exe);

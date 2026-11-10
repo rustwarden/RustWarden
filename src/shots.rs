@@ -90,7 +90,9 @@ pub fn settings() -> crate::settings::Settings {
 
 /// The folder named by `RUSTWARDEN_SHOTS`, when this run is a screenshot run.
 pub fn folder() -> Option<PathBuf> {
-    std::env::var_os("RUSTWARDEN_SHOTS").map(PathBuf::from)
+    // The service starts the window with `--elevated` and no prompt, in the user's environment: a program running as the
+    // user must not be able to turn that elevated window into a screenshot run by setting a variable.
+    std::env::var_os("RUSTWARDEN_SHOTS").map(PathBuf::from).filter(|_| !crate::sys::from_service())
 }
 
 impl Shots {

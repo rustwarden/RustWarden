@@ -19,6 +19,11 @@ const LOGIN: &str = "/my-profile/login";
 const START: &str = "/my-profile/broadband-quality-monitor";
 const GIVE_UP_SECS: u64 = 90;
 
+/// An address on the site itself: `starts_with(HOST)` alone would accept `https://www.thinkbroadband.com.evil.example`.
+pub fn on_site(url: &str) -> bool {
+    url.strip_prefix(HOST).is_some_and(|rest| rest.is_empty() || rest.starts_with(['/', '?', '#']))
+}
+
 /// True while a helper is showing Cloudflare's "extra check" for the user to clear.
 pub static CHECK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -59,7 +64,7 @@ enum Ev {
 pub fn run(args: &[String]) -> i32 {
     let login = args.first().map(String::as_str) == Some("login");
     let (out, urls) = if login { (PathBuf::new(), Vec::new()) } else { (args.get(1).map(PathBuf::from).unwrap_or_default(), args.iter().skip(2).cloned().collect()) };
-    let js_urls = urls.iter().filter(|u| u.starts_with(HOST)).map(|u| format!("\"{}\"", u.replace(['\\', '"'], ""))).collect::<Vec<_>>().join(",");
+    let js_urls = urls.iter().filter(|u| on_site(u)).map(|u| format!("\"{}\"", u.replace(['\\', '"'], ""))).collect::<Vec<_>>().join(",");
 
     let event_loop = EventLoopBuilder::<Ev>::with_user_event().build();
     let window = match WindowBuilder::new().with_title("ThinkBroadband Quality Monitor sign in").with_inner_size(LogicalSize::new(560.0, 760.0)).with_visible(login).build(&event_loop) {
@@ -168,7 +173,9 @@ pub fn fetch(urls: &[String]) -> Result<Vec<(u16, String)>, String> {
     // One folder per call: the poll, a day backfill and an import can overlap.
     static RUN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
     let run = RUN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("rustwarden-tbb-{}-{run}", std::process::id()));
+    // Elevated, the folder goes where only administrators can write: its name is predictable, so in %TEMP% a planted link could aim the writes elsewhere.
+    let base = if crate::sys::is_elevated() { crate::settings::admin_dir().join("plugin-tmp") } else { std::env::temp_dir() };
+    let dir = base.join(format!("rustwarden-tbb-{}-{run}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let mut args = vec!["fetch".to_owned(), dir.to_string_lossy().into_owned()];

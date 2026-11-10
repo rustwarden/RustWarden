@@ -520,7 +520,9 @@ fn save_saved(id: &str, s: &Saved) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    std::fs::write(path, toml::to_string_pretty(s).map_err(|e| e.to_string())?).map_err(|e| format!("couldn't save the plugin's settings: {e}"))
+    // Written beside the file and renamed, so a crash mid-write can't leave the plugin's secrets truncated.
+    let tmp = path.with_extension("toml.tmp");
+    std::fs::write(&tmp, toml::to_string_pretty(s).map_err(|e| e.to_string())?).and_then(|()| std::fs::rename(&tmp, &path)).map_err(|e| format!("couldn't save the plugin's settings: {e}"))
 }
 
 // ---- what the interface asks ----

@@ -907,7 +907,7 @@ impl Settings {
         if let Some(raw) = std::fs::read_to_string(config_path()).ok().and_then(|t| toml::from_str::<toml::Table>(&t).ok()) {
             crate::plugins::legacy::run(&mut s, &raw);
         }
-        if let Some(mode) = std::env::var("RUSTWARDEN_MODE").ok().and_then(|v| Mode::parse(&v)) {
+        if let Some(mode) = std::env::var("RUSTWARDEN_MODE").ok().filter(|_| !crate::sys::from_service()).and_then(|v| Mode::parse(&v)) {
             s.env_mode = Some((mode, s.mode));
             s.mode = mode;
         }
@@ -963,6 +963,14 @@ impl Settings {
         let mut skipped = 0;
         for (key, value) in theirs {
             if matches!(key.as_str(), "mode" | "window" | "tamper_hash") {
+                continue;
+            }
+            // A secret sealed for another Windows user or PC can't be opened here; importing it would replace a working value with noise.
+            if let toml::Value::String(s) = &value
+                && s.starts_with("dpapi:")
+                && secret::open(s).starts_with("dpapi:")
+            {
+                skipped += 1;
                 continue;
             }
             let old = table.insert(key.clone(), value);
@@ -1154,6 +1162,13 @@ mod tests {
         let (back, skipped) = Settings::default().merged_from(&s.to_export()).unwrap();
         assert_eq!((back.retention_days, skipped), (77, 0));
         assert!(!s.to_export().contains("secret"));
+    }
+
+    #[test]
+    fn a_secret_sealed_for_someone_else_is_not_imported() {
+        let mine = Settings::default();
+        let (m, skipped) = mine.merged_from("threat_feeds = \"dpapi:00\"\nretention_days = 5\n").unwrap();
+        assert_eq!((m.threat_feeds.as_str(), m.retention_days, skipped), (mine.threat_feeds.as_str(), 5, 1));
     }
 
     #[test]

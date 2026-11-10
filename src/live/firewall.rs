@@ -329,13 +329,19 @@ fn stale_exceptions(rules: &[Rule], wanted: &[RuleSpec]) -> Vec<String> {
     rules.iter().filter(|r| is_ours(&r.grouping, &r.name) && r.name.starts_with(BLOCK_ALL_PREFIX) && !wanted.iter().any(|w| w.name == r.name)).map(|r| r.name.clone()).collect()
 }
 
+/// Where the safety markers live. Elevated runs act on what these files say (undo Block All, switch rules back on), so they
+/// sit where only administrators can write: the user's own folder could be planted with a marker that opens the firewall.
+fn state_dir() -> PathBuf {
+    if crate::sys::is_elevated() { crate::settings::admin_dir() } else { crate::settings::data_dir() }
+}
+
 fn marker_path() -> PathBuf {
-    crate::settings::data_dir().join("blockall.marker")
+    state_dir().join("blockall.marker")
 }
 
 /// Present while Block All's machinery is running for Prompt rather than plain Block All.
 fn ask_marker_path() -> PathBuf {
-    crate::settings::data_dir().join("ask.marker")
+    state_dir().join("ask.marker")
 }
 
 fn ask_marker_exists() -> bool {
@@ -344,7 +350,7 @@ fn ask_marker_exists() -> bool {
 
 /// Unix time RustWarden exited while keeping Prompt's block in force ("Keep blocking when RustWarden is closed").
 fn closed_path() -> PathBuf {
-    crate::settings::data_dir().join("closed.marker")
+    state_dir().join("closed.marker")
 }
 
 /// When RustWarden last exited with the block kept; read once, so the programs stopped since are offered once.
@@ -361,7 +367,7 @@ pub fn kept_block(keep_setting: bool, elevated: bool) -> bool {
 
 /// Whether the "Filtering Platform Connection" failure audit was on before we enabled it: "on" or "off".
 fn audit_prev_path() -> PathBuf {
-    crate::settings::data_dir().join("audit.prev")
+    state_dir().join("audit.prev")
 }
 
 /// Turns on the failure audit that makes Windows log blocked connections (event 5157), remembering how it was.
@@ -386,20 +392,29 @@ fn restore_audit() {
 
 /// Allow rules Block All switched off, one name per line, so a crash can switch them back on.
 fn suspended_path() -> PathBuf {
-    crate::settings::data_dir().join("blockall.suspended")
+    state_dir().join("blockall.suspended")
 }
 
 /// Allow rules naming a program would let it past Block All's default-deny: ours from Prompt,
 /// or ones other firewalls leave behind. Windows' own rules stay on.
 fn rules_to_suspend(rules: &[Rule], system_root: &str) -> Vec<String> {
-    rules.iter().filter(|r| r.program.contains(":\\") && !r.program.to_lowercase().starts_with(system_root) && !r.name.starts_with(BLOCK_ALL_PREFIX)).map(|r| r.name.clone()).collect()
+    // Windows' own tools that fetch and run things stay off the exception list too: a third-party allow rule for one of them is a hole.
+    const TOOLS: [&str; 8] = ["curl.exe", "powershell.exe", "pwsh.exe", "cmd.exe", "mshta.exe", "certutil.exe", "bitsadmin.exe", "wscript.exe"];
+    let tool = |program: &str| TOOLS.iter().any(|t| program.to_lowercase().ends_with(&format!("\\{t}")));
+    rules
+        .iter()
+        .filter(|r| {
+            r.program.contains(":\\") && (!r.program.to_lowercase().starts_with(system_root) || tool(&r.program)) && !r.name.starts_with(BLOCK_ALL_PREFIX) && !r.name.starts_with(super::lease::GROUP)
+        })
+        .map(|r| r.name.clone())
+        .collect()
 }
 
 fn resume_suspended() {
     let path = suspended_path();
     if let Ok(text) = std::fs::read_to_string(&path) {
         for name in text.lines() {
-            let _ = firewall::set_rule_enabled(name, true); // a rule deleted meanwhile is fine
+            let _ = firewall::restore_rule(name, true); // a rule deleted meanwhile is fine
         }
     }
     let _ = std::fs::remove_file(path);
@@ -1014,7 +1029,7 @@ impl FwController {
             return Err("Windows Firewall is off, so Block All would do nothing. Turn it on first.".into());
         }
         let previous = firewall::default_outbound_blocked()?;
-        std::fs::create_dir_all(crate::settings::data_dir()).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(state_dir()).map_err(|e| e.to_string())?;
         // The marker comes first: if anything below fails or we crash, the next start can undo it.
         std::fs::write(marker_path(), marker_text(previous)).map_err(|e| format!("Can't write the Block All safety marker: {e}"))?;
         let result = (|| {
@@ -1167,7 +1182,8 @@ impl FwController {
         let db = self.shared.open_db().map_err(|e| e.to_string())?;
         let (mut made, mut paused) = (extras_rules(&db), extras_paused(&db));
         let enabled = self.shared.state().fw_enabled;
-        let names: Vec<String> = made.iter().filter(|(g, _)| *g == group).map(|(_, n)| n.clone()).collect();
+        // The list is in the user's database: only rules with our own name are acted on.
+        let names: Vec<String> = made.iter().filter(|(g, n)| *g == group && n.starts_with(NAME_PREFIX)).map(|(_, n)| n.clone()).collect();
         for name in &names {
             // A rule deleted by hand meanwhile is fine.
             let _ = match act {
@@ -1391,7 +1407,7 @@ impl FwController {
             if let Err(e) = enable_audit() {
                 eprintln!("RustWarden: {e}");
             }
-            let _ = std::fs::write(closed_path(), crate::clock::now_unix().to_string());
+            let _ = std::fs::create_dir_all(state_dir()).and_then(|()| std::fs::write(closed_path(), crate::clock::now_unix().to_string()));
             return;
         }
         if let Err(e) = self.end_block_all() {
@@ -1607,9 +1623,10 @@ mod tests {
             rule("Core Networking", "System"),
             rule("Store", ""),
             rule("Backup", r"C:\WINDOWS\SystemApps\x.exe"),
+            rule("Their curl", r"C:\Windows\System32\curl.exe"),
             rule(&format!("{BLOCK_ALL_PREFIX}: RustWarden"), r"C:\RustWarden.exe"),
         ];
-        assert_eq!(rules_to_suspend(&rules, r"c:\windows"), [format!("{IMPORT_PREFIX}out.app_1}}").as_str(), "RustWarden allow out: x"]);
+        assert_eq!(rules_to_suspend(&rules, r"c:\windows"), [format!("{IMPORT_PREFIX}out.app_1}}").as_str(), "RustWarden allow out: x", "Their curl"]);
     }
 
     #[test]

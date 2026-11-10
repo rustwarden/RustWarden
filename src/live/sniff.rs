@@ -158,7 +158,9 @@ fn packet_loop(net: &Handle, flows: &Flows, known: &Arc<dyn Fn(std::net::IpAddr)
             let pid = flows.read().unwrap_or_else(|e| e.into_inner()).get(&p.flow(false)).copied().unwrap_or(0);
             let by_resolver = crate::sys::apps::pid_path(pid).is_some_and(|path| path.to_ascii_lowercase().ends_with("\\svchost.exe"));
             let log = pid != 0 && !by_resolver;
-            if log || !m.ips.is_empty() {
+            // An answer must belong to a connection this PC opened (its address and port pair is in the flow table), so a
+            // forged packet from the network can't put names on addresses.
+            if pid != 0 && (log || !m.ips.is_empty()) {
                 etw::inject(NetEvent::Dns { pid: if log { pid } else { 0 }, name: m.question.0, qtype: m.question.1, status: u32::from(m.rcode), ips: m.ips, log });
             }
         }

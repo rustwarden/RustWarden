@@ -193,7 +193,7 @@ impl Host {
             }
             HostCall::BrowserFetch { urls } => {
                 self.not_in_demo()?;
-                if urls.len() > 200 || urls.iter().any(|u| !u.starts_with(crate::sys::webview::HOST) || !host_allowed(u, &self.http_hosts)) {
+                if urls.len() > 200 || urls.iter().any(|u| !crate::sys::webview::on_site(u) || !host_allowed(u, &self.http_hosts)) {
                     return Err("those addresses are not on the plugin's site".into());
                 }
                 let answers = crate::sys::webview::fetch(&urls)?;

@@ -45,6 +45,10 @@ fn copy_path() -> std::path::PathBuf {
 /// Only an elevated run can write there; without administrator rights the config file alone holds the password.
 pub fn remember(hash: &str) {
     if hash.is_empty() {
+        // One file per PC, sealed per user: a copy another Windows user sealed isn't ours to remove.
+        if recall().is_empty() && copy_path().exists() {
+            return;
+        }
         let _ = std::fs::remove_file(copy_path());
     } else if let Some(sealed) = crate::settings::secret::seal(hash) {
         let _ = std::fs::create_dir_all(crate::settings::admin_dir()).and_then(|()| std::fs::write(copy_path(), sealed));

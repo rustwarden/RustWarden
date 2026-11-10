@@ -24,9 +24,9 @@
     "semantic_hash": ""
   },
   "Cargo.toml": {
-    "mtime": 1794323019.282999,
-    "seen": 1794323217.9000738,
-    "ast_hash": "7bb0002eb71bd453b5eb0aa9836042eb",
+    "mtime": 1794328426.6080253,
+    "seen": 1794328568.410864,
+    "ast_hash": "74fd258727ec96f26eae173dcafcb1ac",
     "semantic_hash": ""
   },
   "assets/about_graph.json": {
@@ -204,9 +204,9 @@
     "semantic_hash": ""
   },
   "src/live/domains.rs": {
-    "mtime": 1793884060.8529549,
-    "seen": 1793964015.027387,
-    "ast_hash": "07d8a09b6041f72b03b342b6c6b2e4ca",
+    "mtime": 1794328414.3352065,
+    "seen": 1794328568.4206502,
+    "ast_hash": "2b3e7107e1dd381574b5b3dc183d6ebc",
     "semantic_hash": ""
   },
   "src/live/engine.rs": {
@@ -216,9 +216,9 @@
     "semantic_hash": ""
   },
   "src/live/firewall.rs": {
-    "mtime": 1794313206.54537,
-    "seen": 1794314794.7776756,
-    "ast_hash": "2ac9e8d7146468d97fc91fb0e3b93813",
+    "mtime": 1794328427.2434554,
+    "seen": 1794328568.42082,
+    "ast_hash": "94dbf16877eff696caa7b1375c156bb9",
     "semantic_hash": ""
   },
   "src/live/geo.rs": {
@@ -234,9 +234,9 @@
     "semantic_hash": ""
   },
   "src/live/lease.rs": {
-    "mtime": 1794313206.5474598,
-    "seen": 1794314794.7778413,
-    "ast_hash": "0877b0afe8baf672008be1d948443d36",
+    "mtime": 1794328358.8079624,
+    "seen": 1794328568.4212391,
+    "ast_hash": "932ad46199b1a20ffb0abf45eb73cb49",
     "semantic_hash": ""
   },
   "src/live/mod.rs": {
@@ -282,9 +282,9 @@
     "semantic_hash": ""
   },
   "src/live/sniff.rs": {
-    "mtime": 1794313206.5515695,
-    "seen": 1794314794.778119,
-    "ast_hash": "f17bde945f1d398f4e884d4e657d3e2b",
+    "mtime": 1794328377.442363,
+    "seen": 1794328568.4220805,
+    "ast_hash": "94950f7f449b17ed9335644d7d9c2164",
     "semantic_hash": ""
   },
   "src/live/store.rs": {
@@ -318,9 +318,9 @@
     "semantic_hash": ""
   },
   "src/main.rs": {
-    "mtime": 1794313206.555171,
-    "seen": 1794314794.7781277,
-    "ast_hash": "b6080b05b099c67e51f17f02048e4301",
+    "mtime": 1794328413.521482,
+    "seen": 1794328568.422673,
+    "ast_hash": "d0fc4f65e41f041009bb9d1ab97783f3",
     "semantic_hash": ""
   },
   "src/metrics.rs": {
@@ -408,15 +408,15 @@
     "semantic_hash": ""
   },
   "src/settings.rs": {
-    "mtime": 1794322520.1452036,
-    "seen": 1794323217.922921,
-    "ast_hash": "2332f0129e5920f7d88aa6fec73885c5",
+    "mtime": 1794328389.8406918,
+    "seen": 1794328568.4251947,
+    "ast_hash": "cb1545343889c447be2aa918f3680542",
     "semantic_hash": ""
   },
   "src/shots.rs": {
-    "mtime": 1794313206.5692952,
-    "seen": 1794314794.7793632,
-    "ast_hash": "fbe5ca34262e9b53dfbc4a92b45169fe",
+    "mtime": 1794328366.4194868,
+    "seen": 1794328568.4251974,
+    "ast_hash": "06b00b634e4753b53009cc598afb23f1",
     "semantic_hash": ""
   },
   "src/snapshot.rs": {
@@ -450,9 +450,9 @@
     "semantic_hash": ""
   },
   "src/sys/autostart.rs": {
-    "mtime": 1794313206.5703392,
-    "seen": 1794314794.7800298,
-    "ast_hash": "2b2bc7e9fcad2b69c0d38e4657758c9c",
+    "mtime": 1794328378.2625518,
+    "seen": 1794328568.4258635,
+    "ast_hash": "65f3e6fdbc52e8cd4158f58c08ebc026",
     "semantic_hash": ""
   },
   "src/sys/conns.rs": {
@@ -492,9 +492,9 @@
     "semantic_hash": ""
   },
   "src/sys/firewall.rs": {
-    "mtime": 1794313206.5747137,
-    "seen": 1794314794.7805061,
-    "ast_hash": "78995ff74d04938f2cc973a0f5b41c79",
+    "mtime": 1794328357.9893289,
+    "seen": 1794328568.4271069,
+    "ast_hash": "c93a82b048aa8effd78b27003148edb2",
     "semantic_hash": ""
   },
   "src/sys/ifstats.rs": {
@@ -504,9 +504,9 @@
     "semantic_hash": ""
   },
   "src/sys/mod.rs": {
-    "mtime": 1794313206.576346,
-    "seen": 1794314794.7806447,
-    "ast_hash": "c642b3641b6d9490089fd62ecd049684",
+    "mtime": 1794328368.0520675,
+    "seen": 1794328568.4275792,
+    "ast_hash": "02cde31bb981731f457fb5cc03518ccc",
     "semantic_hash": ""
   },
   "src/sys/modal.rs": {
@@ -576,9 +576,9 @@
     "semantic_hash": ""
   },
   "src/tamper.rs": {
-    "mtime": 1794313206.5808754,
-    "seen": 1794314794.7819262,
-    "ast_hash": "bf0d6853fce71e086cbc23747de558d3",
+    "mtime": 1794328390.6458473,
+    "seen": 1794328568.4297676,
+    "ast_hash": "e460e9f88e734fa41048e4f9109bb8d6",
     "semantic_hash": ""
   },
   "src/theme.rs": {
@@ -690,9 +690,9 @@
     "semantic_hash": ""
   },
   "src/update.rs": {
-    "mtime": 1794313206.5931022,
-    "seen": 1794314794.7829714,
-    "ast_hash": "31e89e2b37d15441fe034d96dd2344c6",
+    "mtime": 1794328412.708911,
+    "seen": 1794328568.432843,
+    "ast_hash": "f67d54f8192022113515cf68c68b75f2",
     "semantic_hash": ""
   },
   "src/util.rs": {
@@ -732,9 +732,9 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1794318441.1085489,
-    "seen": 1794319309.3390725,
-    "ast_hash": "2e2a538b87a1ab258d97c4707136cef9",
+    "mtime": 1794323233.489209,
+    "seen": 1794328568.43404,
+    "ast_hash": "df4fd5109483858fad22cd69379a7c19",
     "semantic_hash": ""
   },
   "SECURITY.md": {
@@ -750,9 +750,9 @@
     "semantic_hash": ""
   },
   "changes.md": {
-    "mtime": 1794323019.2940128,
-    "seen": 1794323217.9329286,
-    "ast_hash": "411032cbe840472faeef0e15f9140f23",
+    "mtime": 1794328426.6380453,
+    "seen": 1794328568.4343278,
+    "ast_hash": "35e0cc31ef97cff461ce6232656b00f6",
     "semantic_hash": ""
   },
   "assets/flags/ad.png": {
@@ -2526,9 +2526,9 @@
     "semantic_hash": ""
   },
   "src/plugins/wasm/host.rs": {
-    "mtime": 1794313206.5625095,
-    "seen": 1794314794.7788732,
-    "ast_hash": "55b67a6101ce30ff899059136f72ce5f",
+    "mtime": 1794328394.6894913,
+    "seen": 1794328568.4241338,
+    "ast_hash": "21380f61fc5db6c1aa6331eb69be8bcf",
     "semantic_hash": ""
   },
   "src/plugins/wasm/loader.rs": {
@@ -2538,9 +2538,9 @@
     "semantic_hash": ""
   },
   "src/plugins/wasm/manager.rs": {
-    "mtime": 1794313206.5635543,
-    "seen": 1794314794.778876,
-    "ast_hash": "8e8d84e926b6785db5efa05e034b9418",
+    "mtime": 1794328391.4603195,
+    "seen": 1794328568.4242551,
+    "ast_hash": "a815921e7bf7323b7e8e4dba39951f50",
     "semantic_hash": ""
   },
   "src/plugins/wasm/mod.rs": {
@@ -2634,9 +2634,9 @@
     "semantic_hash": ""
   },
   "src/sys/webview.rs": {
-    "mtime": 1794313206.578857,
-    "seen": 1794314794.7817945,
-    "ast_hash": "a80dae0358ef245909d188b430fb0b47",
+    "mtime": 1794328393.877253,
+    "seen": 1794328568.429393,
+    "ast_hash": "8dd7b7c47a6bfc030360e0e98ff951e3",
     "semantic_hash": ""
   },
   "src/ui/speed.rs": {
@@ -2991,6 +2991,12 @@
     "mtime": 1794323188.2717445,
     "seen": 1794323217.931932,
     "ast_hash": "ae3a5cf570e3969b7ffa9933a105025a",
+    "semantic_hash": ""
+  },
+  ".github/notes/v1.21.4.md": {
+    "mtime": 1794328426.6606348,
+    "seen": 1794328568.4335678,
+    "ast_hash": "03c08730b51e0fe37e8ba9bef66d5052",
     "semantic_hash": ""
   }
 }

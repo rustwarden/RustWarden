@@ -64,7 +64,16 @@ fn saved_window() -> Option<([f32; 2], [f32; 2])> {
     Some(([x as f32 / scale, y as f32 / scale], [w as f32 / scale, h as f32 / scale]))
 }
 
+/// DLLs load from the exe's folder and System32 only, never from the current folder or PATH, which a program running as
+/// the user controls. (WinDivert is loaded by its full path in the admin-only folder.)
+fn harden_dll_search() {
+    use windows::Win32::System::LibraryLoader::{LOAD_LIBRARY_SEARCH_DEFAULT_DIRS, SetDefaultDllDirectories};
+    // SAFETY: a process-wide setting, made before anything else loads a library.
+    let _ = unsafe { SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS) };
+}
+
 fn main() -> eframe::Result {
+    harden_dll_search();
     // Before any file is touched: an elevated run must not follow a junction a non-administrator made (see sys::redirection_guard).
     sys::redirection_guard();
     // A screenshot run (shots.rs) is a plain start: no elevation, service hand-off or single-instance check.
