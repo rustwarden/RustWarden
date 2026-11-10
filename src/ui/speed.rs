@@ -250,7 +250,7 @@ fn top_row(ui: &mut Ui, route: Option<SpeedRoute>, latest: Option<&SpeedResult>,
                 // Download packets travel from the server to you, upload ones from you to the server.
                 let flow = page.running.then(|| match last.map(|p| p.phase) {
                     Some(SpeedPhase::Download) => (false, theme::accent_text()),
-                    Some(SpeedPhase::Upload) => (true, theme::green()),
+                    Some(SpeedPhase::Upload) => (true, theme::up()),
                     _ => (true, theme::text_dim()),
                 });
                 crate::ui::map::route_map(ui, map, r.home, r.server, ("You", town), flow);
@@ -298,7 +298,7 @@ fn gauge(ui: &Ui, rect: Rect, name: &str, value: f32) {
     let c = rect.center() + vec2(0.0, -4.0);
     let frac = dial_frac(shown);
     p.add(arc_mesh(c, (r - 14.0, r), (0.0, 1.0), |_| theme::border()));
-    let (from, to) = (theme::accent_text(), theme::green());
+    let (from, to) = (theme::accent_text(), theme::up());
     p.add(arc_mesh(c, (r - 14.0, r), (0.0, frac), |f| from.lerp_to_gamma(to, f)));
     for (i, m) in MARKS.iter().enumerate() {
         let a = (DIAL_START + DIAL_SWEEP * i as f32 / (MARKS.len() - 1) as f32).to_radians();
@@ -330,14 +330,14 @@ fn live_chart(ui: &Ui, rect: Rect, live: &[SpeedLive]) {
     for (i, label) in ["Start", "", "Halfway", "", "End"].into_iter().enumerate() {
         p.text(pos2(plot.left() + plot.width() * i as f32 / 4.0, plot.bottom() + 6.0), Align2::CENTER_TOP, label, theme::font(12.0), theme::text_dim());
     }
-    for (phase, color) in [(SpeedPhase::Download, theme::accent_text()), (SpeedPhase::Upload, theme::green())] {
+    for (phase, color) in [(SpeedPhase::Download, theme::accent_text()), (SpeedPhase::Upload, theme::up())] {
         let mine: Vec<&SpeedLive> = live.iter().filter(|s| s.phase == phase).collect();
         let (Some(last), true) = (mine.last(), mine.len() >= 2) else { continue };
         let values: Vec<f32> = mine.iter().map(|s| s.mbps / top).collect();
         widgets::area_soft_to(p, plot, &values, color, false, None, last.progress.clamp(0.05, 1.0));
     }
     p.text(rect.right_top() + vec2(-14.0, 12.0), Align2::RIGHT_TOP, "Download", theme::font(12.0), theme::accent_text());
-    p.text(rect.right_top() + vec2(-90.0, 12.0), Align2::RIGHT_TOP, "Upload", theme::font(12.0), theme::green());
+    p.text(rect.right_top() + vec2(-90.0, 12.0), Align2::RIGHT_TOP, "Upload", theme::font(12.0), theme::up());
     p.text(rect.left_top() + vec2(14.0, 12.0), Align2::LEFT_TOP, "Live test", theme::font(12.0), theme::text_dim());
 }
 
@@ -349,7 +349,7 @@ fn results_card(ui: &Ui, rect: Rect, r: &SpeedResult) {
     p.text(rect.left_top() + vec2(18.0, 16.0), Align2::LEFT_TOP, "Latest result", theme::font(13.0), theme::text_dim());
     let rows = [
         ("Download", format!("{} Mbps", mbps(r.down_mbps)), theme::accent_text()),
-        ("Upload", format!("{} Mbps", mbps(r.up_mbps)), theme::green()),
+        ("Upload", format!("{} Mbps", mbps(r.up_mbps)), theme::up()),
         ("Ping", format!("{:.0} ms", r.ping_ms), theme::text()),
         ("Jitter", format!("{:.1} ms", r.jitter_ms), theme::text()),
     ];
@@ -383,7 +383,7 @@ fn chart(ui: &Ui, rect: Rect, results: &[SpeedResult], range: usize) {
         p.text(pos2(x, plot.bottom() + 6.0), Align2::CENTER_TOP, label, theme::font(12.0), theme::text_dim());
     }
     let at = |r: &SpeedResult, v: f32| pos2(plot.left() + plot.width() * (r.ts - (t1 - span)) as f32 / span as f32, plot.bottom() - plot.height() * v / top);
-    for (get, color) in [(down as fn(&SpeedResult) -> f32, theme::accent_text()), (up, theme::green())] {
+    for (get, color) in [(down as fn(&SpeedResult) -> f32, theme::accent_text()), (up, theme::up())] {
         let pts: Vec<_> = results.iter().filter(|r| r.ts >= t1 - span).map(|r| at(r, get(r))).collect();
         p.add(egui::Shape::line(pts.clone(), Stroke::new(2.0, color)));
         for pt in pts {
@@ -391,7 +391,7 @@ fn chart(ui: &Ui, rect: Rect, results: &[SpeedResult], range: usize) {
         }
     }
     p.text(rect.right_top() + vec2(-14.0, 12.0), Align2::RIGHT_TOP, "Download", theme::font(12.0), theme::accent_text());
-    p.text(rect.right_top() + vec2(-90.0, 12.0), Align2::RIGHT_TOP, "Upload", theme::font(12.0), theme::green());
+    p.text(rect.right_top() + vec2(-90.0, 12.0), Align2::RIGHT_TOP, "Upload", theme::font(12.0), theme::up());
 }
 
 fn down(r: &SpeedResult) -> f32 {
@@ -422,7 +422,7 @@ fn table(ui: &mut Ui, results: &[SpeedResult]) {
                 ui.label(&r.server);
                 ui.label(&r.isp);
                 ui.label(egui::RichText::new(format!("{} Mbps", mbps(r.down_mbps))).color(theme::accent_text()));
-                ui.label(egui::RichText::new(format!("{} Mbps", mbps(r.up_mbps))).color(theme::green()));
+                ui.label(egui::RichText::new(format!("{} Mbps", mbps(r.up_mbps))).color(theme::up()));
                 ui.label(format!("{:.0} ms", r.ping_ms));
                 if r.url.starts_with("https://") && ui.link("Result").clicked() {
                     crate::sys::open_url(&r.url);
