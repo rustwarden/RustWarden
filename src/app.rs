@@ -532,6 +532,9 @@ pub type ThreatLists = (Vec<(String, String)>, Vec<(String, String)>);
 /// Minutes offered by the "Block after" menus.
 pub const BLOCK_AFTER_MINS: [u64; 5] = [5, 10, 20, 30, 60];
 
+/// The user guide on GitHub Pages (header ? button, RustWarden menu, Settings footer).
+pub const USER_GUIDE_URL: &str = "https://rustwarden.github.io/RustWarden/";
+
 const REFRESH_EVERY: Duration = Duration::from_millis(1000);
 
 /// Demo's fixed data has its spike at the start of the range; Live data is newest at the right, so it shows everything.
@@ -1344,6 +1347,10 @@ Start RustWarden as administrator once: it undoes Block All automatically."
                 self.restart_app(&ctx);
                 ui.close();
             }
+            if row(ui, Icon::Info, "User guide") {
+                crate::sys::open_url(USER_GUIDE_URL);
+                ui.close();
+            }
             if row(ui, Icon::Info, "About RustWarden") {
                 self.dialog = Some(Dialog::About(ctx.load_texture("about-graph", Self::about_image(), egui::TextureOptions::LINEAR)));
                 ui.close();
@@ -1390,7 +1397,7 @@ Start RustWarden as administrator once: it undoes Block All automatically."
         };
         // Never under the chip on the left or the buttons on the right: tighter padding when short of room.
         let left_limit = brand.left() + 32.0 + g.size().x + 34.0 + chip_w.max(26.0) + 16.0;
-        let room = (rect.right() - 230.0 - left_limit).max(0.0);
+        let room = (rect.right() - 276.0 - left_limit).max(0.0);
         // Full names while they fit, then tighter padding, then one-word names.
         let label_of = |t: &Tab, short: bool| match (t, short) {
             (_, true) => t.lines().0.to_owned(),
@@ -1468,6 +1475,7 @@ Start RustWarden as administrator once: it undoes Block All automatically."
             }
         }
         let sun = Rect::from_min_max(pos2(right - 46.0, rect.top()), pos2(right, rect.top() + 32.0));
+        right -= 46.0;
         let sun_resp = ui.interact(sun, Id::unique("theme_btn"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if theme::is_dark() {
             "Switch to the light theme"
         } else {
@@ -1481,6 +1489,16 @@ Start RustWarden as administrator once: it undoes Block All automatically."
             let mut s = self.settings.clone();
             s.theme = if theme::is_dark() { crate::settings::Theme::Light } else { crate::settings::Theme::Dark };
             self.apply_settings(&ctx, s);
+        }
+        let help = Rect::from_min_max(pos2(right - 46.0, rect.top()), pos2(right, rect.top() + 32.0));
+        let help_resp = ui.interact(help, Id::unique("help_btn"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("User guide");
+        if help_resp.hovered() {
+            p.rect_filled(help, 0, theme::nav_on());
+        }
+        p.circle_stroke(help.center(), 8.0, Stroke::new(1.4, theme::text()));
+        p.text(help.center(), Align2::CENTER_CENTER, "?", theme::bold(12.0), theme::text());
+        if help_resp.clicked() {
+            crate::sys::open_url(USER_GUIDE_URL);
         }
     }
 

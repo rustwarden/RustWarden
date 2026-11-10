@@ -1120,6 +1120,11 @@ impl RustWarden {
                                 out = if ok { Outcome::Apply(draft.clone()) } else { Outcome::Close };
                             }
                         }
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            if ui.link(egui::RichText::new("User guide").font(theme::font(14.0))).clicked() {
+                                crate::sys::open_url(crate::app::USER_GUIDE_URL);
+                            }
+                        });
                     });
                 }) {
                     out = Outcome::Close;

@@ -100,3 +100,4 @@
 - [Norman] fix: Exit is back on the tray menu (the menu window was sized one row short, so Exit was cut off below its bottom edge) and on the RustWarden menu, after About.
 - [Norman] fix: windows opened from another dialog (a plugin's Settings, Permissions, Approve) are solid instead of see-through. Their backdrop sat over a see-through owner and could go fully clear, starting with the ThinkBroadband plugin's settings.
 - [Norman] fix: Speedtest draws upload in the same orange as upload on the Traffic tab (it was green).
+- [Norman] feat: User guide links to https://rustwarden.github.io/RustWarden/: a ? button beside the theme button at the top right, "User guide" above About in the RustWarden menu, and a "User guide" link at the bottom left of Settings.
