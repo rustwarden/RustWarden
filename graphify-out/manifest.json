@@ -24,9 +24,9 @@
     "semantic_hash": ""
   },
   "Cargo.toml": {
-    "mtime": 1794313222.6503384,
-    "seen": 1794314794.7753422,
-    "ast_hash": "1f713b3fb249fb81a1a1059547d035bd",
+    "mtime": 1794323019.282999,
+    "seen": 1794323217.9000738,
+    "ast_hash": "7bb0002eb71bd453b5eb0aa9836042eb",
     "semantic_hash": ""
   },
   "assets/about_graph.json": {
@@ -54,9 +54,9 @@
     "semantic_hash": ""
   },
   "src/app.rs": {
-    "mtime": 1794320621.7207842,
-    "seen": 1794321024.012651,
-    "ast_hash": "f4a8b5d7baa28c464fcd28784234105f",
+    "mtime": 1794322920.1905057,
+    "seen": 1794323217.9090633,
+    "ast_hash": "436aeeee3f4aa45992131f9370c1341b",
     "semantic_hash": ""
   },
   "src/applog.rs": {
@@ -408,9 +408,9 @@
     "semantic_hash": ""
   },
   "src/settings.rs": {
-    "mtime": 1794313206.5682511,
-    "seen": 1794314794.779361,
-    "ast_hash": "2660a9c12ad0c7653aa1f05037bf7cad",
+    "mtime": 1794322520.1452036,
+    "seen": 1794323217.922921,
+    "ast_hash": "2332f0129e5920f7d88aa6fec73885c5",
     "semantic_hash": ""
   },
   "src/shots.rs": {
@@ -612,9 +612,9 @@
     "semantic_hash": ""
   },
   "src/ui/dialogs.rs": {
-    "mtime": 1794320629.9679718,
-    "seen": 1794321024.0324433,
-    "ast_hash": "8401a2da0956ae55a31f20019cbbcc12",
+    "mtime": 1794322536.514435,
+    "seen": 1794323217.92873,
+    "ast_hash": "f38a539f64c7bceb85d8557f12fa4e87",
     "semantic_hash": ""
   },
   "src/ui/dns.rs": {
@@ -678,9 +678,9 @@
     "semantic_hash": ""
   },
   "src/ui/traffic.rs": {
-    "mtime": 1794313206.5905805,
-    "seen": 1794314794.7829654,
-    "ast_hash": "996373bd3a9cd6140076c90597d96ff3",
+    "mtime": 1794323018.0338337,
+    "seen": 1794323217.9309537,
+    "ast_hash": "34c5ed6e4573ddca22a112317a89aa40",
     "semantic_hash": ""
   },
   "src/ui/tray_menu.rs": {
@@ -708,8 +708,8 @@
     "semantic_hash": ""
   },
   "src/widgets.rs": {
-    "mtime": 1794320984.468626,
-    "seen": 1794321024.035498,
+    "mtime": 1794321070.1445563,
+    "seen": 1794323217.9316719,
     "ast_hash": "3ea0c1bec55688840a5eb9e4acd92dfd",
     "semantic_hash": ""
   },
@@ -720,9 +720,9 @@
     "semantic_hash": ""
   },
   "FEATURES.md": {
-    "mtime": 1794314738.9218998,
-    "seen": 1794314794.7833037,
-    "ast_hash": "a8d6176eea536c599f0f4d3e0360ed82",
+    "mtime": 1794322979.929749,
+    "seen": 1794323217.932058,
+    "ast_hash": "2902673ebff2a0f624be24c82a112db2",
     "semantic_hash": ""
   },
   "LICENCE.md": {
@@ -750,9 +750,9 @@
     "semantic_hash": ""
   },
   "changes.md": {
-    "mtime": 1794320994.5630412,
-    "seen": 1794321024.0369015,
-    "ast_hash": "db6dfd5ab0e11c01724a5fcc94855173",
+    "mtime": 1794323019.2940128,
+    "seen": 1794323217.9329286,
+    "ast_hash": "411032cbe840472faeef0e15f9140f23",
     "semantic_hash": ""
   },
   "assets/flags/ad.png": {
@@ -2985,6 +2985,12 @@
     "mtime": 1794321001.8589098,
     "seen": 1794321024.0356996,
     "ast_hash": "0346fbf4476b8a155aa3c14d1dc7e6f4",
+    "semantic_hash": ""
+  },
+  ".github/notes/v1.21.3.md": {
+    "mtime": 1794323188.2717445,
+    "seen": 1794323217.931932,
+    "ast_hash": "ae3a5cf570e3969b7ffa9933a105025a",
     "semantic_hash": ""
   }
 }
