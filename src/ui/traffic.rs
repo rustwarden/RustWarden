@@ -840,11 +840,13 @@ impl RustWarden {
                 if !detail.facts.is_empty() {
                     ui.add_space(8.0);
                 }
+                // The key column fits the widest key ("Parent process" overflowed a fixed 72 px).
+                let key_w = detail.facts.iter().map(|(k, _)| ui.painter().layout_no_wrap(k.clone(), theme::font(14.0), theme::text_dim()).size().x + 12.0).fold(72.0, f32::max);
                 for (k, v) in &detail.facts {
                     ui.horizontal(|ui| {
                         ui.set_height(26.0);
                         ui.add_space(14.0);
-                        let (kr, _) = ui.allocate_exact_size(vec2(72.0, 20.0), Sense::hover());
+                        let (kr, _) = ui.allocate_exact_size(vec2(key_w, 20.0), Sense::hover());
                         ui.painter().text(kr.left_center(), Align2::LEFT_CENTER, k, theme::font(14.0), theme::text_dim());
                         ui.label(egui::RichText::new(v).font(theme::font(14.0)).color(theme::text()));
                         if k == "IP" && widgets::whois_icon(ui, ui.cursor().left_center() + vec2(10.0, 0.0), "detail_ip") {
