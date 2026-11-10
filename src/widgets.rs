@@ -562,6 +562,8 @@ impl Dialog<'_> {
         }
         st.shown_frame = frame;
         let parent = ctx.input(|i| i.viewport().outer_rect).unwrap_or(ctx.content_rect());
+        // A dialog opened from another dialog (a plugin's settings) is solid: its see-through backdrop over a see-through owner went clear.
+        let backdrop = self.backdrop && ctx.viewport_id() == egui::ViewportId::ROOT;
         let size = st.size.unwrap_or(vec2(420.0, 160.0));
         let pos = *st.pos.get_or_insert(parent.center() - size / 2.0);
         let builder = egui::ViewportBuilder::default()
@@ -573,7 +575,7 @@ impl Dialog<'_> {
             .with_resizable(false)
             .with_minimize_button(false)
             .with_maximize_button(false)
-            .with_transparent(self.backdrop)
+            .with_transparent(backdrop)
             .with_taskbar(false);
         let builder = if self.backdrop {
             static ICON: std::sync::OnceLock<std::sync::Arc<egui::IconData>> = std::sync::OnceLock::new();
@@ -588,7 +590,7 @@ impl Dialog<'_> {
             let esc = !egui::Popup::is_any_open(ui.ctx()) && ui.input(|i| i.key_pressed(egui::Key::Escape));
             open = !(esc || ui.input(|i| i.viewport().close_requested()));
             // A backdrop window gets the main window's own sheet, so it is as opaque as the main window (the Acrylic setting).
-            ui.painter().rect_filled(ui.max_rect(), 0.0, if self.backdrop { theme::surface() } else { theme::surface_solid() });
+            ui.painter().rect_filled(ui.max_rect(), 0.0, if backdrop { theme::surface() } else { theme::surface_solid() });
             dialog_style(ui);
             let margin = if no_margin { egui::Margin::ZERO } else { egui::Margin::same(14) };
             let r = egui::Frame::NONE.inner_margin(margin).show(ui, |ui| add.take().map(|add| add(ui)));
@@ -619,7 +621,7 @@ impl Dialog<'_> {
             st.hwnd = h;
             crate::sys::modal::adopt(h, owner, theme::is_dark());
             crate::sys::modal::use_exe_icons(h); // the tuned small icons, not one 256 px picture scaled down
-            if self.backdrop {
+            if backdrop {
                 theme::acrylic(h, theme::is_dark(), theme::mica());
             }
         }

@@ -98,3 +98,4 @@
 - [Norman] fix: dialog windows are capped at 90% of the screen while they size to their content. A dialog whose content kept pushing back could grow without limit and resize its OpenGL surface every frame; on some integrated GPUs (AMD Radeon 780M) that load is a suspect for a whole-machine freeze.
 - [Norman] fix: Settings > Firewall > Windows components: "Repeat that automatically" is now "Keep these components blocked", with a description of what it does (re-blocks components Windows Update put back).
 - [Norman] fix: Exit is back on the tray menu (the menu window was sized one row short, so Exit was cut off below its bottom edge) and on the RustWarden menu, after About.
+- [Norman] fix: windows opened from another dialog (a plugin's Settings, Permissions, Approve) are solid instead of see-through. Their backdrop sat over a see-through owner and could go fully clear, starting with the ThinkBroadband plugin's settings.
