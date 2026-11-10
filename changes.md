@@ -97,3 +97,4 @@
 - [Norman] fix: the first-run wizard is wider (640) and every step has the same height, so it no longer scrolls or resizes and jumps back to the centre between steps.
 - [Norman] fix: dialog windows are capped at 90% of the screen while they size to their content. A dialog whose content kept pushing back could grow without limit and resize its OpenGL surface every frame; on some integrated GPUs (AMD Radeon 780M) that load is a suspect for a whole-machine freeze.
 - [Norman] fix: Settings > Firewall > Windows components: "Repeat that automatically" is now "Keep these components blocked", with a description of what it does (re-blocks components Windows Update put back).
+- [Norman] fix: Exit is back on the tray menu (the menu window was sized one row short, so Exit was cut off below its bottom edge) and on the RustWarden menu, after About.

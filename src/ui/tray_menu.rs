@@ -147,7 +147,7 @@ impl RustWarden {
             fw_mode: self.protect.info.enabled.then_some(self.protect.info.mode),
             modes: FirewallMode::ALL.map(|m| self.caps.mode_enabled(m)),
         };
-        let rows = 9 + if snap.prompt_open { PROMPT_FOR.len() } else { 0 } + if snap.themes_open { 3 } else { 0 } + if snap.protect_open { FirewallMode::ALL.len() + 1 } else { 0 };
+        let rows = 10 + if snap.prompt_open { PROMPT_FOR.len() } else { 0 } + if snap.themes_open { 3 } else { 0 } + if snap.protect_open { FirewallMode::ALL.len() + 1 } else { 0 };
         let size = vec2(WIDTH, MENU_ROW_H * rows as f32 + MENU_SEP_H * 3.0 + PAD * 2.0) * z;
         menu.shared.lock().unwrap_or_else(|e| e.into_inner()).snap = snap;
 

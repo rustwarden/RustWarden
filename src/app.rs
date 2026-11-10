@@ -1348,6 +1348,11 @@ Start RustWarden as administrator once: it undoes Block All automatically."
                 self.dialog = Some(Dialog::About(ctx.load_texture("about-graph", Self::about_image(), egui::TextureOptions::LINEAR)));
                 ui.close();
             }
+            if row(ui, Icon::Close, "Exit") {
+                self.request_exit(&ctx);
+                self.show_password(&ctx);
+                ui.close();
+            }
         });
 
         // Demo chip: only shown while demo data is in use; switched off in Settings > Other.
