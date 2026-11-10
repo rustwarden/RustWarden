@@ -1474,20 +1474,26 @@ Start RustWarden as administrator once: it undoes Block All automatically."
                 }
             }
         }
+        // Theme: follow Windows, light, dark, in turn.
         let sun = Rect::from_min_max(pos2(right - 46.0, rect.top()), pos2(right, rect.top() + 32.0));
         right -= 46.0;
-        let sun_resp = ui.interact(sun, Id::unique("theme_btn"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(if theme::is_dark() {
-            "Switch to the light theme"
-        } else {
-            "Switch to the dark theme"
+        let next = self.settings.next_theme_choice();
+        let sun_resp = ui.interact(sun, Id::unique("theme_btn"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(match next {
+            None => "Follow the Windows theme",
+            Some(crate::settings::Theme::Light) => "Switch to the light theme",
+            Some(crate::settings::Theme::Dark) => "Switch to the dark theme",
         });
         if sun_resp.hovered() {
             p.rect_filled(sun, 0, theme::nav_on());
         }
-        icons::theme_toggle(&p, theme::is_dark(), Rect::from_center_size(sun.center(), vec2(18.0, 18.0)), theme::text());
+        let icon_rect = Rect::from_center_size(sun.center(), vec2(18.0, 18.0));
+        match self.settings.theme_choice() {
+            None => icons::paint(&p, Icon::Laptop, icon_rect, theme::text()),
+            Some(t) => icons::theme_toggle(&p, t == crate::settings::Theme::Dark, icon_rect, theme::text()),
+        }
         if sun_resp.clicked() {
             let mut s = self.settings.clone();
-            s.theme = if theme::is_dark() { crate::settings::Theme::Light } else { crate::settings::Theme::Dark };
+            s.set_theme_choice(next);
             self.apply_settings(&ctx, s);
         }
         let help = Rect::from_min_max(pos2(right - 46.0, rect.top()), pos2(right, rect.top() + 32.0));

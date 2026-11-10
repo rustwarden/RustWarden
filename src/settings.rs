@@ -641,6 +641,15 @@ impl Settings {
         (!self.follow_windows_theme).then_some(self.theme)
     }
 
+    /// The header theme button's order: follow Windows, then light, then dark.
+    pub fn next_theme_choice(&self) -> Option<Theme> {
+        match self.theme_choice() {
+            None => Some(Theme::Light),
+            Some(Theme::Light) => Some(Theme::Dark),
+            Some(Theme::Dark) => None,
+        }
+    }
+
     pub fn set_theme_choice(&mut self, choice: Option<Theme>) {
         self.follow_windows_theme = choice.is_none();
         if let Some(t) = choice {
@@ -1179,6 +1188,17 @@ mod tests {
         let text = toml::to_string(&s).unwrap();
         let back: Settings = toml::from_str(&text).unwrap();
         assert_eq!(back.alert_rules, s.alert_rules);
+    }
+
+    #[test]
+    fn theme_button_cycles_system_light_dark() {
+        let mut s = Settings::default();
+        let mut seen = vec![s.theme_choice()];
+        for _ in 0..3 {
+            s.set_theme_choice(s.next_theme_choice());
+            seen.push(s.theme_choice());
+        }
+        assert_eq!(seen, [None, Some(Theme::Light), Some(Theme::Dark), None]);
     }
 
     #[test]
