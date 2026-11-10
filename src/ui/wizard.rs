@@ -40,11 +40,12 @@ fn firewall_note(mode: FirewallMode) -> &'static str {
 pub fn show(ctx: &Context, w: &mut Wizard) -> Step {
     let mut out = Step::Keep;
     if !crate::widgets::dialog("Welcome to RustWarden").show(ctx, |ui| {
-        ui.set_width(520.0);
+        ui.set_width(640.0);
         ui.label(egui::RichText::new(format!("Step {} of {}: {}", w.step + 1, STEPS.len(), STEPS[w.step])).weak());
         ui.add_space(6.0);
-        egui::ScrollArea::vertical().max_height((ctx.content_rect().height() - 260.0).clamp(240.0, 460.0)).show(ui, |ui| {
-            ui.set_width(ui.available_width());
+        ui.vertical(|ui| {
+            // Every step gets the size of the tallest (Databases), so the window never resizes or re-centres between steps.
+            ui.set_min_height(400.0);
             match w.step {
                 0 => welcome(ui, &mut w.draft),
                 1 => firewall(ui, w),
