@@ -119,6 +119,8 @@ pub fn show(ui: &mut Ui, page: &mut SpeedPage, env: &Env, ev: &mut Vec<Event>) {
             let latest = st.results.last().cloned();
             if latest.is_none() && page.live.is_empty() {
                 ui.label(egui::RichText::new("No tests yet. Press Run test to measure your connection.").color(theme::text_dim()));
+                ui.add_space(8.0);
+                crate::credits::source(ui, &crate::credits::SPEEDTEST);
                 return;
             }
             top_row(ui, st.route, latest.as_ref(), page);
@@ -131,16 +133,20 @@ pub fn show(ui: &mut Ui, page: &mut SpeedPage, env: &Env, ev: &mut Vec<Event>) {
             }
             ui.add_space(12.0);
             table(ui, &st.results);
+            ui.add_space(8.0);
+            crate::credits::source(ui, &crate::credits::SPEEDTEST);
         });
     });
     if st.confirm {
         let open = widgets::dialog(if page.install_title.is_empty() { "Download" } else { page.install_title.as_str() }).show(ui.ctx(), |ui| {
-            ui.set_width(420.0);
+            ui.set_width(460.0);
             ui.label(egui::RichText::new("Before you download").font(theme::bold(16.0)));
             for (i, line) in page.install_text.iter().enumerate() {
                 ui.add_space(if i == 0 { 6.0 } else { 4.0 });
                 ui.label(line.as_str());
             }
+            ui.add_space(6.0);
+            crate::credits::source(ui, &crate::credits::SPEEDTEST);
             ui.add_space(10.0);
             ui.horizontal(|ui| {
                 if ui.button("Accept and download").clicked() {
@@ -204,6 +210,8 @@ fn setup_card(ui: &mut Ui, page: &SpeedPage) -> bool {
     ui.label("Speedtest.net has no public API, so RustWarden runs Ookla's own command-line tool and reads its results.");
     ui.label("It is downloaded from install.speedtest.net only when you press the button, and runs only when you start a test or set a schedule in the plugin's settings.");
     ui.label("By downloading it you accept Ookla's license and privacy policy (speedtest.net/about).");
+    ui.add_space(6.0);
+    crate::credits::source(ui, &crate::credits::SPEEDTEST);
     ui.add_space(10.0);
     let label = if page.installing { "Downloading…" } else { "Download speedtest-cli" };
     ui.add_enabled_ui(!page.installing, |ui| {

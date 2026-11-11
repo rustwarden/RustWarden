@@ -58,6 +58,8 @@ Demo mode works against a made-up router.
 
 **Network > Cloudflare Tunnel.** Makes a service on this PC reachable from the internet through Cloudflare, without opening any ports.
 
+The page credits cloudflared to Cloudflare, Inc. (Apache License 2.0). See [Third-party data and credits](../credits.md).
+
 - **Download cloudflared** fetches Cloudflare's `cloudflared` (about 55 MB, a pinned version) from GitHub. It's only kept if its SHA-256 matches.
 - **Sign in** in one of two ways:
     - **Tunnel token**: paste a token from the Cloudflare dashboard, or

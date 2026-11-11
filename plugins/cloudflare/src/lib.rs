@@ -250,6 +250,8 @@ fn page() -> UiTree {
     let mut cards = vec![UiTree::Info(
         "Makes a service on this PC reachable from the internet through Cloudflare, without opening a port. You need a free Cloudflare account. The tunnel runs while RustWarden does.".into(),
     )];
+    // cloudflared is Cloudflare's program, downloaded on request; credit it wherever this page shows.
+    cards.push(UiTree::Link { text: "Uses cloudflared by Cloudflare, Inc. (Apache License 2.0)".into(), url: "https://github.com/cloudflare/cloudflared".into() });
     if !guest::is_demo() && !guest::helper_ready(EXE, SHA256) {
         cards.push(UiTree::Card {
             title: String::new(),

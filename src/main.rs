@@ -12,6 +12,7 @@ mod applog;
 mod cleanup;
 mod clock;
 mod countries;
+mod credits;
 mod data;
 mod demo;
 mod destrules;

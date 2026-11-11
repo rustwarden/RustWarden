@@ -333,6 +333,7 @@ fn page() -> UiTree {
 fn settings() -> UiTree {
     UiTree::Column(vec![
         UiTree::Weak("Runs Ookla's speedtest-cli; nothing is downloaded until you press the button on the Speedtest tab (Network).".into()),
+        UiTree::Link { text: "Speedtest® by Ookla® (Ookla, LLC). Used under Ookla's End User License Agreement.".into(), url: "https://www.speedtest.net/about/eula".into() },
         UiTree::Label("Automatic speed tests: minutes between tests (0 = only when I press Run test)".into()),
         UiTree::Number { id: "interval_mins".into(), value: num("interval_mins") as f64, min: 0.0, max: 1440.0 },
         UiTree::Label("Server ID (0 = let Speedtest pick the closest)".into()),

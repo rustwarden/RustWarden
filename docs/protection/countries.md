@@ -23,6 +23,8 @@ DB-IP publishes no checksums, so each file is unpacked **beside** the old one an
 
 The setup wizard offers the same downloads.
 
+The databases are made by DB-IP, and the download panel shows their **Source** line: [IP Geolocation by DB-IP](https://db-ip.com), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). See [Third-party data and credits](../credits.md).
+
 ## Geolocation
 
 - **Custom country database (.mmdb)**: use your own MaxMind GeoLite2/GeoIP2 or DB-IP country or city file. Leave it empty to use the downloaded one.

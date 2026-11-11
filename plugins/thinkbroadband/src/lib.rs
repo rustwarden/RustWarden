@@ -430,7 +430,13 @@ fn chart() -> UiTree {
 
 fn settings() -> UiTree {
     let chosen = parse_monitors(&guest::config_get("monitors"));
-    let mut rows = vec![UiTree::Label("Signing in opens a browser window (thinkbroadband checks visitors with Cloudflare), so RustWarden never sees your password.".into())];
+    let mut rows = vec![
+        UiTree::Label("Signing in opens a browser window (thinkbroadband checks visitors with Cloudflare), so RustWarden never sees your password.".into()),
+        UiTree::Link {
+            text: "Data from the Broadband Quality Monitor by thinkbroadband.com, downloaded from your own account.".into(),
+            url: "https://www.thinkbroadband.com/broadband/monitoring/quality".into(),
+        },
+    ];
     let (needs_login, refreshing) = with(|s| (s.needs_login, s.refreshing));
     let _ = (needs_login, refreshing);
     rows.push(UiTree::Button { id: "import".into(), text: "Sign in and import graphs".into() });

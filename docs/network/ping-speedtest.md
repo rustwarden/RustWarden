@@ -29,6 +29,8 @@ Ping data is collected in Live mode. Demo mode shows sample charts.
 
 **Network > Speedtest**
 
+speedtest-cli is Ookla's program: the setup screen, the download dialog and the results page show **Speedtest® by Ookla®** with a link to Ookla's End User License Agreement. See [Third-party data and credits](../credits.md).
+
 ![Speedtest](../screenshots/speedtest.png)
 
 Measures your internet connection's **download**, **upload**, **ping** and **jitter**.
@@ -65,3 +67,4 @@ In **Settings > Plugins > Speedtest > Settings**:
 **Settings > Other > Backup > Clean up** deletes `speedtest-cli` and switches the plugin off. See [Clean up](../maintenance.md#clean-up).
 
 Demo mode animates a made-up test.
+

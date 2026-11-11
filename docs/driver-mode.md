@@ -31,6 +31,8 @@ RustWarden uses [WinDivert](https://github.com/basil00/WinDivert), an open-sourc
 
 This needs administrator rights.
 
+WinDivert is made by basil00 and licensed under the LGPL-3.0 or GPL-2.0; the Driver row shows its **Source** line. See [Third-party data and credits](credits.md).
+
 ## Turning it on
 
 1. **Settings > Other > Advanced > App mode > Driver**.

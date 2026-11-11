@@ -10,6 +10,8 @@ RustWarden can download public threat lists and warn you, or block, when a progr
 
 **Settings > Malicious IPs > IP lists**
 
+Below the list box, **Lists from:** names the publisher of each list in use, with a link. See [Third-party data and credits](../credits.md).
+
 | Setting | Meaning |
 |---|---|
 | **Warn about malicious IPs** | Turn the feature on. The lists below are downloaded. |
@@ -62,6 +64,8 @@ Skipped and refused lists are written to `%LOCALAPPDATA%\RustWarden\lists.log`.
 When a program looks up a listed name, or a subdomain of one, a [Malicious domain](../alerts/alert-types.md#malicious-domain-alerts) alert is raised once, and the name shows in **red** in the [DNS log](../network/dns-log.md).
 
 This **only warns**: nothing is blocked, and your DNS settings are never changed. It needs the DNS log. To actually block domains, see [Destination rules](../firewall/destination-rules.md) or [Block by domain](../firewall/destination-rules.md#block-by-domain-driver-mode).
+
+Below the list box, **Lists from:** names the publisher of each list in use, with a link. See [Third-party data and credits](../credits.md).
 
 ## Demo mode
 

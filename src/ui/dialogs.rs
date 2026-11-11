@@ -358,6 +358,7 @@ impl RustWarden {
                     }
                     if d.kind == "ASN" && !asn_ready {
                         ui.label(egui::RichText::new("Rules on an AS number need the free DB-IP ASN database. Downloading it is the only network use of this window.").font(theme::font(14.0)).color(theme::text_dim()));
+                        crate::credits::source(ui, &crate::credits::DBIP);
                         if crate::widgets::pill_button(ui, None, "Download ASN database", false, 0.0).clicked() {
                             download = true;
                         }
@@ -461,6 +462,7 @@ impl RustWarden {
                         });
                         if dom.list_count > 0 {
                             ui.label(egui::RichText::new(format!("List in use: {} domains from {}", dom.list_count, dom.list_url)).font(theme::font(13.5)).color(theme::text_dim()));
+                            crate::credits::feeds(ui, &dom.list_url);
                         }
                         if !dd.error.is_empty() {
                             ui.colored_label(theme::red(), &dd.error);
@@ -1680,7 +1682,7 @@ fn driver_rows(c: &mut crate::ui::fluent::Card, out: &mut Outcome) {
         if ui.add_enabled(elevated && !ready, egui::Button::new("Download and install…")).clicked() {
             *out = Outcome::Then(Confirm {
                 title: "Download the driver?".into(),
-                body: "RustWarden will download WinDivert from github.com and keep it in Program Files\\RustWarden\\driver. Microsoft Defender sometimes flags WinDivert, because some cheat tools use it, so RustWarden first adds a Defender exclusion for that folder only (removed again when you remove the driver).".into(),
+                body: "RustWarden will download WinDivert from github.com and keep it in Program Files\\RustWarden\\driver. Microsoft Defender sometimes flags WinDivert, because some cheat tools use it, so RustWarden first adds a Defender exclusion for that folder only (removed again when you remove the driver).\n\nWinDivert is third-party open-source software by basil00 (reqrypt.org/windivert.html), licensed under the LGPL-3.0 or GPL-2.0.".into(),
                 yes: "Allow and install".into(),
                 action: ConfirmAction::InstallDriver,
             });
@@ -1691,6 +1693,7 @@ fn driver_rows(c: &mut crate::ui::fluent::Card, out: &mut Outcome) {
             Blocked(why) => ui.colored_label(ui.visuals().warn_fg_color, why),
         };
     });
+    c.block(|ui| crate::credits::source(ui, &crate::credits::WINDIVERT));
 }
 
 /// Related controls (a label, its slider, its description) read as one group.
@@ -2177,6 +2180,7 @@ fn threat_section(ui: &mut Ui, s: &mut Settings, lists: &ThreatLists, out: &mut 
                 c.block(|ui| {
                     ui.label("Blocklist URLs, one per line");
                     ui.add(egui::TextEdit::multiline(&mut s.threat_feeds).desired_rows(3).desired_width(f32::INFINITY));
+                    crate::credits::feeds(ui, &s.threat_feeds);
                 });
             });
         }
@@ -2196,6 +2200,7 @@ fn threat_section(ui: &mut Ui, s: &mut Settings, lists: &ThreatLists, out: &mut 
                 c.block(|ui| {
                     ui.label("Domain list URLs, one per line (hosts files or plain names)");
                     ui.add(egui::TextEdit::multiline(&mut s.dns_block_feeds).desired_rows(3).desired_width(f32::INFINITY));
+                    crate::credits::feeds(ui, &s.dns_block_feeds);
                 });
             });
         }
@@ -2721,6 +2726,7 @@ pub(super) fn databases_panel(ui: &mut Ui, s: &mut Settings, editions: &[&'stati
             });
         });
     }
+    crate::credits::source(ui, &crate::credits::DBIP);
     ui.horizontal(|ui| {
         let missing: Vec<&'static str> = want.iter().filter(|d| !geo::db_path(d.edition).exists()).map(|d| d.edition).collect();
         let (label, pick) = if missing.is_empty() { ("Update all", want.iter().map(|d| d.edition).collect()) } else { ("Download", missing) };
@@ -2737,12 +2743,13 @@ pub(super) fn databases_panel(ui: &mut Ui, s: &mut Settings, editions: &[&'stati
     if let Some(pick) = ask.clone() {
         let size: u32 = want.iter().filter(|d| pick.contains(&d.edition)).map(|d| d.mb).sum();
         let r = egui::Modal::new(ask_id.with("modal")).show(ui.ctx(), |ui| {
-            ui.set_width(360.0);
+            ui.set_width(440.0);
             ui.label(egui::RichText::new(format!("Download about {size} MB?")).strong());
             for d in want.iter().filter(|d| pick.contains(&d.edition)) {
                 ui.label(format!("• {} ({} MB)", d.name, d.mb));
             }
-            ui.weak("From db-ip.com over HTTPS (free Lite editions, CC BY 4.0). Nothing about you is sent. A database already in use updates after a restart.");
+            ui.weak("From db-ip.com over HTTPS (the free Lite editions). Nothing about you is sent. A database already in use updates after a restart.");
+            crate::credits::source(ui, &crate::credits::DBIP);
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 if ui.button("Download").clicked() {

@@ -88,5 +88,6 @@ nav:
       - Built-in plugins: plugins/built-in.md
       - Notifications: plugins/notifications.md
   - Settings reference: settings.md
+  - Third-party data and credits: credits.md
   - Updates, backup and upkeep: maintenance.md
   - Troubleshooting and FAQ: troubleshooting.md
