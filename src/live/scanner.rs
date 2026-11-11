@@ -15,7 +15,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use windows::Win32::NetworkManagement::IpHelper::{IcmpCloseHandle, IcmpCreateFile, IcmpSendEcho, SendARP};
-use windows::Win32::Networking::WinSock::{AF_INET, GetNameInfoW, NI_NAMEREQD, SOCKADDR, SOCKADDR_IN, WSADATA, WSAStartup};
 
 const OUI_TABLE: &str = include_str!("../../assets/oui.tsv");
 const WORKERS: usize = 16;
@@ -164,16 +163,6 @@ pub fn networks() -> Vec<(NetworkInfo, Adapter)> {
         .collect()
 }
 
-fn wsa_start() {
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| {
-        let mut data = WSADATA::default();
-        unsafe {
-            WSAStartup(0x0202, &mut data);
-        }
-    });
-}
-
 fn arp_probe(target: Ipv4Addr, source: Ipv4Addr) -> Option<[u8; 6]> {
     let mut mac = [0u8; 8];
     let mut len = 6u32;
@@ -182,17 +171,37 @@ fn arp_probe(target: Ipv4Addr, source: Ipv4Addr) -> Option<[u8; 6]> {
     (rc == 0 && len == 6 && netinfo::is_unicast_mac(&m)).then_some(m)
 }
 
+/// The DNS PTR name for an address: 203.0.113.7 -> 7.113.0.203.in-addr.arpa.
+fn ptr_name(ip: Ipv4Addr) -> String {
+    let [a, b, c, d] = ip.octets();
+    format!("{d}.{c}.{b}.{a}.in-addr.arpa")
+}
+
+/// The address's name from a DNS PTR record only. GetNameInfoW falls back to a NetBIOS node-status query sent
+/// straight to the address when there is no PTR, which leaks this PC's name to internet hosts and shows up as
+/// unexplained "Kernel: NetBIOS" traffic. LAN names come from `nbstat` instead.
 pub fn reverse_dns(ip: Ipv4Addr) -> Option<String> {
-    wsa_start();
-    let addr = SOCKADDR_IN {
-        sin_family: AF_INET,
-        sin_port: 0,
-        sin_addr: windows::Win32::Networking::WinSock::IN_ADDR { S_un: windows::Win32::Networking::WinSock::IN_ADDR_0 { S_addr: u32::from_le_bytes(ip.octets()) } },
-        sin_zero: [0; 8],
-    };
-    let mut host = [0u16; 256];
-    let rc = unsafe { GetNameInfoW(&addr as *const _ as *const SOCKADDR, windows::Win32::Networking::WinSock::socklen_t(size_of::<SOCKADDR_IN>() as i32), Some(&mut host), None, NI_NAMEREQD as i32) };
-    (rc == 0).then(|| crate::sys::from_wide(&host)).filter(|h| !h.is_empty() && h.parse::<IpAddr>().is_err())
+    use windows::Win32::NetworkManagement::Dns::{DNS_QUERY_NO_NETBT, DNS_QUERY_OPTIONS, DNS_QUERY_STANDARD, DNS_RECORDA, DNS_TYPE_PTR, DnsFree, DnsFreeRecordList, DnsQuery_A};
+    use windows::core::PCSTR;
+    let name = std::ffi::CString::new(ptr_name(ip)).ok()?;
+    let mut records: *mut DNS_RECORDA = std::ptr::null_mut();
+    let options = DNS_QUERY_OPTIONS(DNS_QUERY_STANDARD.0 | DNS_QUERY_NO_NETBT.0);
+    unsafe {
+        if DnsQuery_A(PCSTR(name.as_ptr().cast()), DNS_TYPE_PTR, options, None, &mut records, None).0 != 0 || records.is_null() {
+            return None;
+        }
+        let mut found = None;
+        let mut at = records;
+        while !at.is_null() && found.is_none() {
+            let rec = &*at;
+            if rec.wType == DNS_TYPE_PTR.0 && !rec.Data.PTR.pNameHost.is_null() {
+                found = rec.Data.PTR.pNameHost.to_string().ok();
+            }
+            at = rec.pNext;
+        }
+        DnsFree(Some(records as *const _), DnsFreeRecordList);
+        found.map(|h: String| h.trim_end_matches('.').to_owned()).filter(|h| !h.is_empty() && h.parse::<IpAddr>().is_err())
+    }
 }
 
 fn ssdp_probe(source: Ipv4Addr, wait: Duration) -> HashMap<Ipv4Addr, String> {
@@ -546,6 +555,12 @@ pub fn run(shared: Arc<Shared>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ptr_names_are_reversed() {
+        assert_eq!(ptr_name(Ipv4Addr::new(199, 123, 188, 54)), "54.188.123.199.in-addr.arpa");
+        assert_eq!(ptr_name(Ipv4Addr::new(10, 0, 0, 1)), "1.0.0.10.in-addr.arpa");
+    }
 
     #[test]
     fn sweep_stays_inside_the_private_subnet() {
