@@ -469,7 +469,7 @@ pub struct Settings {
     pub baseline: bool,
     /// Days of history an app's baseline is built from.
     pub baseline_days: u32,
-    /// Days after an app first appears during which it only learns and never alerts.
+    /// Days after an app first appears (or the baseline is switched on, if later) during which its findings are only logged quietly.
     pub baseline_learn_days: u32,
     /// Hours before the same baseline alert is raised again for the same app and value.
     pub baseline_throttle_hours: u32,

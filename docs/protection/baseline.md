@@ -23,7 +23,7 @@ For each program:
 
 ## While it learns
 
-A program's first days are its learning period. RustWarden still watches it: anything that would raise a behaviour alert is **logged quietly** in the Alerts log, marked *(logged while learning)*, but there's no desktop popup, no unread badge and nothing goes to notification plugins. What it saw counts as usual afterwards, so the end of the learning period doesn't bring a burst of alerts.
+A program's first days (7 by default) are its learning period. They count from when RustWarden first saw the program or when you switched the baseline on, whichever is later, so switching it on doesn't raise an alert for everything your long-installed programs have ever done. Switching it off and on again starts a new learning period. RustWarden still watches it: anything that would raise a behaviour alert is **logged quietly** in the Alerts log, marked *(logged while learning)*, but there's no desktop popup, no unread badge and nothing goes to notification plugins. What it saw counts as usual afterwards, so the end of the learning period doesn't bring a burst of alerts.
 
 The traffic spike and unusual hour checks start once a program has two days of history.
 

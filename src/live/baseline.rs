@@ -35,6 +35,8 @@ const DIM_VOLUME: &str = "volume";
 const DIM_DOMAIN: &str = "domain";
 const KV_CURSOR: &str = "baseline_cursor";
 const KV_ASN_CURSOR: &str = "baseline_asn_cursor";
+/// Unix time the baseline was switched on, "0" while it is off.
+const KV_SINCE: &str = "baseline_since";
 /// How many known values an alert names as "usual".
 const USUAL_SHOWN: usize = 4;
 /// A program with at least this many usual domains (a browser, say) only logs new ones quietly.
@@ -165,11 +167,20 @@ struct Worker {
     asn: Arc<asn::Resolver>,
     /// Scans each unanswered address has held the network cursor back for.
     asn_waits: HashMap<String, u32>,
+    /// When the baseline was switched on (0 while it is off); None until read from the database.
+    since: Option<i64>,
 }
 
 impl Worker {
     fn tick(&mut self, s: &Settings) {
         let now = clock::now_unix();
+        if self.since.is_none_or(|t| t == 0) {
+            let (since, store) = switched_on_at(self.db.kv_get(KV_SINCE).as_deref(), now);
+            if store {
+                let _ = self.db.kv_set(KV_SINCE, &since.to_string());
+            }
+            self.since = Some(since);
+        }
         if !self.shared.state().etw {
             self.shared.set_note("baseline", Some(StatusNote::warn("Behaviour baseline is paused: per-program traffic isn't being measured (run as administrator).")));
             return;
@@ -187,9 +198,19 @@ impl Worker {
         }
     }
 
-    /// Whether `app` is still learning: what it does is logged quietly and counts as usual.
+    /// Whether `app` is still learning: what it does is logged quietly and counts as usual. The learning
+    /// period starts when the program first appeared or when the baseline was switched on, whichever is later,
+    /// so switching it on doesn't raise an alert for everything long-known programs ever did.
     fn learning(&self, app: &AppRecord, now: i64, s: &Settings) -> bool {
-        learning(app.first_seen, now, s.baseline_learn_days)
+        learning(app.first_seen.max(self.since.unwrap_or(0)), now, s.baseline_learn_days)
+    }
+
+    /// The baseline was switched off: the next switch-on starts a new learning period.
+    fn switched_off(&mut self) {
+        if self.since != Some(0) {
+            let _ = self.db.kv_set(KV_SINCE, "0");
+            self.since = Some(0);
+        }
     }
 
     /// Countries (and domains) every program has contacted since the last scan, learned or checked against the baseline.
@@ -370,6 +391,15 @@ fn wait_for_answer(waits: &mut HashMap<String, u32>, remote: &str) -> bool {
     *n <= ASN_WAIT_SCANS
 }
 
+/// When the baseline was switched on, from the stored value: a saved time is kept, and with none
+/// (first switch-on, after it was off, or from a version that didn't store it) it is now and must be saved.
+fn switched_on_at(stored: Option<&str>, now: i64) -> (i64, bool) {
+    match stored.and_then(|v| v.parse::<i64>().ok()) {
+        Some(t) if t > 0 => (t, false),
+        _ => (now, true),
+    }
+}
+
 /// Marks an alert raised while its program is learning, which is only logged.
 fn learning_note(text: String, learning: bool) -> String {
     if learning { format!("{text} (logged while learning)") } else { text }
@@ -385,12 +415,13 @@ pub fn run(shared: Arc<Shared>, asn: Arc<asn::Resolver>) {
         return;
     };
     let geo = Geo::open(shared.settings().geo_path().as_deref());
-    let mut w = Worker { shared: shared.clone(), db, geo, asn, asn_waits: HashMap::new() };
+    let mut w = Worker { shared: shared.clone(), db, geo, asn, asn_waits: HashMap::new(), since: None };
     while shared.sleep(TICK_SECS) {
         let s = shared.settings();
         if s.baseline {
             w.tick(&s);
         } else {
+            w.switched_off();
             shared.set_note("baseline", None);
         }
     }
@@ -484,6 +515,19 @@ mod tests {
         assert_eq!(domain_of("2001:db8::1"), None);
         assert_eq!(domain_of("bad..name"), None);
         assert!(domain_why(&["github.com".into()]).contains("domain it has not used before; usual: github.com."));
+    }
+
+    #[test]
+    fn learning_starts_when_the_baseline_is_switched_on() {
+        assert_eq!(switched_on_at(Some("1000"), 5000), (1000, false), "a saved switch-on time is kept");
+        assert_eq!(switched_on_at(Some("0"), 5000), (5000, true), "switched off before: a new learning period");
+        assert_eq!(switched_on_at(None, 5000), (5000, true));
+        assert_eq!(switched_on_at(Some("junk"), 5000), (5000, true));
+        // A program known for 30 days is still learning a day after the baseline was switched on.
+        let now = 100 * DAY;
+        let (first_seen, since) = (now - 30 * DAY, now - DAY);
+        assert!(learning(first_seen.max(since), now, 7));
+        assert!(!learning(first_seen.max(now - 8 * DAY), now, 7));
     }
 
     #[test]
