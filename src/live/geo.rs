@@ -7,6 +7,7 @@ use crate::data::Country;
 use maxminddb::{Reader, path};
 use std::net::IpAddr;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex, Weak};
 
 /// Where the database is looked for when the settings don't name one.
 pub fn default_db_path() -> PathBuf {
@@ -215,8 +216,26 @@ impl Place {
     }
 }
 
+/// The database at `path`, read into memory once and shared by every worker that opens it: the city edition is
+/// about 125 MB, and five workers each holding their own copy was most of the app's memory. A file replaced on disk
+/// (a new download) has a new size or time, so it is read afresh; the old copy goes when its last holder reopens.
+fn shared_reader(path: &std::path::Path) -> Result<Arc<Reader<Vec<u8>>>, String> {
+    type Open = Vec<(PathBuf, Option<(u64, std::time::SystemTime)>, Weak<Reader<Vec<u8>>>)>;
+    static OPEN: Mutex<Open> = Mutex::new(Vec::new());
+    let stamp = std::fs::metadata(path).ok().and_then(|m| Some((m.len(), m.modified().ok()?)));
+    // Held while reading, so two workers starting together don't both load the file.
+    let mut open = OPEN.lock().unwrap_or_else(|e| e.into_inner());
+    open.retain(|(_, _, w)| w.strong_count() > 0);
+    if let Some(r) = open.iter().filter(|(p, s, _)| p == path && *s == stamp && stamp.is_some()).find_map(|(_, _, w)| w.upgrade()) {
+        return Ok(r);
+    }
+    let r = Arc::new(Reader::open_readfile(path).map_err(|e| e.to_string())?);
+    open.push((path.to_owned(), stamp, Arc::downgrade(&r)));
+    Ok(r)
+}
+
 pub struct Geo {
-    reader: Option<Reader<Vec<u8>>>,
+    reader: Option<Arc<Reader<Vec<u8>>>>,
     pub path: PathBuf,
     pub error: Option<String>,
 }
@@ -224,7 +243,7 @@ pub struct Geo {
 impl Geo {
     pub fn open(configured: Option<&str>) -> Self {
         let path = configured.map(PathBuf::from).unwrap_or_else(default_db_path);
-        match Reader::open_readfile(&path) {
+        match shared_reader(&path) {
             Ok(reader) => Self { reader: Some(reader), path, error: None },
             Err(e) => {
                 let error = if path.exists() { Some(format!("can't read {}: {e}", path.display())) } else { None };
@@ -323,6 +342,15 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn workers_opening_the_same_database_share_one_copy() {
+        // Needs the user's country database; passes without one.
+        let a = Geo::open(None);
+        let b = Geo::open(None);
+        let (Some(ra), Some(rb)) = (&a.reader, &b.reader) else { return };
+        assert!(Arc::ptr_eq(ra, rb));
+    }
 
     #[test]
     fn without_a_database_public_addresses_are_unknown_and_private_are_local() {
