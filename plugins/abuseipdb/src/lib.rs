@@ -101,10 +101,11 @@ fn lookup(ip: &str) -> Result<Verdict, String> {
     }
 }
 
-/// Public addresses written in an alert's text, in order.
+/// Public addresses written in an alert's text, in order. Tokens run on through letters, so an address-shaped start of
+/// a DNS name (`214.109.171.150.origin.asn.cymru.com`, an ASN lookup of 150.171.109.214) is not taken for an address.
 fn public_addresses(text: &str) -> Vec<IpAddr> {
     let mut out = Vec::new();
-    for token in text.split(|c: char| !(c.is_ascii_hexdigit() || c == '.' || c == ':')) {
+    for token in text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == ':')) {
         if let Ok(ip) = token.trim_matches(['.', ':']).parse::<IpAddr>()
             && is_public(ip)
             && !out.contains(&ip)
@@ -269,6 +270,10 @@ mod tests {
         let found = public_addresses("Port scan from 203.0.113.7 tried ports on 192.168.1.5 and 10.0.0.2; also 8.8.8.8, 203.0.113.7.");
         assert_eq!(found, ["203.0.113.7".parse::<IpAddr>().unwrap(), "8.8.8.8".parse().unwrap()]);
         assert!(public_addresses("127.0.0.1 fe80::1 100.64.0.1 169.254.1.1 fd00::1 version 1.2.3").is_empty());
+        // An ASN lookup name starts with the address reversed; it is not an address.
+        assert!(public_addresses("cymru.com (20 names in 5 minutes, e.g. 214.109.171.150.origin.asn.cymru.com)").is_empty());
+        let found = public_addresses("contacts [2606:4700::1111]:443 (8.8.4.4)");
+        assert_eq!(found, ["2606:4700::1111".parse::<IpAddr>().unwrap(), "8.8.4.4".parse().unwrap()]);
     }
 
     #[test]
