@@ -296,10 +296,10 @@ impl AlertKind {
                 "Notify me when a program starts listening for connections on a new TCP port. The alert says whether it listens on every interface, the local network address or this PC only."
             }
             Self::AnomalyContact => {
-                "Notify me when an app talks to a country, network or domain it has not used in its baseline (Settings > Alerts > Options). While an app is still learning these are only logged."
+                "Notify me when an app talks to a country, network or domain it has not used in its baseline. Needs the behaviour baseline, switched on and set up on the Options tab above. While an app is still learning these are only logged."
             }
-            Self::AnomalyVolume => "Notify me when an app moves far more data in a day than its usual amount.",
-            Self::AnomalyHour => "Notify me when an app is active at an hour of the day it is almost never active.",
+            Self::AnomalyVolume => "Notify me when an app moves far more data in a day than its usual amount. Needs the behaviour baseline (Options tab above).",
+            Self::AnomalyHour => "Notify me when an app is active at an hour of the day it is almost never active. Needs the behaviour baseline (Options tab above).",
             Self::InboundScan => "Notify me when one address tries many different ports on this PC in a few seconds (a port scan), or when connection attempts arrive in a flood. Needs Driver mode.",
             Self::Beaconing => {
                 "Notify me when a program contacts the same address at near-perfectly regular intervals for a long time, the pattern of malware checking in with its controller. Many legitimate apps (updaters, mail, sync) do this too, so add the programs you trust to the ignore list below."

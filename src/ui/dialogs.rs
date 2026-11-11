@@ -1309,12 +1309,17 @@ fn alert_settings(ui: &mut Ui, s: &mut Settings, apps: &[QuotaApp]) {
             });
             c.enable(true);
             if s.baseline {
-                c.row("Baseline window", "Built from the last N days, with no alerts for the first M days.", |ui| {
-                    let days = s.baseline_days;
-                    ui.add(egui::DragValue::new(&mut s.baseline_learn_days).range(1..=days).suffix(" days"));
-                    ui.label("no alerts for");
+                c.row("Learn from the last", "Days of stored traffic each program's baseline is built from.", |ui| {
                     ui.add(egui::DragValue::new(&mut s.baseline_days).range(3..=365).suffix(" days"));
                 });
+                c.row(
+                    "Learning period",
+                    "A program's first days, from when it first appears or the baseline is switched on. What it finds is logged quietly in the Alerts log, with no popups.",
+                    |ui| {
+                        let days = s.baseline_days;
+                        ui.add(egui::DragValue::new(&mut s.baseline_learn_days).range(1..=days).suffix(" days"));
+                    },
+                );
                 c.row("Repeat the same alert at most every", "", |ui| {
                     ui.add(egui::DragValue::new(&mut s.baseline_throttle_hours).range(1..=720).suffix(" h"));
                 });

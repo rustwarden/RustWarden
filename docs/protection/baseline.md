@@ -8,7 +8,8 @@ The behaviour baseline learns what is **normal** for each program, and alerts yo
 
 | Setting | Meaning |
 |---|---|
-| **Baseline window** | Built from the last **N days** of stored traffic (14 by default), with **no alerts for the first M days** (7 by default) while it learns |
+| **Learn from the last** | Days of stored traffic each baseline is built from (14 by default) |
+| **Learning period** | A program's first days (7 by default), counted from when it first appears or the baseline is switched on. What it finds is [logged quietly](#while-it-learns) |
 | **Repeat the same alert at most every** | Throttle, in hours |
 | **Learn domains too** | Also learns each program's usual **domains**, from the names it looked up (`a.cdn.github.com` counts as `github.com`). On by default; nothing is sent anywhere. |
 | **Learn networks too** | Also learns each program's usual **networks** (AS numbers), not just countries. Each internet address is then sent to the net-info lookup service, and Team Cymru is chosen if none is set. |
