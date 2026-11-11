@@ -263,7 +263,7 @@ impl Shared {
                 ts: crate::clock::now_unix(),
                 unread: true,
                 important,
-                anomaly: super::alerts::is_anomaly_key(kind.key()),
+                anomaly: super::alerts::can_mark_normal(kind.key()),
             });
         } else {
             drop(st);
@@ -325,7 +325,7 @@ impl Shared {
             let mut st = self.state();
             if st.popups_ok {
                 st.popups.push(Alert {
-                    id: 0,
+                    id: id as u64,
                     icon: AppIcon::Generic,
                     app: app.into(),
                     text: text.into(),
@@ -337,7 +337,7 @@ impl Shared {
                     ts: now,
                     unread: true,
                     important,
-                    anomaly: super::alerts::is_anomaly_key(kind.key()),
+                    anomaly: super::alerts::can_mark_normal(kind.key()),
                 });
             } else {
                 drop(st);

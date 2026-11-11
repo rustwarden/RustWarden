@@ -434,6 +434,14 @@ fn demo_alerts() -> Vec<Alert> {
             anomaly: true,
             ..alert(19, "NewTool.exe", Generic, "", Netherlands, "1:15 pm", "Today", false)
         },
+        Alert {
+            text: "sent an unusual number of long, random-looking lookups under one domain, which is how data is tunnelled out through DNS:".into(),
+            target: "exfil-demo.example (24 names in 5 minutes, e.g. kq3x9v2mz7p1w8d4j6h0c5a.exfil-demo.example)".into(),
+            kind: "DNS tunnelling".into(),
+            country: None,
+            anomaly: true,
+            ..alert(20, "curl.exe", Generic, "", Other, "12:40 pm", "Today", true)
+        },
     ]);
     alerts
 }
@@ -760,7 +768,7 @@ impl Backend for MockBackend {
             ts: crate::clock::now_unix(),
             unread: true,
             important: effect.escalate,
-            anomaly: false,
+            anomaly: crate::live::alerts::can_mark_normal(kind.key()),
         });
     }
 

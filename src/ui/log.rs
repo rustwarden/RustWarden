@@ -379,8 +379,7 @@ impl RustWarden {
         }
     }
 
-    /// Walks the alert log's hash chain on a thread, since it reads every entry; `poll_alert_check` shows the answer.
-    /// "Mark as normal" on a baseline alert, from the Alerts log or a graph pin. The button goes at once;
+    /// "Mark as normal" on a baseline or DNS tunnelling alert, from the Alerts log, a graph pin or a desktop popup. The button goes at once;
     /// the database write runs in the background and a toast says how it went.
     pub(crate) fn mark_alert_normal(&mut self, id: u64) {
         if let Some(a) = self.log.alerts.iter_mut().find(|a| a.id == id) {
@@ -388,13 +387,14 @@ impl RustWarden {
         }
         self.run_bg(move |b| {
             if b.mark_alert_normal(id) {
-                Ok("Marked as normal. The baseline treats this as usual from now on.".into())
+                Ok("Marked as normal. RustWarden treats this as usual from now on.".into())
             } else {
-                Err("Couldn't mark this as normal: the baseline no longer holds what raised it.".into())
+                Err("Couldn't mark this as normal: RustWarden no longer holds what raised it.".into())
             }
         });
     }
 
+    /// Walks the alert log's hash chain on a thread, since it reads every entry; `poll_alert_check` shows the answer.
     pub(crate) fn verify_alert_log(&mut self, ctx: &egui::Context) {
         if !matches!(self.dialog, None | Some(Dialog::Info { .. })) {
             self.notify("Close the open dialog, then verify the alert log.");

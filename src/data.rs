@@ -601,7 +601,8 @@ pub struct Alert {
     pub ts: i64,
     pub unread: bool,
     pub important: bool,
-    /// Raised by the behaviour baseline: it can be marked as normal, which teaches the baseline.
+    /// Raised by the behaviour baseline or DNS tunnelling detection: it can be marked as normal, which teaches the
+    /// baseline (or stops alerts for that domain). On a popup, `id` 0 is a test alert with nothing to mark.
     pub anomaly: bool,
 }
 
@@ -1146,7 +1147,7 @@ pub trait Backend: Send + Sync {
     fn alerts(&self) -> Vec<Alert>;
     /// `None` marks every alert as read.
     fn mark_read(&self, id: Option<u64>);
-    /// Marks a behaviour-baseline alert as normal, so the baseline learns it. False when it isn't one.
+    /// Marks a behaviour-baseline or DNS tunnelling alert as normal, so it isn't raised again. False when it isn't one.
     fn mark_alert_normal(&self, _id: u64) -> bool {
         false
     }

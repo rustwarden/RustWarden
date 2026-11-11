@@ -1,7 +1,9 @@
 //! DNS tunnelling detection: tools that smuggle data through DNS ask for lots of long, random-looking names under
 //! one domain they control (`kq3x9v...a1.evil.example`). A name counts as suspicious when the part left of the
 //! domain is long, or long enough and random-looking; many of them under one domain in a few minutes are reported.
+//! "Mark as normal" on the alert stops reports for that domain; the mark is kept with the baseline items.
 
+use super::db::{BASE_ALERTED, BASE_NORMAL, BaselineItem, Db};
 use std::collections::HashMap;
 
 /// Names looked up under one domain, within `WINDOW` seconds, before it is reported.
@@ -82,9 +84,36 @@ impl Tracker {
     }
 }
 
+/// Baseline items for tunnelling hold a domain for every program (app id 0), under their own dimension.
+const ANY_APP: i64 = 0;
+const DIM: &str = "dns_tunnel";
+
+/// Whether the user marked tunnelling-like lookups under `domain` as normal.
+pub fn marked_normal(db: &Db, domain: &str) -> bool {
+    db.baseline_items(ANY_APP, DIM).is_ok_and(|items| items.iter().any(|i| i.val == domain && i.state == BASE_NORMAL))
+}
+
+/// Remembers which alert reported `domain`, so "Mark as normal" on it can find the domain.
+pub fn remember(db: &Db, domain: &str, alert_id: i64, now: i64) {
+    let item = BaselineItem { dim: DIM.into(), val: domain.into(), first_seen: now, last_seen: now, state: BASE_ALERTED, alerted: now, alert_id: Some(alert_id) };
+    let _ = db.save_baseline_item(ANY_APP, &item);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_domain_marked_normal_stays_quiet() {
+        let db = Db::memory();
+        assert!(!marked_normal(&db, "exfil.example"));
+        remember(&db, "exfil.example", 9, 1000);
+        assert!(db.markable_alerts().unwrap().contains(&9));
+        assert!(!marked_normal(&db, "exfil.example"), "reported, not yet marked");
+        assert!(db.mark_normal(9, 1100).unwrap());
+        assert!(marked_normal(&db, "exfil.example"));
+        assert!(!marked_normal(&db, "other.example"));
+    }
 
     #[test]
     fn names_split_into_domain_and_the_rest() {

@@ -64,6 +64,8 @@ pub(crate) struct BannerEv {
     ask_local: Option<u64>,
     threat_done: Option<(u64, Option<ThreatAct>)>,
     threat_confirm: Option<(u64, Option<ThreatAct>)>,
+    /// "Mark as normal" was clicked on this popup.
+    mark_normal: Option<u64>,
 }
 
 #[derive(Clone, Default)]
@@ -76,6 +78,8 @@ impl Banners {
 }
 
 const SIZE: egui::Vec2 = vec2(400.0, 150.0);
+/// A popup that can be marked as normal grows to fit the button.
+const MARK_SIZE: egui::Vec2 = vec2(400.0, 194.0);
 const ALERT_TITLE: &str = "RustWarden alert";
 const ALERT_INFO_TITLE: &str = "RustWarden app info";
 const ASK_W: f32 = 400.0;
@@ -108,6 +112,10 @@ fn ask_size(ask: &crate::data::ConnectAsk) -> egui::Vec2 {
     vec2(ASK_W, if ask.info.is_empty() { 204.0 } else { 226.0 })
 }
 
+fn popup_size(alert: &crate::data::Alert) -> egui::Vec2 {
+    if alert.anomaly { MARK_SIZE } else { SIZE }
+}
+
 /// The Allow and Block buttons, relative to the prompt's top left.
 fn ask_buttons(size: egui::Vec2) -> (Rect, Rect) {
     let w = (size.x - 32.0 - 8.0) / 2.0;
@@ -133,6 +141,16 @@ impl RustWarden {
             (std::mem::take(&mut g.hovered), g.closed.take(), std::mem::take(&mut g.open_settings), g.popup_info.take(), g.open_source.take())
         };
         let scan = self.banners.get().vt_scan.take();
+        let mark = self.banners.get().mark_normal.take();
+        if let Some(at) = mark.and_then(|id| self.popups.iter().position(|(i, _, _)| *i == id)) {
+            let (_, alert, _) = self.popups.remove(at);
+            // A test alert (id 0) was never stored, so there is nothing to mark.
+            if alert.id == 0 {
+                self.notify("This was a test alert, so there is nothing to mark as normal.");
+            } else {
+                self.mark_alert_normal(alert.id);
+            }
+        }
         if let Some(key) = scan {
             self.backend.scan_virustotal(&key);
         }
@@ -193,20 +211,21 @@ impl RustWarden {
         let mut info_at: Option<Rect> = None;
         // Threats sit nearest the corner, then Prompt prompts, then these banners (newest nearest).
         let before = self.threat_stack_height() + self.ask_stack_height();
-        let homes = toast::stack(work, corner, &vec![SIZE; self.popups.len()], before);
+        let sizes: Vec<egui::Vec2> = self.popups.iter().rev().map(|(_, a, _)| popup_size(a)).collect();
+        let homes = toast::stack(work, corner, &sizes, before);
         for (slot, (id, alert, _)) in self.popups.iter().rev().enumerate() {
             let (id, alert, ev) = (*id, alert.clone(), self.banners.clone());
             let info_open = self.popup_info.as_ref().is_some_and(|(i, _)| *i == id);
             let has_source = self.alert_source(&alert).is_some();
             let kind = &alert.kind;
             let vt = if *kind == AlertKind::FirstActivity.title() || *kind == AlertKind::AppChanged.title() { self.vt_cache.get(&self.backend, &alert.app) } else { Vt::None };
-            let home = homes[slot];
+            let (size, home) = (sizes[slot], homes[slot]);
             let pos = home + vec2(toast::slide_offset(corner, toast::age(id)), 0.0);
             if info_open {
-                info_at = Some(Rect::from_min_size(home, SIZE));
+                info_at = Some(Rect::from_min_size(home, size));
             }
             let vid = ViewportId::from_hash_of(("popup", id));
-            ctx.show_viewport_deferred(vid, toast::window_builder(ALERT_TITLE, SIZE, pos), move |ui, _class| {
+            ctx.show_viewport_deferred(vid, toast::window_builder(ALERT_TITLE, size, pos), move |ui, _class| {
                 let r = toast::chrome(ui);
                 let p = ui.painter().clone();
                 if ui.input(|i| i.pointer.has_pointer() && i.pointer.hover_pos().is_some()) {
@@ -265,6 +284,10 @@ impl RustWarden {
                     x += 32.0;
                 }
                 text_fit(&p, pos2(x, y + 9.0), Align2::LEFT_CENTER, &alert.target, theme::bold(14.0), theme::text(), room - (x - left));
+                // Same action as in the Alerts log.
+                if alert.anomaly && toast::button(ui, Rect::from_min_size(pos2(left, r.bottom() - 48.0), vec2(150.0, 32.0)), "mark_normal", "Mark as normal", toast::Look::Standard) {
+                    ev.get().mark_normal = Some(id);
+                }
             });
             ctx.request_repaint_of(vid);
         }

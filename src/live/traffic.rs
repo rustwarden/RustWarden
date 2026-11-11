@@ -367,9 +367,14 @@ impl Collector {
         super::dns::check(&self.shared, &self.db, &dns_rows);
         if !dns_rows.is_empty() && self.shared.settings().alerts.dns_tunnel {
             for r in &dns_rows {
-                if let Some(t) = self.tunnels.note(&r.name, now) {
+                if let Some(t) = self.tunnels.note(&r.name, now)
+                    && !super::dnstunnel::marked_normal(&self.db, &t.domain)
+                {
                     let text = "sent an unusual number of long, random-looking lookups under one domain, which is how data is tunnelled out through DNS:";
-                    self.shared.alert(&self.db, AlertKind::DnsTunnel, &r.app, text, &format!("{} ({} names in 5 minutes, e.g. {})", t.domain, t.names, t.example), "");
+                    let target = format!("{} ({} names in 5 minutes, e.g. {})", t.domain, t.names, t.example);
+                    if let Some(id) = self.shared.alert_as(&self.db, AlertKind::DnsTunnel, &r.app, text, &target, "", super::store::Urgency::Normal) {
+                        super::dnstunnel::remember(&self.db, &t.domain, id, now);
+                    }
                 }
             }
         }

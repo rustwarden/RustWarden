@@ -123,6 +123,8 @@ Many legitimate apps (updaters, mail, sync) check in regularly too, so expect to
 ### DNS tunnelling detection
 Many long, random-looking lookups under one domain within five minutes, which is how data is smuggled out through DNS. This needs the [DNS log](../network/dns-log.md).
 
+Some legitimate services (anti-virus cloud lookups, some CDNs) look like this. Press **Mark as normal** on the alert card, its Traffic graph pin or its desktop popup, and that domain is no longer reported.
+
 ### Inbound port scan and flood *(Driver mode)*
 The driver watches incoming connection attempts:
 

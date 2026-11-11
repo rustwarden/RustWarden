@@ -46,9 +46,10 @@ pub enum AlertKind {
     TlsMismatch,
 }
 
-/// Keys of the behaviour-baseline alerts; they carry a "Mark as normal" action.
-pub fn is_anomaly_key(key: &str) -> bool {
-    matches!(key, "new_contact" | "volume_spike" | "unusual_hour")
+/// Keys of the alerts that carry a "Mark as normal" action: the behaviour-baseline ones, and DNS tunnelling
+/// (marking it normal stops alerts for that domain).
+pub fn can_mark_normal(key: &str) -> bool {
+    matches!(key, "new_contact" | "volume_spike" | "unusual_hour" | "dns_tunnel")
 }
 
 impl AlertKind {
@@ -886,11 +887,12 @@ mod tests {
     #[test]
     fn anomaly_kinds_have_keys_and_switches() {
         for k in [AlertKind::AnomalyContact, AlertKind::AnomalyVolume, AlertKind::AnomalyHour] {
-            assert!(is_anomaly_key(k.key()));
+            assert!(can_mark_normal(k.key()));
             assert_ne!(AlertKind::label_for_key(k.key()), "Alert");
             assert_eq!(k.default_opts().level, AlertLevel::Important);
         }
-        assert!(!is_anomaly_key(AlertKind::Quota.key()));
+        assert!(can_mark_normal(AlertKind::DnsTunnel.key()));
+        assert!(!can_mark_normal(AlertKind::Quota.key()));
         assert_eq!(AlertKind::ALL.iter().map(|k| k.key()).collect::<HashSet<_>>().len(), AlertKind::ALL.len());
         let mut sw = AlertSwitches::default();
         *AlertKind::AnomalyHour.switch_mut(&mut sw) = false;

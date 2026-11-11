@@ -40,4 +40,4 @@ Each alert says **why**, for example *"contacted a country it never used before.
 
 ## Teaching it
 
-When an alert is expected, press **Mark as normal** on the graph pin or on the alert's card in the Alerts log. The baseline learns from it, and repeats are throttled.
+When an alert is expected, press **Mark as normal** on the graph pin, on the alert's card in the Alerts log, or on its desktop popup. The baseline learns from it, and repeats are throttled.

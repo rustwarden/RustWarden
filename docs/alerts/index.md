@@ -51,7 +51,7 @@ Some types have extra options here, such as the beaconing ignore list or the "de
 
 **Clicking an alert card** jumps to what it's about: the program on the Firewall tab, the device on the Scanner tab, the DNS log, or the moment on the Traffic graph. Cards with nowhere to go aren't clickable. Clicking a desktop popup does the same, and shows the window if it's in the tray. The popup's **gear** opens that alert type's settings.
 
-Baseline alerts have a **Mark as normal** button that teaches the [baseline](../protection/baseline.md). A message confirms it, and the button disappears once the alert has been marked.
+Baseline alerts and [DNS tunnelling](alert-types.md#dns-tunnelling-detection) alerts have a **Mark as normal** button: on the alert card, on its pin on the Traffic graph, and on its desktop popup. For a baseline alert it teaches the [baseline](../protection/baseline.md); for DNS tunnelling it stops alerts for that domain. A message confirms it, and the button disappears once the alert has been marked.
 
 ## Exporting
 
