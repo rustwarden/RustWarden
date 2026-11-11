@@ -53,6 +53,8 @@ Some types have extra options here, such as the beaconing ignore list or the "de
 
 Baseline alerts and [DNS tunnelling](alert-types.md#dns-tunnelling-detection) alerts have a **Mark as normal** button: on the alert card, on its pin on the Traffic graph, and on its desktop popup. For a baseline alert it teaches the [baseline](../protection/baseline.md); for DNS tunnelling it stops alerts for that domain. A message confirms it, and the button disappears once the alert has been marked.
 
+![Desktop popup for a DNS tunnelling alert, with Mark as normal](../screenshots/mark-as-normal-popup.png)
+
 ## Exporting
 
 **Export log** saves every alert. Give the file a `.json` name for JSON; any other name gives CSV. It's written only when you click, and only to the file you choose.

@@ -125,6 +125,8 @@ Many long, random-looking lookups under one domain within five minutes, which is
 
 Some legitimate services (anti-virus cloud lookups, some CDNs) look like this. Press **Mark as normal** on the alert card, its Traffic graph pin or its desktop popup, and that domain is no longer reported.
 
+![DNS tunnelling popup with Mark as normal](../screenshots/mark-as-normal-popup.png)
+
 ### Inbound port scan and flood *(Driver mode)*
 The driver watches incoming connection attempts:
 

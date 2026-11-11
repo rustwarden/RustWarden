@@ -20,6 +20,8 @@ enum Window {
     Ask,
     /// The Malicious IP banner most recently added.
     Threat,
+    /// The alert popup most recently added.
+    Popup,
 }
 
 type Setup = fn(&mut RustWarden);
@@ -51,6 +53,17 @@ const SCREENS: &[(&str, Setup, Window)] = &[
             app.threats.push((app.popup_seq, Threat::test(), None));
         },
         Window::Threat,
+    ),
+    (
+        "mark-as-normal-popup",
+        |app| {
+            // The Demo DNS tunnelling alert, as its desktop popup with the Mark as normal button; it stays until captured.
+            if let Some(alert) = app.backend.alerts().into_iter().find(|a| a.kind == "DNS tunnelling") {
+                app.popup_seq += 1;
+                app.popups.push((app.popup_seq, alert, f64::MAX));
+            }
+        },
+        Window::Popup,
     ),
 ];
 
@@ -138,6 +151,7 @@ impl Shots {
             Window::Main => ViewportId::ROOT,
             Window::Ask => app.asks.last().map_or(ViewportId::ROOT, |(id, _)| ViewportId::from_hash_of(("ask", *id))),
             Window::Threat => app.threats.last().map_or(ViewportId::ROOT, |(id, _, _)| ViewportId::from_hash_of(("threat", *id))),
+            Window::Popup => app.popups.last().map_or(ViewportId::ROOT, |(id, _, _)| ViewportId::from_hash_of(("popup", *id))),
         };
         let path = self.dir.join(format!("{name}.png"));
         let pending = self.pending.clone();
