@@ -540,6 +540,8 @@ pub struct Settings {
     pub dns_leak_ignore: String,
     /// Blocks the internet on the real network cards while a VPN is up or has dropped (see `live::guard`). Off by default.
     pub vpn_kill_switch: bool,
+    /// With the kill switch on: when the VPN has been down for a few seconds, open the network for two minutes (once per outage) so the VPN client can reconnect. Off by default.
+    pub vpn_kill_auto_release: bool,
     /// Blocks HTTPS and DNS-over-TLS to well-known public DNS resolvers. Off by default.
     pub block_doh: bool,
     /// Programs (file names, e.g. `chrome.exe`) whose QUIC / HTTP/3 traffic (UDP 443) is blocked, so they use HTTPS over TCP.
@@ -762,6 +764,7 @@ impl Default for Settings {
             public_ip_check: false,
             dns_leak_ignore: "VMware, VirtualBox, vEthernet".into(),
             vpn_kill_switch: false,
+            vpn_kill_auto_release: false,
             block_doh: false,
             quic_fallback: String::new(),
             beacon_ignore: String::new(),

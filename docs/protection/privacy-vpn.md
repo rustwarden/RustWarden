@@ -25,6 +25,7 @@ While a VPN is connected, the kill switch blocks everything on your **real** net
 - **It arms itself.** Some VPNs, such as PIA, only create their network adapter when you press Connect, so the switch arms itself the first time it sees a VPN connected.
 - **It learns the VPN's servers** from the host routes the VPN client adds, and remembers them.
 - **Let the VPN connect** opens the network for **two minutes**, so the VPN client can reach a new server.
+- **Let the VPN reconnect by itself** (off by default) does the same automatically: once the VPN has been down for 15 seconds the network opens for two minutes, once per outage, then the block returns if the VPN is still down. Traffic can leave outside the tunnel during that window.
 - Turning the switch off, closing RustWarden, or **Restore firewall defaults** lifts the block.
 
 This needs administrator rights.

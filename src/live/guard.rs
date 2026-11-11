@@ -6,6 +6,7 @@
 //!   arms itself the first time a VPN adapter is seen up (switching it on while disconnected blocks nothing). The VPN
 //!   client's own packets to its server must still get out, so the server addresses are learned from the host routes
 //!   VPN clients add (and remembered), and a "Let the VPN connect" button opens everything for two minutes to reach a new one.
+//!   An optional setting presses that button once, by itself, when the VPN has been down for a few seconds.
 //! * **QUIC fallback.** For the programs named in the settings, blocks UDP port 443 (QUIC, HTTP/3), so a browser falls
 //!   back to HTTPS over TCP, where the server name is in the open for domain blocks and the host names to read. A plain
 //!   per-program firewall rule does this; no per-packet work is needed.
@@ -188,15 +189,42 @@ fn open_set(endpoints: &BTreeSet<IpAddr>) -> RangeSet {
     keep
 }
 
+/// How long the VPN may be down before "reconnect automatically" opens the network (gives the VPN client its own retry first).
+const AUTO_RELEASE_AFTER_SECS: i64 = 15;
+
+/// Tracks one VPN outage, so the automatic release fires once per outage and the block comes back afterwards.
+#[derive(Default)]
+struct Outage {
+    since: Option<i64>,
+    released: bool,
+}
+
+impl Outage {
+    /// True once, when the VPN has been down for `AUTO_RELEASE_AFTER_SECS`.
+    fn due(&mut self, vpn_up: bool, now: i64) -> bool {
+        if vpn_up {
+            *self = Outage::default();
+            return false;
+        }
+        let since = *self.since.get_or_insert(now);
+        if !self.released && now - since >= AUTO_RELEASE_AFTER_SECS {
+            self.released = true;
+            return true;
+        }
+        false
+    }
+}
+
 #[derive(Default)]
 struct State {
     armed: bool,
     endpoints: BTreeSet<IpAddr>,
+    outage: Outage,
 }
 
 fn load(shared: &Shared) -> State {
     let Ok(db) = shared.open_db() else { return State::default() };
-    State { armed: db.kv_get(ARMED_KEY).as_deref() == Some("1"), endpoints: db.kv_get(ENDPOINTS_KEY).unwrap_or_default().lines().filter_map(|l| l.parse().ok()).collect() }
+    State { armed: db.kv_get(ARMED_KEY).as_deref() == Some("1"), endpoints: db.kv_get(ENDPOINTS_KEY).unwrap_or_default().lines().filter_map(|l| l.parse().ok()).collect(), outage: Outage::default() }
 }
 
 fn save(shared: &Shared, st: &State) {
@@ -261,6 +289,12 @@ fn reconcile(shared: &Shared, fw: &FwController, st: &mut State, applied: &mut b
         }
         if dirty {
             save(shared, st);
+        }
+        let vpn_up = adapters.iter().any(is_vpn);
+        if s.vpn_kill_auto_release && st.armed && st.outage.due(vpn_up, crate::clock::now_unix()) {
+            release();
+        } else if !s.vpn_kill_auto_release || !st.armed {
+            st.outage = Outage::default();
         }
         let (rules, note) = kill_plan(st, &adapters, crate::clock::now_unix() < RELEASE_UNTIL.load(Ordering::Relaxed));
         wanted.extend(rules);
@@ -347,6 +381,18 @@ mod tests {
         assert_eq!(note.level, crate::data::NoteLevel::Warn);
         let (open, _) = kill_plan(&st, &[wifi], true);
         assert!(open.is_empty(), "'Let the VPN connect' opens it");
+    }
+
+    #[test]
+    fn a_dropped_vpn_opens_the_network_once_after_the_grace_period() {
+        let mut o = Outage::default();
+        assert!(!o.due(true, 100));
+        assert!(!o.due(false, 200), "just dropped");
+        assert!(!o.due(false, 200 + AUTO_RELEASE_AFTER_SECS - 1));
+        assert!(o.due(false, 200 + AUTO_RELEASE_AFTER_SECS));
+        assert!(!o.due(false, 200 + 500), "once per outage, so the block comes back");
+        assert!(!o.due(true, 800));
+        assert!(!o.due(false, 900) && o.due(false, 900 + AUTO_RELEASE_AFTER_SECS), "a new outage gets a new release");
     }
 
     #[test]

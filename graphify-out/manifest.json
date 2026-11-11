@@ -408,9 +408,9 @@
     "semantic_hash": ""
   },
   "src/settings.rs": {
-    "mtime": 1794391320.9779572,
-    "seen": 1794392697.3611689,
-    "ast_hash": "8df751e9f58226073d499d1fb3a534a8",
+    "mtime": 1794414221.1764245,
+    "seen": 1794414543.5708349,
+    "ast_hash": "cf666497b150f8a7f7e5e1447fe3f140",
     "semantic_hash": ""
   },
   "src/shots.rs": {
@@ -612,9 +612,9 @@
     "semantic_hash": ""
   },
   "src/ui/dialogs.rs": {
-    "mtime": 1794393279.9751682,
-    "seen": 1794395058.86481,
-    "ast_hash": "ad80119ee02a40a1344e0557d66c27ae",
+    "mtime": 1794414221.177423,
+    "seen": 1794414543.5762677,
+    "ast_hash": "2157db6cd90b07967273a2abe964d6f2",
     "semantic_hash": ""
   },
   "src/ui/dns.rs": {
@@ -720,9 +720,9 @@
     "semantic_hash": ""
   },
   "FEATURES.md": {
-    "mtime": 1794395032.8632712,
-    "seen": 1794395058.868802,
-    "ast_hash": "4ed58d79690a7fdba9f6269e1af78e88",
+    "mtime": 1794414221.1784575,
+    "seen": 1794414543.5799966,
+    "ast_hash": "e13491c4184a257c45501ea5f768d44d",
     "semantic_hash": ""
   },
   "LICENCE.md": {
@@ -750,9 +750,9 @@
     "semantic_hash": ""
   },
   "changes.md": {
-    "mtime": 1794401255.8368416,
-    "seen": 1794401274.4209597,
-    "ast_hash": "fcf7f07733f717b63f774c45038f9303",
+    "mtime": 1794414226.1455026,
+    "seen": 1794414543.5806038,
+    "ast_hash": "6c69fafebb3535066bc547c5f33b57b2",
     "semantic_hash": ""
   },
   "assets/flags/ad.png": {
@@ -2748,9 +2748,9 @@
     "semantic_hash": ""
   },
   "src/live/guard.rs": {
-    "mtime": 1794313206.546422,
-    "seen": 1794314794.777681,
-    "ast_hash": "7af5f8b92132e77eb39d9c9dafce3ca6",
+    "mtime": 1794414221.1629794,
+    "seen": 1794414543.565428,
+    "ast_hash": "e8212eaca536dd43d450371e092132df",
     "semantic_hash": ""
   },
   "src/netwatch.rs": {
@@ -2928,9 +2928,9 @@
     "semantic_hash": ""
   },
   "docs/protection/privacy-vpn.md": {
-    "mtime": 1794314454.9567254,
-    "seen": 1794314794.7837973,
-    "ast_hash": "566739b01b5c879daae9091242e95632",
+    "mtime": 1794414221.179502,
+    "seen": 1794414543.5837693,
+    "ast_hash": "45501d4ef9d34f99b06a340aed51d3eb",
     "semantic_hash": ""
   },
   "docs/protection/quotas.md": {

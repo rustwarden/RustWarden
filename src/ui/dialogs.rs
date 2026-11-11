@@ -2591,6 +2591,13 @@ fn vpn_section(ui: &mut Ui, s: &mut Settings) {
             },
         );
         c.row(
+            "Let the VPN reconnect by itself",
+            "When the VPN has been down for 15 seconds, opens the network for two minutes (once per outage), as if you pressed \"Let the VPN connect\", so a client such as PIA can reach a new server. The block comes back afterwards if the VPN is still down. Traffic can leave outside the tunnel during that window, so it is off by default.",
+            |ui| {
+                ui.add_enabled_ui(s.vpn_kill_switch, |ui| crate::widgets::small_toggle(ui, &mut s.vpn_kill_auto_release));
+            },
+        );
+        c.row(
             "Block DNS-over-HTTPS resolvers",
             "Blocks encrypted DNS (HTTPS and DNS-over-TLS, ports 443 and 853) to well-known public resolvers such as Google, Cloudflare, Quad9, OpenDNS, AdGuard and NextDNS, so browsers that bypass the system's DNS fall back to it, where domain blocks and the DNS log can see the lookups. Plain DNS is not touched. Needs administrator rights.",
             |ui| crate::widgets::small_toggle(ui, &mut s.block_doh),
