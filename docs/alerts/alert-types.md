@@ -146,8 +146,10 @@ The driver reads the TLS ClientHello of each new HTTPS connection (JA3 and JA4 f
 
 These three need the [behaviour baseline](../protection/baseline.md) switched on. Their pins on the Traffic graph are purple.
 
-### Behaviour: new country or network
-A program contacted a country, or a network, that isn't in its usual set.
+### Behaviour: new country, network or domain
+A program contacted a country, a network or a domain that isn't in its usual set. Domains come from the names the program itself looked up, grouped so `a.cdn.github.com` counts as `github.com`. A program that already uses 30 or more domains (a web browser, say) has new ones logged quietly instead.
+
+While a program is still learning, all three behaviour alerts are only **logged quietly**: they appear in the Alerts log marked *(logged while learning)*, with no popup, no unread badge and nothing sent to notification plugins.
 
 ### Behaviour: traffic spike
 A program moved far more data in a day than it usually does.

@@ -1326,6 +1326,9 @@ fn alert_settings(ui: &mut Ui, s: &mut Settings, apps: &[QuotaApp]) {
                 if s.baseline_networks && !was && s.net_info == NetInfoSource::Off {
                     s.net_info = NetInfoSource::TeamCymru;
                 }
+                c.row("Learn domains too", "Uses the names each program looked up, grouped by domain (a.cdn.github.com counts as github.com). Nothing is sent anywhere.", |ui| {
+                    crate::widgets::small_toggle(ui, &mut s.baseline_domains);
+                });
             }
         });
         return;

@@ -573,6 +573,12 @@ impl Db {
         Ok(())
     }
 
+    /// The name `app_id` itself looked up or sent for `ip`, if it is known.
+    pub fn app_hostname(&self, app_id: i64, ip: &str) -> Option<String> {
+        let mut stmt = self.conn.prepare_cached("SELECT name FROM app_hostnames WHERE app_id = ?1 AND ip = ?2").ok()?;
+        stmt.query_row(params![app_id, ip], |r| r.get(0)).optional().ok().flatten()
+    }
+
     pub fn app_hostnames(&self) -> rusqlite::Result<Vec<(i64, String, String)>> {
         let mut stmt = self.conn.prepare("SELECT app_id, ip, name FROM app_hostnames")?;
         stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect()

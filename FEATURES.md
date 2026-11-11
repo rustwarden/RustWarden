@@ -93,8 +93,10 @@ The full feature list. For an overview, see the [README](README.md).
 <a id="baseline"></a>
 
 ### 🧭 Behaviour baseline
-- Optional (Settings > Alerts, off by default, needs administrator): each program's usual countries, networks, active hours and daily volume are learned from the last 14 days of stored traffic (the first 7 days only learn).
-- Alerts when a program contacts a new country or network, moves far more data than usual in a day, or is busy at an hour it is almost never active. Each alert says why.
+- Optional (Settings > Alerts > Options, off by default, needs administrator): each program's usual countries, domains, networks, active hours and daily volume are learned from the last 14 days of stored traffic.
+- Alerts when a program contacts a new country, network or domain, moves far more data than usual in a day, or is busy at an hour it is almost never active. Each alert says why.
+- Domains come from the names each program looked up, grouped so `a.cdn.github.com` counts as `github.com` (country-code domains like `bbc.co.uk` are kept whole). "Learn domains too" is on by default and sends nothing anywhere. A program that already uses 30 or more domains, such as a browser, has new ones logged quietly instead.
+- While a program is learning (its first 7 days by default), every finding is still logged in the Alerts log, marked "(logged while learning)", but quietly: no popup, no unread badge, nothing sent to notification plugins. It then counts as usual, so the end of learning doesn't bring a flood.
 - "Mark as normal" on a graph pin or on the alert's Log card teaches the baseline, and repeats are throttled. Purple pins on the traffic graph mark these alerts.
 
 <a id="dns-log"></a>

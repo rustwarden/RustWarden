@@ -17,6 +17,24 @@ use std::sync::{Mutex, MutexGuard, RwLock};
 
 pub const HW_WINDOW: usize = 300;
 
+/// How an alert is delivered on top of its kind's settings.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Urgency {
+    /// As the kind's settings and the alert rules say.
+    Normal,
+    /// Important whatever the kind's level (e.g. a gateway MAC change).
+    Important,
+    /// Kept, not pushed: recorded in the Alerts log (already read) and the event log, but no desktop
+    /// popup, no unread badge and nothing sent to notification plugins.
+    Quiet,
+}
+
+impl From<bool> for Urgency {
+    fn from(important: bool) -> Self {
+        if important { Self::Important } else { Self::Normal }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct HwNow {
     pub cpu_pct: f32,
@@ -257,13 +275,13 @@ impl Shared {
     /// Records an alert unless its monitor is switched off. During a snooze alerts are still
     /// recorded but arrive already read, so they don't badge the tab.
     pub fn alert(&self, db: &Db, kind: AlertKind, app: &str, text: &str, target: &str, country: &str) {
-        self.alert_as(db, kind, app, text, target, country, false);
+        self.alert_as(db, kind, app, text, target, country, Urgency::Normal);
     }
 
-    /// `alert`, but `force_important` raises the level above the kind's setting (e.g. a gateway MAC change).
-    #[allow(clippy::too_many_arguments)]
+    /// `alert`, delivered as `urgency` says on top of the kind's settings.
     /// Returns the stored alert's id, or `None` when it was switched off or couldn't be stored.
-    pub fn alert_as(&self, db: &Db, kind: AlertKind, app: &str, text: &str, target: &str, country: &str, force_important: bool) -> Option<i64> {
+    #[allow(clippy::too_many_arguments)]
+    pub fn alert_as(&self, db: &Db, kind: AlertKind, app: &str, text: &str, target: &str, country: &str, urgency: Urgency) -> Option<i64> {
         let settings = self.settings();
         if !kind.enabled(&settings.alerts) {
             return None;
@@ -283,7 +301,11 @@ impl Shared {
             opts.desktop = true;
             opts.level = AlertLevel::Important;
         }
-        let important = (force_important || opts.level == AlertLevel::Important) && !effect.mute;
+        // Quiet wins over an escalate rule: it is for findings that must be kept but not pushed at anyone.
+        if urgency == Urgency::Quiet {
+            (opts.desktop, opts.api, opts.level) = (false, false, AlertLevel::Logs);
+        }
+        let important = (urgency == Urgency::Important || opts.level == AlertLevel::Important) && !effect.mute;
         if settings.event_log && opts.event_log {
             crate::sys::eventlog::write(important, &format!("{}: {} {} {}", kind.title(), app, text, target).replace("  ", " "));
         }
@@ -383,5 +405,17 @@ mod tests {
         assert_eq!(s.state().popups.len(), 1);
         assert!(s.state().popups[0].important);
         assert!(db.alerts(10).unwrap()[0].new.important);
+    }
+
+    #[test]
+    fn a_quiet_alert_is_logged_read_without_a_popup_even_when_escalated() {
+        let s = shared(vec![AlertRule { action: RuleAction::Escalate, kinds: vec!["remote_session".into()], ..AlertRule::default() }]);
+        let db = Db::memory();
+        // Remote Desktop pops up by default and the rule escalates it; quiet still wins.
+        let id = s.alert_as(&db, AlertKind::RemoteSession, "demouser", "started a session", "", "", Urgency::Quiet);
+        assert!(id.is_some(), "a quiet alert is still stored");
+        assert!(s.state().popups.is_empty());
+        let stored = &db.alerts(10).unwrap()[0];
+        assert!(!stored.new.important && !stored.new.unread);
     }
 }

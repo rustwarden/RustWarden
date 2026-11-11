@@ -239,7 +239,7 @@ fn dhcp_reply(shared: &super::store::Shared, dhcp: &mut crate::netwatch::DhcpWat
     }
     let Ok(db) = shared.open_db() else { return };
     let text = format!("answered by more than one server on {name}; one of them may not be your router:");
-    shared.alert_as(&db, super::alerts::AlertKind::RogueDhcp, "DHCP", &text, &list, "", found.critical);
+    shared.alert_as(&db, super::alerts::AlertKind::RogueDhcp, "DHCP", &text, &list, "", found.critical.into());
 }
 
 fn report_print(shared: &super::store::Shared, m: &crate::netwatch::Mismatch, ja3: &str) {

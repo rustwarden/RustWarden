@@ -10,21 +10,28 @@ The behaviour baseline learns what is **normal** for each program, and alerts yo
 |---|---|
 | **Baseline window** | Built from the last **N days** of stored traffic (14 by default), with **no alerts for the first M days** (7 by default) while it learns |
 | **Repeat the same alert at most every** | Throttle, in hours |
+| **Learn domains too** | Also learns each program's usual **domains**, from the names it looked up (`a.cdn.github.com` counts as `github.com`). On by default; nothing is sent anywhere. |
 | **Learn networks too** | Also learns each program's usual **networks** (AS numbers), not just countries. Each internet address is then sent to the net-info lookup service, and Team Cymru is chosen if none is set. |
 
 ## What it learns
 
 For each program:
 
-- its usual **countries** (and networks, if switched on),
+- its usual **countries**, **domains** and, if switched on, **networks**,
 - its usual **active hours**,
 - its usual **daily volume**.
+
+## While it learns
+
+A program's first days are its learning period. RustWarden still watches it: anything that would raise a behaviour alert is **logged quietly** in the Alerts log, marked *(logged while learning)*, but there's no desktop popup, no unread badge and nothing goes to notification plugins. What it saw counts as usual afterwards, so the end of the learning period doesn't bring a burst of alerts.
+
+The traffic spike and unusual hour checks start once a program has two days of history.
 
 ## The alerts
 
 | Alert | Raised when |
 |---|---|
-| [Behaviour: new country or network](../alerts/alert-types.md#behaviour-new-country-or-network) | The program contacts a country or network outside its usual set |
+| [Behaviour: new country, network or domain](../alerts/alert-types.md#behaviour-new-country-network-or-domain) | The program contacts a country, network or domain outside its usual set |
 | [Behaviour: traffic spike](../alerts/alert-types.md#behaviour-traffic-spike) | It moves far more data in a day than usual |
 | [Behaviour: unusual hour](../alerts/alert-types.md#behaviour-unusual-hour) | It's busy at an hour when it's almost never active |
 

@@ -396,7 +396,7 @@ fn demo_alerts() -> Vec<Alert> {
         Alert {
             text: "contacted a country it has not used before; usual: US, NL.".into(),
             target: "203.0.113.20 (DE)".into(),
-            kind: "New country or network".into(),
+            kind: "New country, network or domain".into(),
             anomaly: true,
             ..alert(15, "demo.exe", Generic, "", Germany, "5:12 pm", "Today", true)
         },
@@ -415,6 +415,24 @@ fn demo_alerts() -> Vec<Alert> {
             country: None,
             anomaly: true,
             ..alert(17, "demo.exe", Generic, "", Other, "3:00 am", "Today", true)
+        },
+        Alert {
+            text: "contacted a domain it has not used before; usual: github.com, githubusercontent.com.".into(),
+            target: "telemetry.example-metrics.net (203.0.113.31)".into(),
+            kind: "New country, network or domain".into(),
+            country: None,
+            anomaly: true,
+            ..alert(18, "demo.exe", Generic, "", Other, "2:47 pm", "Today", true)
+        },
+        // A program still learning: logged quietly (read, not Important), and already counted as usual.
+        Alert {
+            text: "contacted a country it has not used before; usual: US. (logged while learning)".into(),
+            target: "198.51.100.14 (NL)".into(),
+            kind: "New country, network or domain".into(),
+            country: Some(Netherlands),
+            important: false,
+            anomaly: true,
+            ..alert(19, "NewTool.exe", Generic, "", Netherlands, "1:15 pm", "Today", false)
         },
     ]);
     alerts

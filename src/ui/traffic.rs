@@ -17,7 +17,7 @@ pub(super) fn command_card_id(ui: &Ui, rtl: bool) -> egui::Id {
 fn kind_icon(label: &str) -> Icon {
     match label {
         "Malicious IP" | "Malicious domain" | "Port scan or flood" | "Program fingerprint mismatch" => Icon::ShieldAlert,
-        "Internet access" | "DNS server settings" | "DNS leak" | "Public IP address" | "Proxy settings" | "New country or network" | "DNS tunnelling" => Icon::Globe,
+        "Internet access" | "DNS server settings" | "DNS leak" | "Public IP address" | "Proxy settings" | "New country, network or domain" | "DNS tunnelling" => Icon::Globe,
         "New device" | "Device spoofing" | "Device returned" | "ARP table" | "Second DHCP server" => Icon::Wifi,
         "Firewall rules" | "Computer unlocked" | "User account" | "Root certificate" => Icon::Lock,
         "Packet loss" => Icon::Wave,

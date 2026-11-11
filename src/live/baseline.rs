@@ -1,14 +1,15 @@
-//! Behaviour baselines. For each program: which countries and networks it usually talks to, how
-//! much it moves in a day and which hours it is active in. Built from the stored traffic history
-//! and kept locally. A worker raises an anomaly alert when a program steps outside that, and
-//! "mark as normal" on the alert teaches the baseline. The rules are pure, so the tests use
-//! synthetic histories and need no OS.
+//! Behaviour baselines. For each program: which countries, networks and domains it usually talks
+//! to, how much it moves in a day and which hours it is active in. Built from the stored traffic
+//! history and kept locally. A worker raises an anomaly alert when a program steps outside that, and
+//! "mark as normal" on the alert teaches the baseline. While a program is still learning, what it
+//! finds is logged quietly (Alerts log only, no popup) and counts as usual. The rules are pure, so
+//! the tests use synthetic histories and need no OS.
 
 use super::alerts::AlertKind;
 use super::asn;
 use super::db::{AppRecord, BASE_ALERTED, BASE_LEARNED, BASE_NORMAL, BaselineItem, Db};
 use super::geo::Geo;
-use super::store::Shared;
+use super::store::{Shared, Urgency};
 use crate::clock;
 use crate::data::StatusNote;
 use crate::settings::{NetInfoSource, Settings};
@@ -31,10 +32,17 @@ const DIM_COUNTRY: &str = "country";
 const DIM_ASN: &str = "asn";
 const DIM_HOUR: &str = "hour";
 const DIM_VOLUME: &str = "volume";
+const DIM_DOMAIN: &str = "domain";
 const KV_CURSOR: &str = "baseline_cursor";
 const KV_ASN_CURSOR: &str = "baseline_asn_cursor";
 /// How many known values an alert names as "usual".
 const USUAL_SHOWN: usize = 4;
+/// A program with at least this many usual domains (a browser, say) only logs new ones quietly.
+const WIDE_DOMAINS: usize = 30;
+/// The spike and hour checks need this many days of a program's history before they mean anything.
+const STATS_MIN_DAYS: i64 = 2;
+/// Second-level labels under which a country-code domain sells names (example.co.uk, example.com.au).
+const SECOND_LEVEL: &[&str] = &["co", "com", "net", "org", "gov", "edu", "ac", "ne", "or", "go", "gob", "mil", "nic", "ltd", "plc"];
 
 pub fn median(values: &[f64]) -> f64 {
     let mut v = values.to_vec();
@@ -106,6 +114,27 @@ pub fn network_of(info: &str) -> Option<&str> {
     info.split(" · ").next().filter(|n| !n.is_empty())
 }
 
+/// The domain a host name belongs to, so the many hosts a service rotates through count once:
+/// `a.b.github.com` is `github.com`, `www.bbc.co.uk` is `bbc.co.uk`. None for an address or a bare name.
+pub fn domain_of(host: &str) -> Option<String> {
+    let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
+    if host.parse::<IpAddr>().is_ok() {
+        return None;
+    }
+    let labels: Vec<&str> = host.split('.').collect();
+    if labels.len() < 2 || labels.iter().any(|l| l.is_empty()) {
+        return None;
+    }
+    let n = labels.len();
+    let country_sld = n >= 3 && labels[n - 1].len() == 2 && SECOND_LEVEL.contains(&labels[n - 2]);
+    let keep = if country_sld { 3 } else { 2 };
+    Some(labels[n - keep..].join("."))
+}
+
+pub fn domain_why(usual: &[String]) -> String {
+    format!("contacted a domain it has not used before; usual: {}.", list(usual))
+}
+
 pub fn network_why(usual: &[String]) -> String {
     format!("contacted a network it has not used before; usual: {}.", list(usual))
 }
@@ -152,13 +181,18 @@ impl Worker {
             self.learn_networks(now, s, &apps);
         }
         let _ = self.db.prune_baseline(now, s.baseline_days);
-        for app in apps.iter().filter(|a| !learning(a.first_seen, now, s.baseline_learn_days)) {
+        for app in apps.iter().filter(|a| now - a.first_seen >= STATS_MIN_DAYS * DAY) {
             self.check_volume(app, now, s);
             self.check_hours(app, now, s);
         }
     }
 
-    /// Countries every program has contacted since the last scan, learned or checked against the baseline.
+    /// Whether `app` is still learning: what it does is logged quietly and counts as usual.
+    fn learning(&self, app: &AppRecord, now: i64, s: &Settings) -> bool {
+        learning(app.first_seen, now, s.baseline_learn_days)
+    }
+
+    /// Countries (and domains) every program has contacted since the last scan, learned or checked against the baseline.
     fn learn_countries(&mut self, now: i64, s: &Settings, apps: &[AppRecord]) {
         let from = self.db.kv_get(KV_CURSOR).and_then(|v| v.parse().ok()).unwrap_or(0);
         let Ok(groups) = self.db.wan_remotes_since(from) else {
@@ -173,6 +207,12 @@ impl Worker {
                 continue;
             }
             self.observe(app, DIM_COUNTRY, &code, &format!("{remote} ({code})"), country_why, now, s);
+            if s.baseline_domains
+                && let Some(host) = self.db.app_hostname(app.id, &remote)
+                && let Some(domain) = domain_of(&host)
+            {
+                self.observe(app, DIM_DOMAIN, &domain, &format!("{host} ({remote})"), domain_why, now, s);
+            }
         }
         let newest = self.db.newest_bucket().unwrap_or(from);
         let _ = self.db.kv_set(KV_CURSOR, &newest.to_string());
@@ -204,8 +244,9 @@ impl Worker {
         let _ = self.db.kv_set(KV_ASN_CURSOR, &next.to_string());
     }
 
-    /// Records that `app` used `val` in `dim`. A value the baseline doesn't know raises an alert,
-    /// unless the program is still learning or the same alert was raised within the throttle window.
+    /// Records that `app` used `val` in `dim`. A value the baseline doesn't know raises an alert unless
+    /// the same alert was raised within the throttle window. While the program is learning (or, for
+    /// domains, already uses very many) the alert is only logged quietly and the value counts as usual.
     #[allow(clippy::too_many_arguments)]
     fn observe(&mut self, app: &AppRecord, dim: &str, val: &str, target: &str, why: fn(&[String]) -> String, now: i64, s: &Settings) {
         let items = self.db.baseline_items(app.id, dim).unwrap_or_default();
@@ -214,15 +255,20 @@ impl Worker {
         let mut item = existing.clone().unwrap_or_else(|| new_item(dim, val, now));
         item.last_seen = now;
         let known = existing.as_ref().is_some_and(|i| i.state != BASE_ALERTED);
-        let quiet = known || learning(app.first_seen, now, s.baseline_learn_days) || existing.as_ref().is_some_and(|i| throttled(i.alerted, now, s.baseline_throttle_hours));
-        if quiet {
+        if known || existing.as_ref().is_some_and(|i| throttled(i.alerted, now, s.baseline_throttle_hours)) {
             self.save(app, &item);
             return;
         }
-        let text = why(&usual);
+        let (text, quiet) = if self.learning(app, now, s) {
+            (learning_note(why(&usual), true), true)
+        } else if dim == DIM_DOMAIN && usual.len() >= WIDE_DOMAINS {
+            (format!("{} (logged quietly: it uses many domains)", why(&usual)), true)
+        } else {
+            (why(&usual), false)
+        };
         let country = if dim == DIM_COUNTRY { val } else { "" };
-        item.alert_id = self.alert(app, AlertKind::AnomalyContact, &text, target, country);
-        item.state = BASE_ALERTED;
+        item.alert_id = self.alert(app, AlertKind::AnomalyContact, &text, target, country, quiet);
+        item.state = if quiet { BASE_LEARNED } else { BASE_ALERTED };
         item.alerted = now;
         self.save(app, &item);
     }
@@ -250,8 +296,9 @@ impl Worker {
             return;
         }
         let mut item = new_item(DIM_VOLUME, &key, now);
-        let text = volume_why(used, median(&history), limit);
-        item.alert_id = self.alert(app, AlertKind::AnomalyVolume, &text, "", "");
+        let quiet = self.learning(app, now, s);
+        let text = learning_note(volume_why(used, median(&history), limit), quiet);
+        item.alert_id = self.alert(app, AlertKind::AnomalyVolume, &text, "", "", quiet);
         item.state = BASE_ALERTED;
         item.alerted = now;
         self.save(app, &item);
@@ -288,16 +335,20 @@ impl Worker {
         if item.state == BASE_NORMAL || throttled(item.alerted, now, s.baseline_throttle_hours) {
             return;
         }
-        let text = hour_why(hour, days_active, days);
-        item.alert_id = self.alert(app, AlertKind::AnomalyHour, &text, "", "");
+        let quiet = self.learning(app, now, s);
+        let text = learning_note(hour_why(hour, days_active, days), quiet);
+        item.alert_id = self.alert(app, AlertKind::AnomalyHour, &text, "", "", quiet);
         item.state = BASE_ALERTED;
         item.alerted = now;
         item.last_seen = now;
         self.save(app, &item);
     }
 
-    fn alert(&self, app: &AppRecord, kind: AlertKind, text: &str, target: &str, country: &str) -> Option<i64> {
-        self.shared.alert_as(&self.db, kind, &app.name, text, target, country, false)
+    /// Raises a baseline alert; a `quiet` one goes to the Alerts log only (see `Urgency::Quiet`).
+    #[allow(clippy::too_many_arguments)]
+    fn alert(&self, app: &AppRecord, kind: AlertKind, text: &str, target: &str, country: &str, quiet: bool) -> Option<i64> {
+        let urgency = if quiet { Urgency::Quiet } else { Urgency::Normal };
+        self.shared.alert_as(&self.db, kind, &app.name, text, target, country, urgency)
     }
 
     fn save(&self, app: &AppRecord, item: &BaselineItem) {
@@ -317,6 +368,11 @@ fn wait_for_answer(waits: &mut HashMap<String, u32>, remote: &str) -> bool {
     let n = waits.entry(remote.to_owned()).or_default();
     *n += 1;
     *n <= ASN_WAIT_SCANS
+}
+
+/// Marks an alert raised while its program is learning, which is only logged.
+fn learning_note(text: String, learning: bool) -> String {
+    if learning { format!("{text} (logged while learning)") } else { text }
 }
 
 fn new_item(dim: &str, val: &str, now: i64) -> BaselineItem {
@@ -412,6 +468,36 @@ mod tests {
         assert!(throttled(now - 3600, now, 24));
         assert!(!throttled(now - 25 * 3600, now, 24));
         assert!(!throttled(0, now, 24), "never alerted is not throttled");
+    }
+
+    #[test]
+    fn hosts_group_by_domain() {
+        assert_eq!(domain_of("a.b.cdn.github.com").as_deref(), Some("github.com"));
+        assert_eq!(domain_of("GitHub.com.").as_deref(), Some("github.com"));
+        assert_eq!(domain_of("www.bbc.co.uk").as_deref(), Some("bbc.co.uk"));
+        assert_eq!(domain_of("shop.example.com.au").as_deref(), Some("example.com.au"));
+        // A two-letter top-level domain without a sold second level keeps two labels.
+        assert_eq!(domain_of("api.example.de").as_deref(), Some("example.de"));
+        assert_eq!(domain_of("co.uk").as_deref(), Some("co.uk"));
+        assert_eq!(domain_of("localhost"), None);
+        assert_eq!(domain_of("203.0.113.7"), None);
+        assert_eq!(domain_of("2001:db8::1"), None);
+        assert_eq!(domain_of("bad..name"), None);
+        assert!(domain_why(&["github.com".into()]).contains("domain it has not used before; usual: github.com."));
+    }
+
+    #[test]
+    fn learning_alerts_say_so() {
+        assert_eq!(learning_note("x".into(), false), "x");
+        assert_eq!(learning_note("x".into(), true), "x (logged while learning)");
+    }
+
+    #[test]
+    fn app_hostname_is_per_program() {
+        let db = Db::memory();
+        db.set_app_hostname(1, "203.0.113.7", "a.github.com", 0).unwrap();
+        assert_eq!(db.app_hostname(1, "203.0.113.7").as_deref(), Some("a.github.com"));
+        assert_eq!(db.app_hostname(2, "203.0.113.7"), None, "another program's name for a shared address is not used");
     }
 
     #[test]

@@ -338,7 +338,7 @@ impl Collector {
                 verdict.score,
                 verdict.reasons.join(", ")
             );
-            self.shared.alert_as(&self.db, AlertKind::Beaconing, &name, &text, &remote.to_string(), &self.geo.place(remote).code(), verdict.important);
+            self.shared.alert_as(&self.db, AlertKind::Beaconing, &name, &text, &remote.to_string(), &self.geo.place(remote).code(), verdict.important.into());
         }
         self.publish_p2p(p2p_detect, p2p_names, &p2p_ignore, now);
         let _ = self.db.add_dns(&dns_rows);

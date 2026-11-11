@@ -475,6 +475,8 @@ pub struct Settings {
     pub baseline_throttle_hours: u32,
     /// Also learn which networks (AS numbers) a program talks to. Each internet address is sent to the net-info service, so it is off until the user turns it on.
     pub baseline_networks: bool,
+    /// Also learn which domains a program talks to, from the names it looked up (local data, nothing goes out).
+    pub baseline_domains: bool,
     /// Serves Prometheus metrics at 127.0.0.1 only (see metrics.rs). Off until the user turns it on.
     pub metrics: bool,
     pub metrics_port: u16,
@@ -724,6 +726,7 @@ impl Default for Settings {
             baseline_learn_days: 7,
             baseline_throttle_hours: 24,
             baseline_networks: false,
+            baseline_domains: true,
             metrics: false,
             metrics_port: 9877,
             report: false,

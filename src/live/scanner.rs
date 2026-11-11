@@ -421,7 +421,7 @@ fn scan(shared: &Shared, network: &NetworkInfo, adapter: &Adapter) -> Result<(),
             DeviceEvent::MacChanged { ip, old_mac, mac, gateway } => {
                 let text = if gateway { "gateway changed MAC address (possible ARP spoofing):" } else { "address now has a different MAC address (possible ARP spoofing):" };
                 let target = format!("{ip}: {} → {}", tag("", &old_mac).trim(), tag("", &mac).trim());
-                shared.alert_as(&db, AlertKind::DeviceSpoof, net, text, &target, "LOCAL", gateway);
+                shared.alert_as(&db, AlertKind::DeviceSpoof, net, text, &target, "LOCAL", gateway.into());
             }
             DeviceEvent::MultiIp { mac, ips } => {
                 let target = format!("{} → {}", tag("", &mac).trim(), ips.join(", "));

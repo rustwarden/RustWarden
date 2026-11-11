@@ -125,7 +125,7 @@ impl AlertKind {
             "new_listener" => "New listening port",
             "dns_leak" => "DNS leak",
             "public_ip" => "Public IP address",
-            "new_contact" => "New country or network",
+            "new_contact" => "New country, network or domain",
             "volume_spike" => "Traffic spike",
             "unusual_hour" => "Unusual hour",
             "inbound_scan" => "Port scan or flood",
@@ -207,7 +207,7 @@ impl AlertKind {
             Self::NewListener => "Listening port monitor",
             Self::DnsLeak => "VPN DNS leak check",
             Self::PublicIp => "Public IP address monitor",
-            Self::AnomalyContact => "Behaviour: new country or network",
+            Self::AnomalyContact => "Behaviour: new country, network or domain",
             Self::AnomalyVolume => "Behaviour: traffic spike",
             Self::AnomalyHour => "Behaviour: unusual hour",
             Self::InboundScan => "Inbound port scan and flood (Driver mode)",
@@ -295,7 +295,9 @@ impl AlertKind {
             Self::NewListener => {
                 "Notify me when a program starts listening for connections on a new TCP port. The alert says whether it listens on every interface, the local network address or this PC only."
             }
-            Self::AnomalyContact => "Notify me when an app talks to a country or network it has not used in its baseline (Settings > Behaviour baseline).",
+            Self::AnomalyContact => {
+                "Notify me when an app talks to a country, network or domain it has not used in its baseline (Settings > Alerts > Options). While an app is still learning these are only logged."
+            }
             Self::AnomalyVolume => "Notify me when an app moves far more data in a day than its usual amount.",
             Self::AnomalyHour => "Notify me when an app is active at an hour of the day it is almost never active.",
             Self::InboundScan => "Notify me when one address tries many different ports on this PC in a few seconds (a port scan), or when connection attempts arrive in a flood. Needs Driver mode.",

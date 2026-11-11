@@ -459,7 +459,7 @@ impl RustWarden {
 /// Where an alert of this kind leads: app alerts only when the app is known, packet loss only while the Broadband tab shows.
 fn source_tab(kind: &str, app_known: bool, broadband: Option<usize>) -> Option<Tab> {
     match kind {
-        "First network activity" | "App info changed" | "Malicious IP" | "New country or network" | "Traffic spike" | "Unusual hour" if app_known => Some(Tab::Protect),
+        "First network activity" | "App info changed" | "Malicious IP" | "New country, network or domain" | "Traffic spike" | "Unusual hour" if app_known => Some(Tab::Protect),
         "Firewall rules" => Some(Tab::Protect),
         "Packet loss" => broadband.map(Tab::Plugin),
         "New device" | "Device spoofing" | "Device returned" => Some(Tab::Scanner),
