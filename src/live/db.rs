@@ -409,6 +409,12 @@ impl Db {
         Ok(self.conn.execute("UPDATE baseline_item SET state = ?2, last_seen = ?3 WHERE alert_id = ?1", params![alert_id, BASE_NORMAL, now])? > 0)
     }
 
+    /// Alerts whose baseline item can still be marked normal: it exists and the user hasn't marked it yet.
+    pub fn markable_alerts(&self) -> rusqlite::Result<std::collections::HashSet<i64>> {
+        let mut stmt = self.conn.prepare_cached("SELECT alert_id FROM baseline_item WHERE alert_id IS NOT NULL AND state != ?1")?;
+        stmt.query_map(params![BASE_NORMAL], |r| r.get(0))?.collect()
+    }
+
     /// Forgets baseline items not seen for `days`; the ones the user marked normal stay.
     pub fn prune_baseline(&self, now: i64, days: u32) -> rusqlite::Result<()> {
         self.conn.execute("DELETE FROM baseline_item WHERE state != ?1 AND last_seen < ?2", params![BASE_NORMAL, now - i64::from(days) * 86_400])?;

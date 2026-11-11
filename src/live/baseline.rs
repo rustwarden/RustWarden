@@ -554,7 +554,9 @@ mod tests {
         db.save_baseline_item(1, &item).unwrap();
         assert_eq!(db.baseline_items(1, DIM_COUNTRY).unwrap(), vec![item.clone()]);
         assert!(db.baseline_items(2, DIM_COUNTRY).unwrap().is_empty());
+        assert!(db.markable_alerts().unwrap().contains(&42));
         assert!(db.mark_normal(42, now + 10).unwrap());
+        assert!(db.markable_alerts().unwrap().is_empty(), "a marked alert loses its button");
         assert!(!db.mark_normal(7, now).unwrap());
         let got = &db.baseline_items(1, DIM_COUNTRY).unwrap()[0];
         assert_eq!((got.state, got.last_seen), (BASE_NORMAL, now + 10));

@@ -862,6 +862,8 @@ impl Backend for LiveBackend {
 
     fn alerts(&self) -> Vec<Alert> {
         let now = crate::clock::now_unix();
+        // A baseline alert offers "Mark as normal" only until it has been marked (or its item forgotten).
+        let markable = self.with_db(|db| db.markable_alerts());
         self.with_db(|db| db.alerts(500))
             .into_iter()
             .map(|s| {
@@ -880,7 +882,7 @@ impl Backend for LiveBackend {
                     ts: a.ts,
                     unread: a.unread,
                     important: a.important,
-                    anomaly: alerts::is_anomaly_key(&a.kind),
+                    anomaly: alerts::is_anomaly_key(&a.kind) && markable.contains(&s.id),
                 }
             })
             .collect()

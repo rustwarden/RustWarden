@@ -585,10 +585,7 @@ impl RustWarden {
             });
         });
         if normal {
-            self.run_bg(move |b| {
-                b.mark_alert_normal(id);
-                Ok(String::new())
-            });
+            self.mark_alert_normal(id);
             self.traffic.alert_popup = None;
             return;
         }
