@@ -1325,13 +1325,13 @@ fn alert_settings(ui: &mut Ui, s: &mut Settings, apps: &[QuotaApp]) {
                 });
                 // Turning this on is the consent to send addresses out: with the net-info lookup off, it picks Team Cymru.
                 let was = s.baseline_networks;
-                c.row("Learn networks too", "Sends each internet address to the net-info service, Team Cymru if none is set.", |ui| {
+                c.row("Learn networks", "Sends each internet address to the net-info service, Team Cymru if none is set.", |ui| {
                     crate::widgets::small_toggle(ui, &mut s.baseline_networks);
                 });
                 if s.baseline_networks && !was && s.net_info == NetInfoSource::Off {
                     s.net_info = NetInfoSource::TeamCymru;
                 }
-                c.row("Learn domains too", "Uses the names each program looked up, grouped by domain (a.cdn.github.com counts as github.com). Nothing is sent anywhere.", |ui| {
+                c.row("Learn domains", "Uses the names each program looked up, grouped by domain (a.cdn.github.com counts as github.com). Nothing is sent anywhere.", |ui| {
                     crate::widgets::small_toggle(ui, &mut s.baseline_domains);
                 });
             }
