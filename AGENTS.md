@@ -28,6 +28,7 @@ Rules:
 - Update the changes.md file with new changes. It is a feature log, so you are free to edit existing entries that have changed if needed. Update it after each successful change or feature.
 - Several people work on this codebase, so every entry you add or edit must name who made the change, using the git user name of the person you are working for (e.g. connor). Put the name at the start of the entry, such as `- [connor] feat: ...`. When you edit an existing entry, keep the original author's name and add yours if it is a different person.
 - README.md is a short overview and FEATURES.md is the full feature list. For user-visible features, add them to FEATURES.md in full, and update README.md only if the short summary or its "What it does" list is affected.
+- For every new feature, also document it on the GitHub Pages documentation site. The site is built with MkDocs from `docs/` (see `mkdocs.yml`), so add or update the relevant page under `docs/` and add new pages to the `nav` in `mkdocs.yml`. Do this in the same commit as the feature.
 
 # Project rules
 
