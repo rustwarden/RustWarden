@@ -2,6 +2,8 @@ name: Docs
 
 # Builds the user guide (docs/ + mkdocs.yml) with MkDocs Material and publishes it to GitHub Pages.
 # Needs Settings > Pages > Source: "GitHub Actions" once.
+# Also runs after the Screenshots workflow: its commit is pushed with the workflow token, which starts no workflows,
+# so without this new screenshots (and pages that reference them) would not reach the site.
 on:
   push:
     branches: [main]
@@ -9,6 +11,9 @@ on:
       - "docs/**"
       - "mkdocs.yml"
       - ".github/workflows/docs.yml"
+  workflow_run:
+    workflows: [Screenshots]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -22,6 +27,7 @@ concurrency:
 
 jobs:
   build:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
