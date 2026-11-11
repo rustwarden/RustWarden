@@ -511,6 +511,28 @@ pub fn seed(id: &str, config: BTreeMap<String, String>, secrets: BTreeMap<String
     }
 }
 
+/// Drops the lines for `ips` (`ip|...`) from a plugin's saved `recent` history. For one-time cleanups that run
+/// before plugins start; a plugin with no saved history is left alone.
+pub fn forget_recent(id: &str, ips: &[String]) {
+    if ips.is_empty() || !saved_path(id).exists() {
+        return;
+    }
+    let mut saved = load_saved(id);
+    let Some(recent) = saved.config.get("recent") else { return };
+    let kept = without_lines(recent, ips);
+    if kept.len() == recent.len() {
+        return;
+    }
+    saved.config.insert("recent".into(), kept);
+    if let Err(e) = save_saved(id, &saved) {
+        crate::applog::line("plugins.log", &format!("couldn't tidy {id}'s history: {e}"));
+    }
+}
+
+fn without_lines(recent: &str, ips: &[String]) -> String {
+    recent.lines().filter(|l| !ips.iter().any(|ip| l.split('|').next() == Some(ip.as_str()))).collect::<Vec<_>>().join("\n")
+}
+
 fn load_saved(id: &str) -> Saved {
     std::fs::read_to_string(saved_path(id)).ok().and_then(|t| toml::from_str(&t).ok()).unwrap_or_default()
 }
@@ -854,6 +876,13 @@ mod tests {
         assert!(!text.contains("opnkey123") && !text.contains("opnsecret456") && text.contains("dpapi:"), "{text}");
         assert!(text.contains("https://fw"), "plain settings stay readable");
         assert!(toml::from_str::<Saved>(&text).unwrap() == s);
+    }
+
+    #[test]
+    fn history_lines_for_misread_addresses_are_dropped() {
+        let recent = "199.123.188.54|0|0|US|DoD|1\n1.1.1.1|0|0|AU|APNIC|2\n214.109.171.150|0|0|US|DoD|3";
+        assert_eq!(without_lines(recent, &["199.123.188.54".into(), "214.109.171.150".into()]), "1.1.1.1|0|0|AU|APNIC|2");
+        assert_eq!(without_lines(recent, &["1.1.1".into()]), recent, "whole addresses only");
     }
 
     #[test]

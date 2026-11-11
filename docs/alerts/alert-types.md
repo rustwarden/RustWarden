@@ -123,6 +123,8 @@ Many legitimate apps (updaters, mail, sync) check in regularly too, so expect to
 ### DNS tunnelling detection
 Many long, random-looking lookups under one domain within five minutes, which is how data is smuggled out through DNS. This needs the [DNS log](../network/dns-log.md).
 
+Names that start with an IP address written as labels (reverse lookups such as `4.3.2.1.in-addr.arpa`, and the ASN and blocklist lookups RustWarden and mail software make, such as `4.3.2.1.origin.asn.cymru.com`) only name an address, so the address part is not counted as data.
+
 Some legitimate services (anti-virus cloud lookups, some CDNs) look like this. Press **Mark as normal** on the alert card, its Traffic graph pin or its desktop popup, and that domain is no longer reported.
 
 ![DNS tunnelling popup with Mark as normal](../screenshots/mark-as-normal-popup.png)

@@ -77,7 +77,11 @@ impl LiveBackend {
         let elevated = crate::sys::is_elevated();
         let shared = Arc::new(Shared::new(settings.clone(), db_path(), elevated));
         let reader = match shared.open_db() {
-            Ok(db) => Some(db),
+            Ok(db) => {
+                // One-time and a few rows at most; done here so it is over before plugins start.
+                dnstunnel::clear_false_reports(&db);
+                Some(db)
+            }
             Err(e) => {
                 shared.set_note("db", Some(StatusNote::warn(format!("History database unavailable: {e}"))));
                 None

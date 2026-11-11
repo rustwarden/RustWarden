@@ -697,6 +697,45 @@ impl Db {
         Ok(out)
     }
 
+    /// Removes alerts RustWarden raised in error, with their baseline marks, and re-links the chain over the gap.
+    /// `Ok(false)` without changing anything when the chain already fails its check, so a real break is never hidden.
+    pub fn remove_alerts(&self, ids: &[i64]) -> rusqlite::Result<bool> {
+        let Some(&first) = ids.iter().min() else { return Ok(true) };
+        if self.verify_alerts()?.first_bad.is_some() {
+            return Ok(false);
+        }
+        let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
+        for id in ids {
+            tx.execute("DELETE FROM alerts WHERE id = ?1", params![id])?;
+            tx.execute("DELETE FROM baseline_item WHERE alert_id = ?1", params![id])?;
+        }
+        let mut prev: String = tx.query_row("SELECT hash FROM alerts WHERE id < ?1 AND hash != '' ORDER BY id DESC LIMIT 1", params![first], |r| r.get(0)).optional()?.unwrap_or_default();
+        let rows: Vec<(i64, NewAlert, String)> = {
+            let mut stmt = tx.prepare("SELECT id, ts, kind, important, app, text, target, country, hash FROM alerts WHERE id > ?1 ORDER BY id")?;
+            stmt.query_map(params![first], |r| {
+                let a = NewAlert { ts: r.get(1)?, kind: r.get(2)?, important: r.get::<_, i64>(3)? != 0, app: r.get(4)?, text: r.get(5)?, target: r.get(6)?, country: r.get(7)?, unread: false };
+                Ok((r.get(0)?, a, r.get(8)?))
+            })?
+            .collect::<rusqlite::Result<_>>()?
+        };
+        for (id, a, hash) in rows {
+            if hash.is_empty() && prev.is_empty() {
+                continue; // from before the chain started
+            }
+            let next = alert_hash(&prev, &a);
+            tx.execute("UPDATE alerts SET prev_hash = ?1, hash = ?2 WHERE id = ?3", params![prev, next, id])?;
+            prev = next;
+        }
+        tx.commit()?;
+        Ok(true)
+    }
+
+    /// (id, target) of every alert of one kind.
+    pub fn alerts_of_kind(&self, kind: &str) -> rusqlite::Result<Vec<(i64, String)>> {
+        let mut stmt = self.conn.prepare("SELECT id, target FROM alerts WHERE kind = ?1 ORDER BY id")?;
+        stmt.query_map(params![kind], |r| Ok((r.get(0)?, r.get(1)?)))?.collect()
+    }
+
     /// Newest first.
     pub fn alerts(&self, limit: usize) -> rusqlite::Result<Vec<StoredAlert>> {
         let mut stmt = self.conn.prepare_cached("SELECT id, ts, kind, important, app, text, target, country, unread FROM alerts ORDER BY ts DESC, id DESC LIMIT ?1")?;
@@ -1052,6 +1091,19 @@ mod tests {
         db.conn.execute("DELETE FROM alerts WHERE id = ?1", params![ids[1]]).unwrap();
         let check = db.verify_alerts().unwrap();
         assert_eq!((check.checked, check.first_bad), (3, Some(ids[2])));
+    }
+
+    #[test]
+    fn removed_alerts_leave_a_chain_that_checks() {
+        let db = Db::memory();
+        let ids = chained(&db, 5);
+        assert!(db.remove_alerts(&[ids[1], ids[3]]).unwrap());
+        let check = db.verify_alerts().unwrap();
+        assert_eq!((check.checked, check.first_bad), (3, None));
+        // A chain that already fails is left alone.
+        db.conn.execute("UPDATE alerts SET text = 'changed' WHERE id = ?1", params![ids[2]]).unwrap();
+        assert!(!db.remove_alerts(&[ids[4]]).unwrap());
+        assert_eq!(db.verify_alerts().unwrap().checked, 3);
     }
 
     #[test]
