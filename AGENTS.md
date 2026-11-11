@@ -29,6 +29,7 @@ Rules:
 - Several people work on this codebase, so every entry you add or edit must name who made the change, using the git user name of the person you are working for (e.g. connor). Put the name at the start of the entry, such as `- [connor] feat: ...`. When you edit an existing entry, keep the original author's name and add yours if it is a different person.
 - README.md is a short overview and FEATURES.md is the full feature list. For user-visible features, add them to FEATURES.md in full, and update README.md only if the short summary or its "What it does" list is affected.
 - For every new feature, also document it on the GitHub Pages documentation site. The site is built with MkDocs from `docs/` (see `mkdocs.yml`), so add or update the relevant page under `docs/` and add new pages to the `nav` in `mkdocs.yml`. Do this in the same commit as the feature.
+- Where applicable and possible, add screenshots of the new feature to that documentation by running the Screenshots workflow (`.github/workflows/screenshots.yml`, run via Actions > Screenshots > Run workflow). It renders Demo-mode screenshots and commits them to `docs/screenshots/`, so add the feature to the screenshot set if needed and reference the images from the docs page. If the workflow fails, fix the workflow errors (as a separate fix commit with a patch bump) and re-run it until the screenshots are produced.
 
 # Project rules
 
