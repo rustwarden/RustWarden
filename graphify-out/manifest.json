@@ -144,9 +144,9 @@
     "semantic_hash": ""
   },
   "src/live/apps.rs": {
-    "mtime": 1794313206.5375996,
-    "seen": 1794314794.7768738,
-    "ast_hash": "3ca486dd9aac1f297215eb482fed31bf",
+    "mtime": 1794396652.756044,
+    "seen": 1794397018.430059,
+    "ast_hash": "18686664a3b0e5ecbd5c561bd16d1994",
     "semantic_hash": ""
   },
   "src/live/ask.rs": {
@@ -162,8 +162,8 @@
     "semantic_hash": ""
   },
   "src/live/baseline.rs": {
-    "mtime": 1794391320.9764445,
-    "seen": 1794392697.354859,
+    "mtime": 1794396710.450076,
+    "seen": 1794397018.4305127,
     "ast_hash": "81dd06a0e818fea972eea07a45351e9a",
     "semantic_hash": ""
   },
@@ -480,9 +480,9 @@
     "semantic_hash": ""
   },
   "src/sys/etw.rs": {
-    "mtime": 1794329882.7897358,
-    "seen": 1794332207.820921,
-    "ast_hash": "b1979f6f1ca358a1eec2cc0fb054d3cb",
+    "mtime": 1794396775.5002315,
+    "seen": 1794397018.44624,
+    "ast_hash": "3592e2143647ecca2dc8b358d12ec101",
     "semantic_hash": ""
   },
   "src/sys/eventlog.rs": {
@@ -564,9 +564,9 @@
     "semantic_hash": ""
   },
   "src/sys/wfp.rs": {
-    "mtime": 1793884060.891879,
-    "seen": 1793964015.0274878,
-    "ast_hash": "3065f936091e8963e130e32ad438c0ae",
+    "mtime": 1794396865.5919514,
+    "seen": 1794397018.4506106,
+    "ast_hash": "7ae05bc3357ee38c49224b01a5787069",
     "semantic_hash": ""
   },
   "src/sys/windivert.rs": {
@@ -750,9 +750,9 @@
     "semantic_hash": ""
   },
   "changes.md": {
-    "mtime": 1794395281.8553195,
-    "seen": 1794395343.7611485,
-    "ast_hash": "0a05309c1297dc6d9cef9668b8f8e378",
+    "mtime": 1794396889.137509,
+    "seen": 1794397018.4619036,
+    "ast_hash": "1eff30c5051c51e4d21412f4d7f4ac1b",
     "semantic_hash": ""
   },
   "assets/flags/ad.png": {
@@ -2304,27 +2304,27 @@
     "semantic_hash": ""
   },
   "docs/screenshots/dns-log.png": {
-    "mtime": 1794393279.7699938,
-    "seen": 1794395058.9168727,
-    "ast_hash": "3957424c833304747fae2ab822d00020",
+    "mtime": 1794396017.1386738,
+    "seen": 1794397018.5275831,
+    "ast_hash": "7b180d476fd477d6fd9138bbe66f2c02",
     "semantic_hash": ""
   },
   "docs/screenshots/hardware.png": {
-    "mtime": 1794393279.7715049,
-    "seen": 1794395058.9168777,
-    "ast_hash": "8978154828a958c4aad6f0f78ae1e958",
+    "mtime": 1794395659.460466,
+    "seen": 1794397018.5275884,
+    "ast_hash": "940256374c61b30169d7c036b203e5d5",
     "semantic_hash": ""
   },
   "docs/screenshots/live-connections.png": {
-    "mtime": 1794393279.7730145,
-    "seen": 1794395058.9168813,
-    "ast_hash": "6b4f07cf9032cbee2a8dd98fc5a01f2b",
+    "mtime": 1794396017.1396792,
+    "seen": 1794397018.5275917,
+    "ast_hash": "98a945b6b1356143ff69ae8604d69f7f",
     "semantic_hash": ""
   },
   "docs/screenshots/log.png": {
-    "mtime": 1794393279.7740889,
-    "seen": 1794395058.916885,
-    "ast_hash": "9e151181bb8faf4869271d71408e9033",
+    "mtime": 1794395659.464588,
+    "seen": 1794397018.5275955,
+    "ast_hash": "108f4dbf0df9e4bcdc327c9283004967",
     "semantic_hash": ""
   },
   "docs/screenshots/malicious-ip.png": {
@@ -2340,9 +2340,9 @@
     "semantic_hash": ""
   },
   "docs/screenshots/ping.png": {
-    "mtime": 1794393279.7780404,
-    "seen": 1794395058.9173808,
-    "ast_hash": "3428a7164ccfd1db45637c06a2e69b29",
+    "mtime": 1794396017.143247,
+    "seen": 1794397018.5282557,
+    "ast_hash": "eccf818fe99baae48e7e0f39fc04a65b",
     "semantic_hash": ""
   },
   "docs/screenshots/protect.png": {
@@ -2352,9 +2352,9 @@
     "semantic_hash": ""
   },
   "docs/screenshots/speedtest.png": {
-    "mtime": 1794393279.7820888,
-    "seen": 1794395058.9173868,
-    "ast_hash": "93d1c1c73be9e9ac1ae53b5316c252b7",
+    "mtime": 1794396017.144813,
+    "seen": 1794397018.5284638,
+    "ast_hash": "c9f2dde0473d9995f2b9f08592f0721a",
     "semantic_hash": ""
   },
   "docs/screenshots/traffic-map.png": {
@@ -3021,6 +3021,12 @@
     "mtime": 1794393279.9618955,
     "seen": 1794395058.869866,
     "ast_hash": "a1ed8d4007146bb35f8e375d0c535c9b",
+    "semantic_hash": ""
+  },
+  "docs/screenshots/mark-as-normal-popup.png": {
+    "mtime": 1794396017.1406796,
+    "seen": 1794397018.528053,
+    "ast_hash": "3bfa1da459d3c90a7b013c026a92f858",
     "semantic_hash": ""
   }
 }

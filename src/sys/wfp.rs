@@ -129,15 +129,22 @@ fn swap_device(nt: &str, device: &str, drive: char) -> Option<String> {
 
 /// `C:\...` path for an NT device path, or `None` for anything that isn't on a lettered drive.
 pub fn dos_path(nt: &str) -> Option<String> {
-    ('A'..='Z').find_map(|letter| {
-        let drive = wide(&format!("{letter}:"));
-        let mut buf = [0u16; 520];
-        let n = unsafe { QueryDosDeviceW(PCWSTR(drive.as_ptr()), Some(&mut buf)) };
-        if n == 0 {
-            return None;
-        }
-        swap_device(nt, &from_wide(&buf), letter)
-    })
+    // Asked for every process start, so the drive map is read at most once a minute.
+    type Drives = Option<(std::time::Instant, Vec<(char, String)>)>;
+    static DRIVES: std::sync::Mutex<Drives> = std::sync::Mutex::new(None);
+    let mut cache = DRIVES.lock().unwrap_or_else(|e| e.into_inner());
+    if cache.as_ref().is_none_or(|(at, _)| at.elapsed().as_secs() >= 60) {
+        let drives = ('A'..='Z')
+            .filter_map(|letter| {
+                let drive = wide(&format!("{letter}:"));
+                let mut buf = [0u16; 520];
+                let n = unsafe { QueryDosDeviceW(PCWSTR(drive.as_ptr()), Some(&mut buf)) };
+                (n != 0).then(|| (letter, from_wide(&buf)))
+            })
+            .collect();
+        *cache = Some((std::time::Instant::now(), drives));
+    }
+    cache.as_ref()?.1.iter().find_map(|(letter, device)| swap_device(nt, device, *letter))
 }
 
 #[cfg(test)]

@@ -5,6 +5,8 @@
 //! * `Microsoft-Windows-Kernel-Network`: per-pid TCP/UDP data sent and received (ids 10/11,
 //!   26/27, 42/43, 58/59).
 //! * `Microsoft-Windows-DNS-Client`: completed lookups, whose result list maps IPs to names.
+//! * `Microsoft-Windows-Kernel-Process` (process keyword only): process starts, so a program's path is known even
+//!   when it has exited by the time its first network event arrives.
 //!
 //! The payload layouts below come from the providers' manifests as recalled; they could not be
 //! exercised on the machine this was written on (no administrator rights there), so the parsers
@@ -27,6 +29,11 @@ use windows::core::{GUID, PCWSTR, PWSTR};
 const SESSION_NAME: &str = "RustWarden-Net";
 const KERNEL_NETWORK: GUID = GUID::from_u128(0x7DD42A49_5329_4832_8DFD_43D979153A88);
 const DNS_CLIENT: GUID = GUID::from_u128(0x1C95126E_7EEA_49A9_A3FE_A378B03DDB4D);
+const KERNEL_PROCESS: GUID = GUID::from_u128(0x22FB2CD6_0E7B_422B_A0C7_2FAD1FD0E716);
+/// WINEVENT_KEYWORD_PROCESS: process start and stop, without the thread and image-load events.
+const KEYWORD_PROCESS: u64 = 0x10;
+/// Kernel-Process event 1, ProcessStart.
+const PROCESS_START: u16 = 1;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NetEvent {
@@ -244,12 +251,42 @@ fn remember(pid: u32) {
     paths().insert(pid, (path, Instant::now()));
 }
 
+/// The image path in a ProcessStart payload. Its fields before the name differ between event versions, so the
+/// name is found by its `\Device\` prefix rather than at a fixed offset.
+fn start_image(data: &[u8]) -> Option<String> {
+    let units: Vec<u16> = data.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+    let prefix: Vec<u16> = r"\device\".encode_utf16().collect();
+    let lower = |u: u16| if (u16::from(b'A')..=u16::from(b'Z')).contains(&u) { u + 32 } else { u };
+    let at = units.windows(prefix.len()).position(|w| w.iter().zip(&prefix).all(|(a, b)| lower(*a) == *b))?;
+    let len = units[at..].iter().position(|u| *u == 0).unwrap_or(units.len() - at);
+    Some(String::from_utf16_lossy(&units[at..at + len]))
+}
+
+/// Remembers a starting process's path from its ProcessStart event. An entry made in the last few seconds is kept:
+/// that is a helper RustWarden filed under itself as it spawned it. An older one belonged to an exited program whose
+/// pid Windows has reused, so the new process replaces it.
+fn note_start(data: &[u8]) {
+    let (Some(pid), Some(image)) = (u32_le(data, 0), start_image(data)) else { return };
+    if pid == 0 || paths().get(&pid).is_some_and(|(_, at)| at.elapsed().as_secs() < 10) {
+        return;
+    }
+    if let Some(path) = super::wfp::dos_path(&image) {
+        paths().insert(pid, (path, Instant::now()));
+    }
+}
+
 /// Events dropped because the collector's queue was full.
 pub static DROPPED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 unsafe extern "system" fn on_event(record: *mut EVENT_RECORD) {
     let r = unsafe { &*record };
     let data = if r.UserData.is_null() { &[][..] } else { unsafe { std::slice::from_raw_parts(r.UserData as *const u8, r.UserDataLength as usize) } };
+    if r.EventHeader.ProviderId == KERNEL_PROCESS {
+        if r.EventHeader.EventDescriptor.Id == PROCESS_START {
+            note_start(data);
+        }
+        return;
+    }
     let event = decode(&r.EventHeader.ProviderId, r.EventHeader.EventDescriptor.Id, r.EventHeader.ProcessId, data);
     if let Some(NetEvent::Data { pid, .. } | NetEvent::Dns { pid, .. }) = &event {
         remember(*pid);
@@ -323,8 +360,8 @@ impl EtwSession {
         if rc.0 != 0 {
             return Err(format!("StartTrace failed ({})", rc.0));
         }
-        for provider in [&KERNEL_NETWORK, &DNS_CLIENT] {
-            let rc = unsafe { EnableTraceEx2(control, provider, EVENT_CONTROL_CODE_ENABLE_PROVIDER.0, TRACE_LEVEL_INFORMATION as u8, u64::MAX, 0, 0, None) };
+        for (provider, keywords) in [(&KERNEL_NETWORK, u64::MAX), (&DNS_CLIENT, u64::MAX), (&KERNEL_PROCESS, KEYWORD_PROCESS)] {
+            let rc = unsafe { EnableTraceEx2(control, provider, EVENT_CONTROL_CODE_ENABLE_PROVIDER.0, TRACE_LEVEL_INFORMATION as u8, keywords, 0, 0, None) };
             if rc.0 != 0 && *provider == KERNEL_NETWORK {
                 stop_by_name(&name);
                 return Err(format!("enabling the Kernel-Network provider failed ({})", rc.0));
@@ -377,6 +414,19 @@ impl Drop for EtwSession {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn process_start_image_is_found_whatever_comes_before_it() {
+        let image = r"\Device\HarddiskVolume3\Windows\System32\curl.exe";
+        for head in [12usize, 40, 64] {
+            let mut d = vec![0u8; head];
+            d[..4].copy_from_slice(&1234u32.to_le_bytes());
+            d.extend(image.encode_utf16().flat_map(u16::to_le_bytes));
+            d.extend([0, 0, 7, 0, 0, 0]);
+            assert_eq!(super::start_image(&d).as_deref(), Some(image));
+        }
+        assert_eq!(super::start_image(&[1, 0, 0, 0, 0, 0]), None);
+    }
+
     use super::*;
 
     fn v4_payload(pid: u32, size: u32, dst: [u8; 4], src: [u8; 4], dport: u16, sport: u16) -> Vec<u8> {

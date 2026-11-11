@@ -21,6 +21,8 @@ pub struct Resolved {
 }
 
 pub const SYSTEM_KEY: &str = "system";
+/// Key of the row for traffic whose program couldn't be identified (it exited before its path was read).
+pub const UNKNOWN_KEY: &str = "unknown";
 
 pub fn system_root() -> String {
     crate::settings::windows_dir().to_lowercase()
@@ -284,7 +286,7 @@ impl Resolver {
         let (mut key, path) = match crate::sys::etw::cached_path(pid).or_else(|| sysapps::pid_path(pid)) {
             Some(p) => (key_for_path(&p), p),
             None if pid == 4 => (SYSTEM_KEY.to_string(), String::new()),
-            None => ("unknown".to_string(), String::new()),
+            None => (UNKNOWN_KEY.to_string(), String::new()),
         };
         // svchost.exe hosts many services; each one's traffic gets its own row.
         let service = if is_svchost(&path) { self.service_of(pid) } else { None };
