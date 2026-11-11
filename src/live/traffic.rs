@@ -176,7 +176,29 @@ struct Collector {
     p2p_seen: HashMap<i64, (String, String, i64)>,
 }
 
+/// Host names kept in memory are those seen in the last this-many days; older ones stay in the database for history.
+const NAMES_DAYS: i64 = 30;
+/// Past this many names in memory, the maps are rebuilt from the recent ones in the database.
+const NAMES_MAX: usize = 100_000;
+
+fn recent_names(db: &Db, now: i64) -> HashMap<IpAddr, String> {
+    db.hostnames_since(now - NAMES_DAYS * 86_400).unwrap_or_default().into_iter().filter_map(|(ip, n)| Some((ip.parse().ok()?, n))).collect()
+}
+
 impl Collector {
+    /// Host names only ever pile up while the app runs (every new address answered by DNS adds one), so a machine left on
+    /// for weeks grew them without end. Over `max` they are rebuilt from the names seen recently.
+    fn trim_names(&mut self, now: i64, max: usize) {
+        if self.names.len() + self.dns_names.by_ip.len() + self.app_names.len() <= max {
+            return;
+        }
+        self.names = recent_names(&self.db, now);
+        self.dns_names.by_ip.clear();
+        self.app_names.clear();
+        self.new_names.clear();
+        self.shared.state().hostnames = self.names.clone();
+    }
+
     fn refresh_locals(&mut self) {
         if let Ok(ads) = netinfo::adapters() {
             self.locals = ads.iter().flat_map(|a| a.addrs.iter().map(|(ip, _)| *ip)).collect();
@@ -473,7 +495,7 @@ pub fn run(shared: Arc<Shared>) {
         geo_path,
         locals: HashSet::new(),
         vpn_locals: HashSet::new(),
-        names: db.hostnames().unwrap_or_default().into_iter().filter_map(|(ip, n)| Some((ip.parse().ok()?, n))).collect(),
+        names: recent_names(&db, crate::clock::now_unix()),
         new_names: Vec::new(),
         dns_names: Names::default(),
         app_names: HashMap::new(),
@@ -569,6 +591,9 @@ pub fn run(shared: Arc<Shared>) {
             let _ = c.db.prune(now, days);
             let _ = c.db.prune_dns(now, s.dns_retention_days);
             c.resolver.recheck(&c.db, &shared, now);
+        }
+        if tick.is_multiple_of(3600) {
+            c.trim_names(now, NAMES_MAX);
         }
         shared.repaint();
     }

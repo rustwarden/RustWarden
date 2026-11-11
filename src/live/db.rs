@@ -597,8 +597,13 @@ impl Db {
     }
 
     pub fn hostnames(&self) -> rusqlite::Result<Vec<(String, String)>> {
-        let mut stmt = self.conn.prepare("SELECT ip, name FROM hostnames")?;
-        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect()
+        self.hostnames_since(i64::MIN)
+    }
+
+    /// Names last seen at or after `since`: what the live views keep in memory (older ones stay here for history).
+    pub fn hostnames_since(&self, since: i64) -> rusqlite::Result<Vec<(String, String)>> {
+        let mut stmt = self.conn.prepare("SELECT ip, name FROM hostnames WHERE seen >= ?1")?;
+        stmt.query_map(params![since], |r| Ok((r.get(0)?, r.get(1)?)))?.collect()
     }
 
     // ---- DNS log ----
@@ -972,6 +977,15 @@ mod tests {
         assert_eq!(db.alerts(10).unwrap().iter().filter(|a| a.new.unread).count(), 1);
         db.mark_read(None).unwrap();
         assert!(db.alerts(10).unwrap().iter().all(|a| !a.new.unread));
+    }
+
+    #[test]
+    fn only_recently_seen_hostnames_are_loaded_for_memory() {
+        let db = Db::memory();
+        db.set_hostname("1.1.1.1", "old.example", 100).unwrap();
+        db.set_hostname("2.2.2.2", "new.example", 200).unwrap();
+        assert_eq!(db.hostnames_since(150).unwrap(), vec![("2.2.2.2".to_owned(), "new.example".to_owned())]);
+        assert_eq!(db.hostnames().unwrap().len(), 2);
     }
 
     #[test]
