@@ -647,11 +647,21 @@ fn dialog_style(ui: &mut Ui) {
 
 /// Toast for placeholder actions.
 pub fn toast(ctx: &egui::Context, message: &str) {
+    let wrap = toast_wrap_width(ctx.content_rect().width());
     egui::Area::new(Id::unique("toast")).anchor(Align2::CENTER_BOTTOM, vec2(0.0, -48.0)).order(egui::Order::Tooltip).show(ctx, |ui| {
         egui::Frame::new().fill(Color32::from_rgb(0x2b, 0x30, 0x3a)).corner_radius(8).inner_margin(egui::Margin::symmetric(16, 10)).show(ui, |ui| {
-            ui.label(egui::RichText::new(message).color(theme::WHITE).font(theme::font(14.0)));
+            // Laid out at an explicit width: a wrapping label in an anchored Area took the area's width from the frame before,
+            // which started at almost nothing, so the text wrapped to a sliver and the toast was very tall.
+            let galley = ui.painter().layout(message.to_owned(), theme::font(14.0), theme::WHITE, wrap);
+            let (rect, _) = ui.allocate_exact_size(galley.size(), Sense::hover());
+            ui.painter().galley(rect.min, galley, theme::WHITE);
         });
     });
+}
+
+/// How wide a toast's text may be before it wraps: most of the window, but never a wall of text.
+fn toast_wrap_width(window: f32) -> f32 {
+    (window - 96.0).clamp(160.0, 560.0)
 }
 
 /// Small "i" button that asks for whois details of an address; `true` when clicked.
@@ -759,6 +769,13 @@ pub fn column_handles(ui: &mut Ui, id: &str, head: Rect, edges: &mut [f32], lo: 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn toast_wraps_at_a_readable_width() {
+        assert_eq!(super::toast_wrap_width(1190.0), 560.0);
+        assert_eq!(super::toast_wrap_width(400.0), 304.0);
+        assert_eq!(super::toast_wrap_width(10.0), 160.0);
+    }
+
     #[test]
     fn dragged_border_stays_between_neighbours_and_never_sticks() {
         let mut e = [0.2, 0.5];
