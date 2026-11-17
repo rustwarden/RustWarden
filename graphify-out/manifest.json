@@ -324,9 +324,9 @@
     "semantic_hash": ""
   },
   "src/metrics.rs": {
-    "mtime": 1794313206.5561714,
-    "seen": 1794314794.778129,
-    "ast_hash": "63a225786aa13664c17a40c2a0b7579d",
+    "mtime": 1794913610.8588002,
+    "seen": 1794913879.439844,
+    "ast_hash": "12a40c3ef94215893a134f188bc75237",
     "semantic_hash": ""
   },
   "src/migrate.rs": {
@@ -492,9 +492,9 @@
     "semantic_hash": ""
   },
   "src/sys/firewall.rs": {
-    "mtime": 1794328357.9893289,
-    "seen": 1794328568.4271069,
-    "ast_hash": "c93a82b048aa8effd78b27003148edb2",
+    "mtime": 1794913354.5763087,
+    "seen": 1794913879.446534,
+    "ast_hash": "8d085dd829adc88823733d51e1cb77e8",
     "semantic_hash": ""
   },
   "src/sys/ifstats.rs": {
@@ -708,9 +708,9 @@
     "semantic_hash": ""
   },
   "src/widgets.rs": {
-    "mtime": 1794321070.1445563,
-    "seen": 1794323217.9316719,
-    "ast_hash": "3ea0c1bec55688840a5eb9e4acd92dfd",
+    "mtime": 1794913022.6001644,
+    "seen": 1794913879.454402,
+    "ast_hash": "28ecc11b7bb3d9a3a72efd9b2e7955cf",
     "semantic_hash": ""
   },
   "AGENTS.md": {
@@ -750,9 +750,9 @@
     "semantic_hash": ""
   },
   "changes.md": {
-    "mtime": 1794912827.4037642,
-    "seen": 1794912985.1294873,
-    "ast_hash": "c484c01cde5bab1feb6789725692687d",
+    "mtime": 1794913825.2904282,
+    "seen": 1794913879.4571474,
+    "ast_hash": "4e7b9ddc7f778b489cd16c0cc9fba999",
     "semantic_hash": ""
   },
   "assets/flags/ad.png": {
