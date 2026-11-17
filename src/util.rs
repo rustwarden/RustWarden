@@ -50,6 +50,24 @@ impl<T: Send + 'static> Bg<T> {
     }
 }
 
+/// Fastest an animation may ask to repaint (about 125 fps). Always a timed repaint, never `request_repaint()`: after
+/// sleep/resume vsync can stop pacing frames, and an unpaced loop ran at thousands of fps while the graphs caught up.
+const MIN_FRAME: std::time::Duration = std::time::Duration::from_millis(8);
+/// How often an animation still repaints while the window is behind another or minimised: the data only changes each second.
+const IDLE_FRAME: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// The delay for an animation that wants a frame every `want`: never below `MIN_FRAME`, and `IDLE_FRAME` when nobody is looking.
+fn frame_delay(focused: bool, want: std::time::Duration) -> std::time::Duration {
+    if focused { want.max(MIN_FRAME) } else { want.max(IDLE_FRAME) }
+}
+
+/// Asks for the next frame of an animation, `want` from now at the soonest (zero for as fast as the display goes).
+pub fn animate(ctx: &egui::Context, want: std::time::Duration) {
+    // An unknown focus state counts as focused, so animations never freeze for want of the information.
+    let focused = ctx.input(|i| i.viewport().focused.unwrap_or(true) && !i.viewport().minimized.unwrap_or(false));
+    ctx.request_repaint_after(frame_delay(focused, want));
+}
+
 /// Like `Memo`, but the value is read on a worker: `get` returns at once with what it has for `key` (`None` until the
 /// first read for that key lands) and asks for a refresh when it is older than `ttl`.
 pub struct AsyncMemo<K, V> {
@@ -282,6 +300,15 @@ pub fn paint_dot(img: &mut [u8], size: u32, color: [u8; 3]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn animation_frames_are_never_unpaced() {
+        use std::time::Duration;
+        assert_eq!(frame_delay(true, Duration::ZERO), MIN_FRAME);
+        assert_eq!(frame_delay(true, Duration::from_millis(33)), Duration::from_millis(33));
+        assert_eq!(frame_delay(false, Duration::ZERO), IDLE_FRAME);
+        assert_eq!(frame_delay(false, Duration::from_secs(2)), Duration::from_secs(2));
+    }
 
     fn wait<T: Send + 'static>(bg: &mut Bg<T>) -> Result<T, String> {
         for _ in 0..500 {

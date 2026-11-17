@@ -17,6 +17,9 @@ use std::sync::{Mutex, MutexGuard, RwLock};
 
 pub const HW_WINDOW: usize = 300;
 
+/// Closest two collector-triggered repaints may be (about 10 a second).
+const REPAINT_GAP: std::time::Duration = std::time::Duration::from_millis(100);
+
 /// How an alert is delivered on top of its kind's settings.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Urgency {
@@ -150,6 +153,7 @@ pub fn country_of(code: &str) -> Option<Country> {
 pub struct Shared {
     pub settings: RwLock<Settings>,
     pub ctx: Mutex<Option<egui::Context>>,
+    last_repaint: Mutex<std::time::Instant>,
     pub stop: AtomicBool,
     pub scan_cancel: AtomicBool,
     pub elevated: bool,
@@ -170,6 +174,7 @@ impl Shared {
         Self {
             settings: RwLock::new(settings),
             ctx: Mutex::new(None),
+            last_repaint: Mutex::new(std::time::Instant::now()),
             stop: AtomicBool::new(false),
             scan_cancel: AtomicBool::new(false),
             elevated,
@@ -198,9 +203,16 @@ impl Shared {
         Db::open(&self.db_path)
     }
 
+    /// Asks the UI for a frame. Bursts of events share one: a repaint within 100 ms of the last is delayed to that mark.
     pub fn repaint(&self) {
-        if let Some(ctx) = lock(&self.ctx).as_ref() {
+        let Some(ctx) = lock(&self.ctx).clone() else { return };
+        let mut last = lock(&self.last_repaint);
+        let wait = REPAINT_GAP.saturating_sub(last.elapsed());
+        if wait.is_zero() {
+            *last = std::time::Instant::now();
             ctx.request_repaint();
+        } else {
+            ctx.request_repaint_after(wait);
         }
     }
 

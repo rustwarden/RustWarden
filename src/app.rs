@@ -991,7 +991,10 @@ Start RustWarden as administrator once: it undoes Block All automatically."
     pub fn reload_all(&mut self) {
         self.caps = self.backend.capabilities();
         self.notes = self.backend.status();
-        self.reload_traffic();
+        // Nobody sees the Traffic data while the window is hidden; show_window reloads it when it comes back.
+        if self.window_visible {
+            self.reload_traffic();
+        }
         // The app list is the costly part (every process, several queries per app): only refreshed while shown.
         if self.tab == Tab::Protect || self.traffic.filter_open || self.protect.apps.is_empty() {
             self.reload_protect();
@@ -1607,9 +1610,13 @@ Start RustWarden as administrator once: it undoes Block All automatically."
     }
 
     pub(crate) fn show_window(&mut self, ctx: &egui::Context, visible: bool) {
+        let was_hidden = !self.window_visible;
         self.window_visible = visible;
         ctx.send_viewport_cmd(ViewportCommand::Visible(visible));
         if visible {
+            if was_hidden {
+                self.reload_traffic();
+            }
             ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
             ctx.send_viewport_cmd(ViewportCommand::Focus);
         }

@@ -54,9 +54,9 @@
     "semantic_hash": ""
   },
   "src/app.rs": {
-    "mtime": 1794322920.1905057,
-    "seen": 1794323217.9090633,
-    "ast_hash": "436aeeee3f4aa45992131f9370c1341b",
+    "mtime": 1794912176.9705997,
+    "seen": 1794912358.5108542,
+    "ast_hash": "40b2c4b4052f719261809d5a2fc717fe",
     "semantic_hash": ""
   },
   "src/applog.rs": {
@@ -288,9 +288,9 @@
     "semantic_hash": ""
   },
   "src/live/store.rs": {
-    "mtime": 1794395013.1082897,
-    "seen": 1794395058.8544385,
-    "ast_hash": "ebc1fe604d1950679ed05ce53e6aa40f",
+    "mtime": 1794912171.972644,
+    "seen": 1794912358.516617,
+    "ast_hash": "9dab58eefa951ba460f718219fb0a512",
     "semantic_hash": ""
   },
   "src/live/threat.rs": {
@@ -630,9 +630,9 @@
     "semantic_hash": ""
   },
   "src/ui/hardware.rs": {
-    "mtime": 1794313206.5845404,
-    "seen": 1794314794.7826996,
-    "ast_hash": "b8dd43b25bf0f70d20b8be1ab9c1b94f",
+    "mtime": 1794912171.7782865,
+    "seen": 1794912358.526446,
+    "ast_hash": "2ee702ea91306d102ba0ef3b395e7c39",
     "semantic_hash": ""
   },
   "src/ui/log.rs": {
@@ -678,9 +678,9 @@
     "semantic_hash": ""
   },
   "src/ui/traffic.rs": {
-    "mtime": 1794391320.8955975,
-    "seen": 1794392697.3682206,
-    "ast_hash": "d3a34f50a14054720fc0055760a23da6",
+    "mtime": 1794912171.7267601,
+    "seen": 1794912358.5277529,
+    "ast_hash": "78c926ba3be6f0ca24c1cc253bcf3550",
     "semantic_hash": ""
   },
   "src/ui/tray_menu.rs": {
@@ -696,9 +696,9 @@
     "semantic_hash": ""
   },
   "src/util.rs": {
-    "mtime": 1794313206.5931022,
-    "seen": 1794314794.7829728,
-    "ast_hash": "c2150e9468a39b1c481bd48ff27aa538",
+    "mtime": 1794912170.8448217,
+    "seen": 1794912358.5281417,
+    "ast_hash": "2198a14a33faba9e3eeec06d43c91a80",
     "semantic_hash": ""
   },
   "src/verify_log.rs": {
@@ -750,9 +750,9 @@
     "semantic_hash": ""
   },
   "changes.md": {
-    "mtime": 1794414226.1455026,
-    "seen": 1794414543.5806038,
-    "ast_hash": "6c69fafebb3535066bc547c5f33b57b2",
+    "mtime": 1794912181.5775445,
+    "seen": 1794912358.530172,
+    "ast_hash": "cec70503232549f7690561a684a0f9ff",
     "semantic_hash": ""
   },
   "assets/flags/ad.png": {

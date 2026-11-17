@@ -153,7 +153,7 @@ impl RustWarden {
         // Ranges up to an hour move visibly each second, so they repaint at ~60 fps. A timed repaint, not
         // request_repaint(): after sleep/resume vsync can stop pacing frames and an unpaced loop ran at thousands of fps.
         if self.caps.live && mins <= 60 {
-            ui.ctx().request_repaint_after(Duration::from_millis(16));
+            crate::util::animate(ui.ctx(), Duration::from_millis(16));
         }
         // Demo keeps the scales of the screenshots; Live scales each chart to its own peak.
         let scales = if self.caps.live {

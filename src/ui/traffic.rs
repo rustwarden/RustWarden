@@ -368,7 +368,7 @@ impl RustWarden {
             let next = if (target - cur).abs() < 1.0 { target } else { cur + (target - cur) * (1.0 - (-dt / tau).exp()) };
             ui.ctx().data_mut(|d| d.insert_temp(id, next));
             if next != target {
-                ui.ctx().request_repaint();
+                crate::util::animate(ui.ctx(), std::time::Duration::ZERO);
             }
             next
         };
@@ -398,9 +398,9 @@ impl RustWarden {
             let every = (0.5 / px_per_sec.max(1e-6)).clamp(0.033, 0.066);
             if px_per_sec >= 8.0 {
                 // Fast scroll (1 minute): a 30 fps timer beats against the display and the plot moves 0, 1 or 2 px per frame. Paint with vsync.
-                ui.ctx().request_repaint();
+                crate::util::animate(ui.ctx(), std::time::Duration::ZERO);
             } else {
-                ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(every));
+                crate::util::animate(ui.ctx(), std::time::Duration::from_secs_f64(every));
             }
         }
 
