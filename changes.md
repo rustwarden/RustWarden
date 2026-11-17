@@ -136,3 +136,4 @@
 - [Norman] feat: beaconing alerts have a Mark as normal button (Alerts log card, Traffic graph pin, desktop popup). It adds the program and the address it contacted to the beaconing ignore list (`program@address`), where Remove undoes it. Works in Demo mode too (a sample beaconing alert is in the demo log).
 - [Norman] fix: the message toast at the bottom of the window (such as "router did not respond") was only a few pixels wide and very tall. It is laid out at an explicit width now (most of the window, at most 560 points).
 - [Norman] fix: the metrics loopback test also retries when Windows aborts the connection or breaks the pipe (not only a reset), so it no longer fails now and then on a CI runner.
+- [Norman] fix: the metrics loopback tests retry up to ten times with a short pause, since Windows loopback resets connections several times in a row under load.

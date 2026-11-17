@@ -177,10 +177,10 @@ mod tests {
     }
 
     /// Sends `request` to a one-shot server thread running `handle`, and returns what the client read back.
-    /// A reset before the reply is read is retried: it showed up in about one run in ten on Windows loopback even
+    /// A reset before the reply is read is retried (up to ten times, under load a few in a row happen): it showed up in about one run in ten on Windows loopback even
     /// though the server had written the whole reply, and its cause was never traced.
     fn exchange(request: &str) -> String {
-        for _ in 0..3 {
+        for _ in 0..10 {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let port = listener.local_addr().unwrap().port();
             let server = std::thread::spawn(move || {
@@ -194,11 +194,14 @@ mod tests {
             server.join().unwrap();
             match read {
                 Ok(_) => return reply,
-                Err(e) if matches!(e.kind(), std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted | std::io::ErrorKind::BrokenPipe) => continue,
+                Err(e) if matches!(e.kind(), std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted | std::io::ErrorKind::BrokenPipe) => {
+                    std::thread::sleep(Duration::from_millis(50));
+                    continue;
+                }
                 Err(e) => panic!("{e}"),
             }
         }
-        panic!("the connection was reset three times in a row");
+        panic!("the connection was reset ten times in a row");
     }
 
     #[test]
