@@ -868,11 +868,14 @@ impl Backend for LiveBackend {
         let now = crate::clock::now_unix();
         // A baseline or DNS tunnelling alert offers "Mark as normal" only until it has been marked (or its item forgotten).
         let markable = self.with_db(|db| db.markable_alerts());
+        // A beaconing alert offers it until its program and address are on the ignore list.
+        let beacon_ignore = self.shared.settings().beacon_ignore;
         self.with_db(|db| db.alerts(500))
             .into_iter()
             .map(|s| {
                 let a = s.new;
                 let country = store::country_of(&a.country);
+                let anomaly = if a.kind == "beaconing" { !beacon::already_excluded(&beacon_ignore, &a.app, &a.target) } else { alerts::can_mark_normal(&a.kind) && markable.contains(&s.id) };
                 Alert {
                     id: s.id as u64,
                     icon: AppIcon::Generic,
@@ -886,7 +889,7 @@ impl Backend for LiveBackend {
                     ts: a.ts,
                     unread: a.unread,
                     important: a.important,
-                    anomaly: alerts::can_mark_normal(&a.kind) && markable.contains(&s.id),
+                    anomaly,
                 }
             })
             .collect()

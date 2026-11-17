@@ -146,6 +146,20 @@ pub fn ignored_pair(list: &str, key: &str, name: &str, host: &str) -> bool {
     })
 }
 
+/// The ignore-list entry "Mark as normal" adds for a beaconing alert: the program and the address it contacted
+/// (`program@address`, which `ignored_pair` matches). `None` when the alert has no program or address to name.
+pub fn exclusion_entry(app: &str, target: &str) -> Option<String> {
+    // Separators in a name would split it into other entries.
+    let clean = |s: &str| s.replace([',', ';', '@', '\n'], " ").trim().to_owned();
+    let (app, target) = (clean(app), clean(target));
+    (!app.is_empty() && !target.is_empty()).then(|| format!("{app}@{target}"))
+}
+
+/// Whether the alert's program and address are already on the ignore list, so there is nothing left to mark.
+pub fn already_excluded(list: &str, app: &str, target: &str) -> bool {
+    ignored_pair(list, app, app, target)
+}
+
 /// Whether the host ends in one of the comma separated domain `suffixes` (the domain itself or any subdomain of it).
 fn suffix_match(host: &str, suffixes: &str) -> bool {
     let host = host.trim_end_matches('.').to_ascii_lowercase();
@@ -245,6 +259,17 @@ mod tests {
 
     fn ip() -> IpAddr {
         "203.0.113.50".parse().unwrap()
+    }
+
+    #[test]
+    fn marking_an_alert_normal_builds_an_entry_the_ignore_list_matches() {
+        let entry = exclusion_entry("demo.exe", "203.0.113.50").unwrap();
+        assert_eq!(entry, "demo.exe@203.0.113.50");
+        assert!(already_excluded(&entry, "demo.exe", "203.0.113.50"));
+        assert!(!already_excluded(&entry, "demo.exe", "203.0.113.51"));
+        assert!(!already_excluded(&entry, "other.exe", "203.0.113.50"));
+        assert_eq!(exclusion_entry("a,b@c", "1.2.3.4").unwrap(), "a b c@1.2.3.4");
+        assert!(exclusion_entry("", "1.2.3.4").is_none() && exclusion_entry("demo.exe", " ").is_none());
     }
 
     fn cfg() -> Config {

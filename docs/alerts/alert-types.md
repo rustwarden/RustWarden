@@ -118,7 +118,7 @@ A program contacts the same internet address at near-perfectly even intervals, t
 - **Watch at least N seconds**, **report from score N** and **jitter up to N**: the timing limits.
 - **Media / CDN domains that lower the score.**
 
-Many legitimate apps (updaters, mail, sync) check in regularly too, so expect to add a few to the ignore list.
+Many legitimate apps (updaters, mail, sync) check in regularly too, so expect to add a few to the ignore list. The quickest way is **Mark as normal**, on the alert card, its Traffic graph pin or its desktop popup: it adds that program and the address it contacted to the ignore list (as `program@address`, for example `demo.exe@203.0.113.50`), so it isn't reported for that address again. It shows in the ignore list under Settings > Alerts > Beaconing detection, where **Remove** undoes it.
 
 ### DNS tunnelling detection
 Many long, random-looking lookups under one domain within five minutes, which is how data is smuggled out through DNS. This needs the [DNS log](../network/dns-log.md).

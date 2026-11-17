@@ -382,6 +382,36 @@ impl RustWarden {
     /// "Mark as normal" on a baseline or DNS tunnelling alert, from the Alerts log, a graph pin or a desktop popup. The button goes at once;
     /// the database write runs in the background and a toast says how it went.
     pub(crate) fn mark_alert_normal(&mut self, id: u64) {
+        match self.log.alerts.iter().find(|a| a.id == id).cloned() {
+            Some(a) => self.mark_alert_normal_for(&a),
+            None => self.mark_in_baseline(id),
+        }
+    }
+
+    /// Same, when the alert is in hand (a popup that the log hasn't loaded yet). A beaconing alert adds its program and the
+    /// address it contacted to the beaconing ignore list in Settings (where it can be removed again); the others teach the baseline.
+    pub(crate) fn mark_alert_normal_for(&mut self, alert: &crate::data::Alert) {
+        if !crate::live::alerts::is_beaconing(&alert.kind) {
+            return self.mark_in_baseline(alert.id);
+        }
+        let Some(entry) = crate::live::beacon::exclusion_entry(&alert.app, &alert.target) else {
+            return self.notify("Couldn't mark this as normal: the alert names no program or address.");
+        };
+        if let Some(a) = self.log.alerts.iter_mut().find(|a| a.id == alert.id) {
+            a.anomaly = false;
+        }
+        let mut s = self.settings.clone();
+        s.beacon_ignore = if s.beacon_ignore.trim().is_empty() { entry } else { format!("{}, {entry}", s.beacon_ignore.trim_end_matches([',', ' '])) };
+        self.settings = s;
+        if let Err(e) = self.settings.save() {
+            self.notify(&format!("Couldn't save settings: {e}"));
+            return;
+        }
+        self.backend.apply_settings(&self.settings);
+        self.notify("Marked as normal. This program is no longer reported for this address; Settings > Alerts > Regular check-ins lists it.");
+    }
+
+    fn mark_in_baseline(&mut self, id: u64) {
         if let Some(a) = self.log.alerts.iter_mut().find(|a| a.id == id) {
             a.anomaly = false;
         }

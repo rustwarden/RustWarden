@@ -30,6 +30,8 @@ struct DemoState {
     qos: Vec<crate::qos::QosLimit>,
     /// Settings > General > "Split NT Kernel & System by service".
     split_kernel: bool,
+    /// Settings > Alerts > Beaconing ignore list, which "Mark as normal" on a beaconing alert adds to.
+    beacon_ignore: String,
     /// Driver mode, which is what lets a limit cover downloads.
     driver_mode: bool,
     domain_rules: Vec<crate::domainblock::DomainRule>,
@@ -97,6 +99,7 @@ impl MockBackend {
                 dest: demo_dest_rules(),
                 qos: demo_qos_limits(),
                 split_kernel: true,
+                beacon_ignore: String::new(),
                 driver_mode: false,
                 domain_rules: vec![crate::domainblock::DomainRule { id: 1, enabled: true, pattern: "ads.tracker-demo.example".into() }],
                 domain_list: None,
@@ -441,6 +444,14 @@ fn demo_alerts() -> Vec<Alert> {
             country: None,
             anomaly: true,
             ..alert(20, "curl.exe", Generic, "", Other, "12:40 pm", "Today", true)
+        },
+        Alert {
+            text: "contacts 203.0.113.50 like clockwork, about every 60 seconds (42 times in a row; score 78/100: tiny, even contacts, an unsigned program):".into(),
+            target: "203.0.113.50".into(),
+            kind: "Regular check-ins".into(),
+            country: None,
+            anomaly: true,
+            ..alert(21, "demo.exe", Generic, "", Other, "11:20 am", "Today", true)
         },
     ]);
     alerts
@@ -1031,7 +1042,17 @@ impl Backend for MockBackend {
     }
 
     fn alerts(&self) -> Vec<Alert> {
-        self.state().alerts.clone()
+        let st = self.state();
+        st.alerts
+            .iter()
+            .cloned()
+            .map(|mut a| {
+                if crate::live::alerts::is_beaconing(&a.kind) {
+                    a.anomaly = !crate::live::beacon::already_excluded(&st.beacon_ignore, &a.app, &a.target);
+                }
+                a
+            })
+            .collect()
     }
 
     fn mark_read(&self, id: Option<u64>) {
@@ -1208,6 +1229,7 @@ Whitelisted: no"
     fn apply_settings(&self, settings: &Settings) {
         let mut s = self.state();
         s.split_kernel = settings.split_kernel;
+        s.beacon_ignore = settings.beacon_ignore.clone();
         s.driver_mode = settings.app_mode == crate::settings::AppMode::Driver;
     }
 

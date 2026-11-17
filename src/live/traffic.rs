@@ -341,7 +341,8 @@ impl Collector {
             let Some(beat) = self.beacons.observe(&key, remote, now, (up, down), &beacon_cfg) else { continue };
             // The name this program looked up beats the shared label of an address many names point to.
             let host = self.app_names.get(&(app_id, remote)).or_else(|| self.names.get(&remote)).map(|n| n.split(" (+").next().unwrap_or(n).to_owned());
-            if host.as_deref().is_some_and(|h| super::beacon::ignored_pair(&beacon_ignore, &key, &name, h)) {
+            // A program + address entry (from "Mark as normal") matches the address itself, a program + domain entry the name.
+            if host.as_deref().is_some_and(|h| super::beacon::ignored_pair(&beacon_ignore, &key, &name, h)) || super::beacon::ignored_pair(&beacon_ignore, &key, &name, &remote.to_string()) {
                 continue;
             }
             let (destinations, programs) = self.beacons.spread(&key, remote);

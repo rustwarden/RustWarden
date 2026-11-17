@@ -148,7 +148,7 @@ impl RustWarden {
             if alert.id == 0 {
                 self.notify("This was a test alert, so there is nothing to mark as normal.");
             } else {
-                self.mark_alert_normal(alert.id);
+                self.mark_alert_normal_for(&alert);
             }
         }
         if let Some(key) = scan {

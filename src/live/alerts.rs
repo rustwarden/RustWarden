@@ -46,10 +46,15 @@ pub enum AlertKind {
     TlsMismatch,
 }
 
-/// Keys of the alerts that carry a "Mark as normal" action: the behaviour-baseline ones, and DNS tunnelling
-/// (marking it normal stops alerts for that domain).
+/// Keys of the alerts that carry a "Mark as normal" action: the behaviour-baseline ones, DNS tunnelling
+/// (marking it normal stops alerts for that domain) and beaconing (it adds the program and address to the ignore list).
 pub fn can_mark_normal(key: &str) -> bool {
-    matches!(key, "new_contact" | "volume_spike" | "unusual_hour" | "dns_tunnel")
+    matches!(key, "new_contact" | "volume_spike" | "unusual_hour" | "dns_tunnel" | "beaconing")
+}
+
+/// Whether an alert's kind (its log label or its popup title) is beaconing, whose "Mark as normal" works on settings, not the baseline.
+pub fn is_beaconing(kind: &str) -> bool {
+    kind == AlertKind::label_for_key("beaconing") || kind == AlertKind::Beaconing.title()
 }
 
 impl AlertKind {
@@ -891,7 +896,8 @@ mod tests {
             assert_ne!(AlertKind::label_for_key(k.key()), "Alert");
             assert_eq!(k.default_opts().level, AlertLevel::Important);
         }
-        assert!(can_mark_normal(AlertKind::DnsTunnel.key()));
+        assert!(can_mark_normal(AlertKind::DnsTunnel.key()) && can_mark_normal(AlertKind::Beaconing.key()));
+        assert!(is_beaconing(AlertKind::Beaconing.title()) && is_beaconing("Regular check-ins") && !is_beaconing("Traffic spike"));
         assert!(!can_mark_normal(AlertKind::Quota.key()));
         assert_eq!(AlertKind::ALL.iter().map(|k| k.key()).collect::<HashSet<_>>().len(), AlertKind::ALL.len());
         let mut sw = AlertSwitches::default();
