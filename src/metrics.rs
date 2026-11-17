@@ -188,14 +188,13 @@ mod tests {
                 handle(stream, port, &|| Ok(sample()));
             });
             let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
-            client.write_all(request.replace("PORT", &port.to_string()).as_bytes()).unwrap();
             let mut reply = String::new();
-            let read = client.read_to_string(&mut reply);
+            let read = client.write_all(request.replace("PORT", &port.to_string()).as_bytes()).and_then(|()| client.read_to_string(&mut reply));
             drop(client);
             server.join().unwrap();
             match read {
                 Ok(_) => return reply,
-                Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => continue,
+                Err(e) if matches!(e.kind(), std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted | std::io::ErrorKind::BrokenPipe) => continue,
                 Err(e) => panic!("{e}"),
             }
         }
