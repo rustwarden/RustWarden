@@ -209,9 +209,20 @@ fn bool_variant(b: bool) -> VARIANT_BOOL {
     if b { VARIANT_TRUE } else { VARIANT_FALSE }
 }
 
+/// Removes the rules called `name`. A rule that is not there (an uninstalled program's rule deleted by hand, or two rules
+/// of one name where the first removal took both) counts as removed: the point is that it is gone, and the error was
+/// "The system cannot find the file specified" on a list the user was trying to clear.
 pub fn remove_rule(name: &str) -> Result<(), String> {
     let p = policy()?;
-    unsafe { rules(&p)?.Remove(&BSTR::from(name)) }.map_err(|e| err("Can't remove the firewall rule", e))
+    match unsafe { rules(&p)?.Remove(&BSTR::from(name)) } {
+        Err(e) if is_not_found(e.code().0 as u32) => Ok(()),
+        r => r.map_err(|e| err("Can't remove the firewall rule", e)),
+    }
+}
+
+/// ERROR_FILE_NOT_FOUND as an HRESULT: what Windows Firewall answers for a rule name it doesn't hold.
+fn is_not_found(code: u32) -> bool {
+    code == 0x8007_0002
 }
 
 pub fn set_rule_enabled(name: &str, enabled: bool) -> Result<(), String> {
@@ -316,6 +327,12 @@ pub fn set_default_outbound_blocked(blocked: [bool; 3]) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_missing_rule_counts_as_removed() {
+        assert!(super::is_not_found(0x8007_0002));
+        assert!(!super::is_not_found(0x8007_0005));
+    }
+
     use super::*;
 
     #[test]
