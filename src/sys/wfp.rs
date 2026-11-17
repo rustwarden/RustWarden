@@ -182,6 +182,7 @@ mod tests {
         let mut buf = [0u16; 520];
         assert!(unsafe { QueryDosDeviceW(PCWSTR(d.as_ptr()), Some(&mut buf)) } > 0);
         let nt = format!("{}{}", from_wide(&buf), &exe[2..]);
-        assert_eq!(dos_path(&nt).as_deref(), Some(exe.as_str()));
+        // The drive letter's case depends on how the test was started; Windows paths ignore it.
+        assert!(dos_path(&nt).is_some_and(|p| p.eq_ignore_ascii_case(&exe)), "{nt}");
     }
 }

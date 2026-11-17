@@ -395,6 +395,11 @@ mod tests {
             eprintln!("skipped: no desktop shell");
             return;
         }
+        // CreateProcessWithTokenW needs a privilege only an elevated process holds; RustWarden only takes this path when elevated.
+        if !super::super::is_elevated() {
+            eprintln!("skipped: not elevated");
+            return;
+        }
         let mut c = Command::new(super::super::tool_path("whoami"));
         c.arg("/groups");
         let child = spawn_with(&c, Pipes::OUT, false, true).unwrap();
