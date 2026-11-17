@@ -228,7 +228,32 @@ fn is_not_found(code: u32) -> bool {
 pub fn set_rule_enabled(name: &str, enabled: bool) -> Result<(), String> {
     let p = policy()?;
     let rule = unsafe { rules(&p)?.Item(&BSTR::from(name)) }.map_err(|e| err("Can't find the firewall rule", e))?;
-    unsafe { rule.SetEnabled(bool_variant(enabled)) }.map_err(|e| err("Can't change the firewall rule", e))
+    match unsafe { rule.SetEnabled(bool_variant(enabled)) } {
+        // Two rules share this name (Windows answers ERROR_ALREADY_EXISTS when one is edited by name): switch each by enumeration.
+        Err(e) if e.code().0 as u32 == 0x8007_00B7 => set_each_named(&p, name, enabled),
+        r => r.map_err(|e| err("Can't change the firewall rule", e)),
+    }
+}
+
+fn set_each_named(p: &INetFwPolicy2, name: &str, enabled: bool) -> Result<(), String> {
+    let unknown = unsafe { rules(p)?._NewEnum() }.map_err(|e| err("Can't list firewall rules", e))?;
+    let list: IEnumVARIANT = unknown.cast().map_err(|e| err("Can't list firewall rules", e))?;
+    let mut failed = None;
+    loop {
+        let mut item = [VARIANT::default()];
+        let mut fetched = 0u32;
+        if unsafe { list.Next(&mut item, &mut fetched) }.0 != 0 || fetched == 0 {
+            break;
+        }
+        let Ok(dispatch) = IDispatch::try_from(&item[0]) else { continue };
+        let Ok(rule) = dispatch.cast::<INetFwRule>() else { continue };
+        if unsafe { rule.Name() }.is_ok_and(|n| n == name)
+            && let Err(e) = unsafe { rule.SetEnabled(bool_variant(enabled)) }
+        {
+            failed = Some(err("Can't change the firewall rule", e));
+        }
+    }
+    failed.map_or(Ok(()), Err)
 }
 
 /// Switches a rule back on that was switched off earlier, from a name saved where a non-administrator could have edited it.

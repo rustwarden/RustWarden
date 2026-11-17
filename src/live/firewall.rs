@@ -976,8 +976,19 @@ impl FwController {
         let (rules, _) = firewall::rules_in_group(GROUP)?;
         let paused = self.shared.open_db().map(|db| paused_extras(&db)).unwrap_or_default();
         // Address blocks from the malicious-IP list belong to no profile and no toggle.
+        // One stubborn rule must not leave the rest on: switch them all, then report the first failure.
+        let mut seen = std::collections::HashSet::new();
+        let mut first_err = None;
         for r in rules.iter().filter(|r| is_ours(&r.grouping, &r.name) && r.block && !is_aux(&r.name) && !paused.contains(&r.name)) {
-            firewall::set_rule_enabled(&r.name, on)?;
+            if seen.insert(r.name.clone())
+                && let Err(e) = firewall::set_rule_enabled(&r.name, on)
+            {
+                first_err.get_or_insert(e);
+            }
+        }
+        if let Some(e) = first_err {
+            self.refresh(true);
+            return Err(e);
         }
         if let Ok(db) = self.shared.open_db() {
             let _ = db.kv_set("fw_enabled", if on { "1" } else { "0" });
