@@ -220,11 +220,25 @@ fn fetch_days(requests: &[(u32, String)]) -> Result<Vec<Result<Vec<Sample>, Stri
     let mut out = Vec::new();
     for chunk in requests.chunks(6) {
         let answers = guest::browser_fetch(&chunk.iter().map(|(id, day)| day_url(*id, day)).collect::<Vec<_>>())?;
-        out.extend(answers.into_iter().zip(chunk).map(|((code, body), (id, day))| {
-            if code == 200 && body.trim_start().starts_with("<?xml") { Ok(parse_xml(&body).1) } else { Err(format!("thinkbroadband answered HTTP {code} for monitor {id} on {day}.")) }
-        }));
+        out.extend(answers.into_iter().zip(chunk).map(
+            |((code, body), (id, day))| {
+                if code == 200 && body.trim_start().starts_with("<?xml") { Ok(parse_xml(&body).1) } else { Err(failure_text(code, &body, *id, day)) }
+            },
+        ));
     }
     Ok(out)
+}
+
+/// Why a day's download failed. Status 0 is no HTTP answer at all: the browser's own fetch failed, and its error text
+/// (the body) says how (a dropped connection, a blocked redirect, a policy), so it is shown, trimmed.
+fn failure_text(code: u16, body: &str, id: u32, day: &str) -> String {
+    if code == 0 {
+        let why: String = body.chars().filter(|c| !c.is_control()).take(120).collect();
+        let why = if why.trim().is_empty() { "no reason given".to_owned() } else { why };
+        format!("thinkbroadband didn't answer for monitor {id} on {day}: the browser's request failed ({why}).")
+    } else {
+        format!("thinkbroadband answered HTTP {code} for monitor {id} on {day}.")
+    }
 }
 
 // ---- storing ----
@@ -580,6 +594,13 @@ plugin_sdk::export!(Tbb);
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_failed_request_says_why() {
+        assert!(super::failure_text(0, "TypeError: Failed to fetch", 7, "2026-11-17").contains("Failed to fetch"));
+        assert!(super::failure_text(0, "", 7, "2026-11-17").contains("no reason given"));
+        assert_eq!(super::failure_text(403, "x", 7, "2026-11-17"), "thinkbroadband answered HTTP 403 for monitor 7 on 2026-11-17.");
+    }
+
     use super::*;
 
     const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>

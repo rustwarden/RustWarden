@@ -55,6 +55,28 @@ fn helper_path(program: &Path, system_root: &str) -> Option<String> {
     }
 }
 
+/// Dotted version numbers compared by number, so `157.0.4341.46` is newer than `99.0.1`.
+fn version_key(name: &str) -> Vec<u64> {
+    name.split('.').map(|p| p.parse().unwrap_or(0)).collect()
+}
+
+/// The newest of the version folder names that look like a version (digits and dots).
+fn newest_version<'a>(names: impl IntoIterator<Item = &'a str>) -> Option<&'a str> {
+    names.into_iter().filter(|n| n.chars().all(|c| c.is_ascii_digit() || c == '.') && n.contains('.')).max_by_key(|n| version_key(n))
+}
+
+/// The WebView2 runtime's `msedgewebview2.exe`, the program that makes the web requests of the thinkbroadband helper. Its path
+/// holds the version, so an update gives it a new path that no rule covers (a firewall that blocks by default then cuts the
+/// helper off, which showed as "HTTP 0" in the plugin).
+fn webview_runtime() -> Option<String> {
+    ["ProgramFiles(x86)", "ProgramFiles"].iter().filter_map(std::env::var_os).find_map(|root| {
+        let dir = Path::new(&root).join(r"Microsoft\EdgeWebView\Application");
+        let names: Vec<String> = std::fs::read_dir(&dir).ok()?.filter_map(|e| e.ok()?.file_name().into_string().ok()).collect();
+        let exe = dir.join(newest_version(names.iter().map(String::as_str))?).join("msedgewebview2.exe");
+        exe.is_file().then(|| exe.to_string_lossy().into_owned())
+    })
+}
+
 #[derive(Debug, PartialEq, Eq)]
 struct Plan {
     suspend: Vec<String>,
@@ -97,7 +119,9 @@ fn before_spawn(shared: &Shared, fw: &FwController, program: &Path) {
         return;
     }
     let root = crate::settings::windows_dir();
-    let Some(exe) = helper_path(program, &root) else { return };
+    // RustWarden's own exe is only ever started as the browser helper (thinkbroadband), which needs the WebView2 runtime online.
+    let exe = if std::env::current_exe().is_ok_and(|own| own == program) { webview_runtime() } else { helper_path(program, &root) };
+    let Some(exe) = exe else { return };
     if !due(&exe, crate::clock::now_unix()) {
         return;
     }
@@ -214,6 +238,12 @@ mod tests {
         ];
         assert_eq!(decode(&encode(&v)), v);
         assert!(decode("junk\nexe\tnot-a-number").is_empty());
+    }
+
+    #[test]
+    fn the_newest_webview_version_wins() {
+        assert_eq!(newest_version(["156.0.4314.58", "157.0.4341.46", "99.0.1", "EBWebView", "SetupMetrics"]), Some("157.0.4341.46"));
+        assert_eq!(newest_version(["Installer", "x"]), None);
     }
 
     #[test]

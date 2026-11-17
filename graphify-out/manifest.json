@@ -234,9 +234,9 @@
     "semantic_hash": ""
   },
   "src/live/lease.rs": {
-    "mtime": 1794328358.8079624,
-    "seen": 1794328568.4212391,
-    "ast_hash": "932ad46199b1a20ffb0abf45eb73cb49",
+    "mtime": 1794917384.707335,
+    "seen": 1794917526.764,
+    "ast_hash": "edab05eaf7d1a08a46cf3b9d23f82b04",
     "semantic_hash": ""
   },
   "src/live/mod.rs": {
@@ -750,9 +750,9 @@
     "semantic_hash": ""
   },
   "changes.md": {
-    "mtime": 1794913825.2904282,
-    "seen": 1794913879.4571474,
-    "ast_hash": "4e7b9ddc7f778b489cd16c0cc9fba999",
+    "mtime": 1794917396.2584312,
+    "seen": 1794917526.7879946,
+    "ast_hash": "5dcb12a7f6d20eab801359e46191e658",
     "semantic_hash": ""
   },
   "assets/flags/ad.png": {
@@ -2622,9 +2622,9 @@
     "semantic_hash": ""
   },
   "plugins/thinkbroadband/src/lib.rs": {
-    "mtime": 1794393279.9691133,
-    "seen": 1794395058.8479059,
-    "ast_hash": "2ee962cedbb107f117c2f2d55a497b0b",
+    "mtime": 1794916143.0574858,
+    "seen": 1794917526.7554407,
+    "ast_hash": "0c3b74c6bfc7f084d3271f11494fc3d7",
     "semantic_hash": ""
   },
   "src/sys/helper.rs": {
@@ -2634,8 +2634,8 @@
     "semantic_hash": ""
   },
   "src/sys/webview.rs": {
-    "mtime": 1794331566.4594038,
-    "seen": 1794332207.8230429,
+    "mtime": 1794917342.0723872,
+    "seen": 1794917526.777918,
     "ast_hash": "9c4fe29db66c656040762147fed2b348",
     "semantic_hash": ""
   },
